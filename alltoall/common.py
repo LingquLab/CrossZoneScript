@@ -35,8 +35,8 @@ c=json.loads(p.stdout)[0]
 assert c['Id']=='21b762bee47b5b0302043652e6880c55763d5afedd247568185310d37a010198'
 assert c['Image']=='sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 assert c['State']['Running'], 'restore container separately; do not replay unknown work'
-top=subprocess.check_output(['docker','top',name,'-eo','stat,comm'],text=True)
-assert not any(r.split()[-1] in ('sst','sstsim.x') and not r.split()[0].startswith('Z') for r in top.splitlines()[1:]), 'simulator already active'
+top=subprocess.check_output(['docker','top',name,'-eo','pid,stat,comm'],text=True)
+assert not any(r.split()[-1] in ('sst','sstsim.x') and not r.split()[-2].startswith('Z') for r in top.splitlines()[1:]), 'simulator already active'
 p=subprocess.run(['docker','exec','-i',name,'python3','-'],input=SCRIPT,capture_output=True,text=True,timeout=TIMEOUT)
 print(json.dumps(dict(container_exit=p.returncode,stdout=p.stdout,error_tail=p.stderr.splitlines()[-4:])))
 assert p.returncode==0
