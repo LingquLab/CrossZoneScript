@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "scope": "P2 capture parent/controller syntax and diff review; no device launch",
+  "correctness_task_id": "tl-a5-107-f9-p2-correctness-20261116-01",
+  "groups": 10,
+  "ranks": 2,
+  "profiling": true,
+  "warmup": 20,
+  "measured": 1,
+  "sum": 2,
+  "rank_captures": 20,
+  "rank_dispatch_iterations": 420,
+  "allreduce_values_checked": 440,
+  "immutable_runtime_worker_sha256": "afa64c3e54b1f252f7395975b898f47f7fc6a0a9535f17e78aee32bd6552b86d",
+  "algorithm_changes": false,
+  "p4_elf_reuse": false,
+  "capture_fields": "native analyzer validates record structure/performance_sample/msprof plus four timing sources; full evidence stays remote",
+  "exact_correctness_literal": "PASS",
+  "correctness_groups_sha256": {
+    "g001": "ea3b3c570aead80453e8fd1827bb94b38186a826ad2861d5e4ae03907c5204b6",
+    "g002": "9462653bcdc129343db701019c16f390e404c6e7c8960dc5847f9710db4a2651",
+    "g003": "0a4ed72a9ff2105288a57332bbd6f341800b5bd7d37f29bef3d82213ede2c007"
+  },
+  "source_sha256": {
+    "capture_controller.py": "e348d62f55592e83ca6bb9442f2f983e13a00a7c160b251cd3581aed1a41e4a1",
+    "capture_parent.py": "7748b5edcd3024de1b5f13804ca3af070659503e0a7b2f2d15b05a46878fc341"
+  }
+}
