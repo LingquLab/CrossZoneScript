@@ -1,0 +1,285 @@
+{
+  "schema": "f9_host107_02_review.v1",
+  "revision": "b520293d5f014fcbd4897a334d50ebf9ca9c601b",
+  "bundle_sha256": "5a4011c99da6ffcca4c5ce743778f090aae4f4d3a2345f4b4c6191b653984ba9",
+  "status": "PASS_FOR_CANN_BUILD",
+  "concrete_findings": [],
+  "source_files_per_variant": 123,
+  "bundle_members": 441,
+  "exports_per_variant": 16,
+  "non_f9_slices_equal": 368,
+  "host_sha256": {
+    "runner.cpp": "a725d0d2645e9b9a1c56c9da6bb3f1af2d61f585e157e14bd564cf9d3f221c33",
+    "pre_allreduce.h": "0d610dc7029cc89beff7cc37e9ae5b1fd280cb99469cdac3e1800eccb3a5eacf",
+    "native_host_barrier.h": "2f1cd0d65311503809adec7d78e34a49caec9b8090ad4c9387ecafdbdeeac146"
+  },
+  "reviewed_contracts": [
+    "F8 completion before cleanup",
+    "consumed-only cleanup and failed-batch preservation",
+    "bounded zero prefix and tail mask",
+    "S/V/MTE3 event ordering",
+    "F9 accounting includes prefix computation and vector fill",
+    "same Host lifecycle and ABI104"
+  ],
+  "exports": [
+    {
+      "tokens": 4,
+      "rank": 0,
+      "ub_bytes": 193152,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4736,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193152,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 4,
+      "rank": 1,
+      "ub_bytes": 193152,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4736,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193152,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 4,
+      "rank": 2,
+      "ub_bytes": 193152,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4736,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193152,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 4,
+      "rank": 3,
+      "ub_bytes": 193152,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4736,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193152,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 16,
+      "rank": 0,
+      "ub_bytes": 193248,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4832,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193248,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 16,
+      "rank": 1,
+      "ub_bytes": 193248,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4832,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193248,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 16,
+      "rank": 2,
+      "ub_bytes": 193248,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4832,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193248,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 16,
+      "rank": 3,
+      "ub_bytes": 193248,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 4832,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193248,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 64,
+      "rank": 0,
+      "ub_bytes": 193632,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 5216,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193632,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 64,
+      "rank": 1,
+      "ub_bytes": 193632,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 5216,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193632,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 64,
+      "rank": 2,
+      "ub_bytes": 193632,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 5216,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193632,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 64,
+      "rank": 3,
+      "ub_bytes": 193632,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 5216,
+        "bytes_per_record": 2048,
+        "batch_capacity": 92,
+        "planned_bytes": 193632,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 256,
+      "rank": 0,
+      "ub_bytes": 193120,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 6752,
+        "bytes_per_record": 2048,
+        "batch_capacity": 91,
+        "planned_bytes": 193120,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 256,
+      "rank": 1,
+      "ub_bytes": 193120,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 6752,
+        "bytes_per_record": 2048,
+        "batch_capacity": 91,
+        "planned_bytes": 193120,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 256,
+      "rank": 2,
+      "ub_bytes": 193120,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 6752,
+        "bytes_per_record": 2048,
+        "batch_capacity": 91,
+        "planned_bytes": 193120,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    },
+    {
+      "tokens": 256,
+      "rank": 3,
+      "ub_bytes": 193120,
+      "receive_ub_plan": {
+        "ub_budget_bytes": 194560,
+        "common_bytes": 6752,
+        "bytes_per_record": 2048,
+        "batch_capacity": 91,
+        "planned_bytes": 193120,
+        "data_buffers": 2,
+        "data_bytes_per_record": 960,
+        "assist_bytes_per_record_per_buffer": 32,
+        "flag_bytes_per_record": 64
+      }
+    }
+  ],
+  "cann": "NOT_RUN",
+  "npu": "NOT_RUN",
+  "clock": "NOT_VERIFIED"
+}
