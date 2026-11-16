@@ -1,0 +1,150 @@
+{
+  "schema": "tilelang_f9_p2_107_plan.v1",
+  "authorization": "COORD-20261116-008",
+  "revision": "b520293d5f014fcbd4897a334d50ebf9ca9c601b",
+  "groups": [
+    {
+      "index": 1,
+      "phase": "f9-correctness",
+      "mode": "correctness",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 1,
+      "hccl_base_port": 24000,
+      "comm_port": 29000
+    },
+    {
+      "index": 2,
+      "phase": "f9-correctness",
+      "mode": "correctness",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 2,
+      "hccl_base_port": 24064,
+      "comm_port": 29001
+    },
+    {
+      "index": 3,
+      "phase": "f9-correctness",
+      "mode": "correctness",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 3,
+      "hccl_base_port": 24128,
+      "comm_port": 29002
+    },
+    {
+      "index": 4,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 1,
+      "hccl_base_port": 24192,
+      "comm_port": 29003
+    },
+    {
+      "index": 5,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 2,
+      "hccl_base_port": 24256,
+      "comm_port": 29004
+    },
+    {
+      "index": 6,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 3,
+      "hccl_base_port": 24320,
+      "comm_port": 29005
+    },
+    {
+      "index": 7,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 4,
+      "hccl_base_port": 24384,
+      "comm_port": 29006
+    },
+    {
+      "index": 8,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 5,
+      "hccl_base_port": 24448,
+      "comm_port": 29007
+    },
+    {
+      "index": 9,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 6,
+      "hccl_base_port": 24512,
+      "comm_port": 29008
+    },
+    {
+      "index": 10,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 7,
+      "hccl_base_port": 24576,
+      "comm_port": 29009
+    },
+    {
+      "index": 11,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 8,
+      "hccl_base_port": 24640,
+      "comm_port": 29010
+    },
+    {
+      "index": 12,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 9,
+      "hccl_base_port": 24704,
+      "comm_port": 29011
+    },
+    {
+      "index": 13,
+      "phase": "capture-t256",
+      "mode": "capture",
+      "variant": "f9",
+      "case": "p2-e4-t256-balanced",
+      "tokens": 256,
+      "round": 10,
+      "hccl_base_port": 24768,
+      "comm_port": 29012
+    }
+  ]
+}

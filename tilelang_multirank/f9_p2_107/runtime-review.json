@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "scope": "CPU syntax, P2 device/rank/SUM2 scope, port plan and source diff review; runtime not run",
+  "files": {
+    "runtime_group.py": "afa64c3e54b1f252f7395975b898f47f7fc6a0a9535f17e78aee32bd6552b86d",
+    "runtime_controller.py": "e44fa0c587863aed227ebc4ba0f160de1cf6136a9290412d16619234a6eca5ba",
+    "runtime_parent.py": "dd311fbd8e1c6365660f47a1274fabed6ac3c3c2ef86eb089b542c1e788bab8a",
+    "check_npu_status.py": "7b7b4658bc974bf43b333756a1ac4cf590e73e9fa37139d0de9e59202d96e0b9",
+    "group-plan.json": "16f47838f2bf1730abe8a7990ebde11dee9c703c2f76c3bbe3d30e55a37dab2a"
+  },
+  "correctness_groups": 3,
+  "capture_groups_planned": 10,
+  "fresh_export_build_result": "build-result.json",
+  "algorithm_changes": false,
+  "p4_frozen_files_modified": false,
+  "four_device_qualification_reuse": "receipt only, physical subset0/1"
+}
