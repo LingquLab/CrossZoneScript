@@ -23,4 +23,10 @@ class Numeric(unittest.TestCase):
    with patch.object(m,'OUT',p):v=m.archive([('capture',source)],p/'raw.zip')
    self.assertEqual(v['crc'],'PASS');self.assertEqual(v['members'],2)
    with zipfile.ZipFile(p/'raw.zip') as z:self.assertEqual(z.read('capture/records.txt'),b'measured evidence\n')
+ def test_archive_missing_source_stops_instead_of_omitting_evidence(self):
+  with tempfile.TemporaryDirectory() as td:
+   p=Path(td)
+   with patch.object(m,'OUT',p),self.assertRaisesRegex(RuntimeError,'ARCHIVE_SOURCE_MISSING'):
+    m.archive([('capture',p/'missing')],p/'raw.zip')
+   self.assertFalse((p/'raw.zip').exists())
 if __name__=='__main__':unittest.main()

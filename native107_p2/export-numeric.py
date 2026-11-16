@@ -42,6 +42,7 @@ def checked_json(path,digest):
 def archive(paths,target):
  members={}
  for prefix,root in paths:
+  need(root.exists() and not root.is_symlink(),'ARCHIVE_SOURCE_MISSING_OR_SYMLINK')
   files=[root] if root.is_file() else sorted(root.rglob('*'))
   for p in files:
    need(not p.is_symlink(),'ARCHIVE_SYMLINK')

@@ -3,7 +3,7 @@ from pathlib import Path
 import base64,hashlib,json,os,sqlite3,subprocess,time
 TASK='xr-native107-p2-export-20261116-01'
 EXP='/root/native-tlxr-p2-107-5c25e0f0-20261116-run01';DEST=EXP+'/numeric-export-script-01'
-FILES={'export-numeric.py': ('9da81c215dc4ffe0786250f659b694047a21c2b3', 'e499010c4d811ef245bd5baee22c7386aaaa443342009fe75e7880b577a68cc6'), 'export-identity.json': ('3bca74a95129711be00d993c1e1b5bc9cde6927d', '2bb03d6bdb01d16696fc8ae7da658a06bffa8459bf03ab45b6024266d271f71d')}
+FILES={'export-numeric.py': ('5ef6ecfbbab049c149687d66441082ffe19d7b9d', 'fc83270f9d47b56946b487d00dd4d543e182b872579b30c1f938c6506f112eff'), 'export-identity.json': ('8e9034c427ce3e38da810ce2a5cdff57fa3746a9', 'aae12c42bf4cac8993441b253f6932bd29ce4a1c7fdb0bbad190067674e5a699')}
 root=Path.cwd();work=root/'xr107-p2-export-20261116-01';work.mkdir(exist_ok=False);repo=Path(SCRIPT_REPO)
 r={'task_id':TASK,'status':'FAIL_OR_UNVERIFIED','device_execution':'NOT_RUN','replay':False,'commit':PINNED_COMMIT}
 def run(label,args,timeout,data=None,cwd=None):
