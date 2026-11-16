@@ -1,0 +1,30 @@
+{
+  "schema": "tilelang_f9_p2_107_build_review.v1",
+  "status": "PASS",
+  "authorization": "COORD-20261116-008",
+  "candidate": "b520293d5f014fcbd4897a334d50ebf9ca9c601b",
+  "files": {
+    "build_remote.py": "c1a90c271f2495b206bdd2cfc41ff50fea30eb6d3cf89b8d3d0c51609cc2c7d0",
+    "build_idle_gate.py": "8d63bc2cf269dc64e5d21dcf72edeb54ed7541cf6b6ed5bed46916a8fb16c917"
+  },
+  "fresh_exports": 2,
+  "business_files_identical": 12,
+  "shape": "P2/E4/T256/H256/K2/BF16/balanced",
+  "devices": [
+    0,
+    1
+  ],
+  "algorithm_source_changes": false,
+  "host_source_changes": false,
+  "build_abi": 0,
+  "rebuild_core_and_all_device_objects": true,
+  "p4_elf_reuse": false,
+  "pre_query_live_idle_gate": true,
+  "fresh_acl_core_query_devices": [
+    0,
+    1
+  ],
+  "npu_kernel_launch": false,
+  "reserved_bridge_outputs": "not written by remote scripts; bootstrap checked separately",
+  "comparison_reference": "f9_host107/build_ab.py and own preflight_remote.py; only P2 task/shape/fixtures/gates adapted"
+}
