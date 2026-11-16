@@ -1,0 +1,11 @@
+{
+  "schema": "tilelang_107_build_resource.v1",
+  "revision": "e28d87deb1e141e23ace5900594218ff47ab2525",
+  "npu_launch": false,
+  "files": {
+    "prepare_build.py": "3d46205aeb9ab0f26da83565a19874e6880ce40e85853f04c3fefc560c9abc0c",
+    "pack_retained.py": "2de5218411b86631b361753942d6f590f3589077c96b0661e908bb36629e69f2",
+    "stage_and_build.py": "2bdc9629f880c287963ca23435ec0353089de8f03c573e2003f7c9152cf2fd00",
+    "build-inputs.zip": "70712c887fc736d110a171d06ac19bb34454a802ea7b025f6d760aeca1f1e5bf"
+  }
+}
