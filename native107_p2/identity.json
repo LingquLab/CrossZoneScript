@@ -1,0 +1,13 @@
+{
+  "script_sha256": "bccc9295a13b93a14f8517d1d19a051fe9698c80eb12a31e768c074442be27a8",
+  "checker_sha256": "7b7b4658bc974bf43b333756a1ac4cf590e73e9fa37139d0de9e59202d96e0b9",
+  "task_id": "xr-native107-p2-correctness-20261116-01",
+  "revision": "5c25e0f03a585b6f07cc69608eb21b589c6b82f7",
+  "devices": [
+    0,
+    1
+  ],
+  "correctness_groups": 3,
+  "warmup": 20,
+  "measured": 1
+}
