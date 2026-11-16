@@ -1,7 +1,7 @@
 {
   "schema": "native107_p2_capture_script_identity.v1",
-  "task_id": "xr-native107-p2-capture-20261116-01",
-  "script_sha256": "2b3881f11bdd44bb93fc3afc57739977004322bd0db8a98add3edcdb467faa7c",
+  "task_id": "xr-native107-p2-capture-20261116-02",
+  "script_sha256": "f93df7cbb4a4917168cf236e1234f6ff85452fc4535f9be6b23c2bff81826527",
   "base_script_sha256": "bccc9295a13b93a14f8517d1d19a051fe9698c80eb12a31e768c074442be27a8",
   "checker_sha256": "7b7b4658bc974bf43b333756a1ac4cf590e73e9fa37139d0de9e59202d96e0b9"
 }

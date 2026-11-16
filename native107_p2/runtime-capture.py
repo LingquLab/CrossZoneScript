@@ -6,7 +6,7 @@ BASE_SHA='bccc9295a13b93a14f8517d1d19a051fe9698c80eb12a31e768c074442be27a8'
 p=Path(__file__).with_name('runtime-correctness.py')
 assert hashlib.sha256(p.read_bytes()).hexdigest()==BASE_SHA,'FROZEN_GUARDS_SHA'
 spec=importlib.util.spec_from_file_location('guards',p);b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
-b.TASK='xr-native107-p2-capture-20261116-01';b.RUN=b.EXP/'p2-capture-20261116-01';b.SOURCE=b.EXP/'profile1/TileXR'
+b.TASK='xr-native107-p2-capture-20261116-02';b.RUN=b.EXP/'p2-capture-20261116-02';b.SOURCE=b.EXP/'profile1/TileXR'
 CORRECT=b.EXP/'p2-correctness-20261116-01'
 CORRECT_SHA='b544c1408554f3404571fe73972841ebb05682c0b3356cd54554c1a3b587e457'
 VALIDATIONS=['e8a91667ba15b4d9f8a81d54017516bc940030b646da015de91d473dbfe69608','00cd50eda23a975ac64f4a7826d9b7a798273d2a1d078cccff3bbcd9bd7fdc5b','883d1175b6484a7bf7dc2229deed7b0e1a1ddffdcee23073d28814a5bbd2f37d']
