@@ -114,6 +114,9 @@ preparation check against the new core, and checks ELF dependencies and device o
 It does not activate the package or launch an NPU workload. Inspect saved build
 evidence before any retry after failure or interruption.
 
+`inspect_debug_build.py` reads that saved result and bounded compiler diagnostics
+for a pinned `revision` and build `run_id`. It does not rebuild or launch a workload.
+
 GNUInstallDirs may default to `lib64` while the retained package loads `lib`.
 Copy the exact built core to the package's selected path, compare hashes, and
 verify the Host check's `ldd` resolution before interpreting a regression result.
