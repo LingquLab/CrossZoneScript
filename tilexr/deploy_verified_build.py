@@ -25,10 +25,13 @@ def main():
     assert pr > 0 and os.name == "nt", "invalid_platform_or_pr"
     operation = args.get("operation", "deploy")
     assert operation in ("deploy", "relocate"), "invalid_operation"
+    attempt = int(args.get("attempt", 1))
+    assert attempt > 0, "invalid_attempt"
     root = Path(args.get("green_code_root", r"D:\works\code\ai\crosszone"))
     tssh = root / "TileXR/tools/tssh/tssh.cmd"
     assert tssh.is_file(), "approved_tssh_unavailable"
-    evidence = Path.cwd() / ("%s-pr%d-%s-%s" % (operation, pr, host, revision[:8]))
+    suffix = "-attempt%d" % attempt if attempt > 1 else ""
+    evidence = Path.cwd() / ("%s-pr%d-%s-%s%s" % (operation, pr, host, revision[:8], suffix))
     evidence.mkdir(exist_ok=True)
 
     # Read only the key's location; the key bytes never enter returned evidence.
@@ -82,7 +85,8 @@ def main():
     assert record["npu_tests_run"] is False and record["current_verified"] is True
     if operation == "relocate":
         assert record["original_deployment_removed"] is True
-        assert record["verification_user"] == args["owner"]
+        assert record["ownership_matches_parent"] is True
+        assert record["verification_uid"] == record["destination_owner_uid"]
     print(json.dumps(summary))
 
 

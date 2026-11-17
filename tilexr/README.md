@@ -30,12 +30,19 @@ session's `deploy-pr<pr>-<host>-<revision-prefix>` evidence directory. If dispat
 fails or its effects are unknown, inspect those saved files and the remote
 `last-deployment.json`/current link before considering another invocation.
 
-For an operator-requested move, pass `operation: "relocate"`, `owner`, and
-`destination_parent` in addition to the original pinned deployment arguments.
-The destination must be the named account's `ai` directory. The helper copies
+For an operator-requested move, pass `operation: "relocate"` and
+`destination_parent: "/home/c00996840/ai"` with the original pinned deployment arguments.
+Set `attempt` to the next positive integer when a verified failure needs another
+attempt, preserving the previous attempt's evidence. The helper copies
 only the verified deployment tree, preserves its release manifest and relative
-current link, changes copied entries to the destination account, and validates
-environment and dynamic linking as that account before removing the exact old
+current link, changes copied entries to the existing destination directory's
+numeric UID/GID, and validates environment and dynamic linking with that identity before removing the exact old
 deployment tree. An existing destination or unrelated entries stop the move.
 The retained source and CMake build directories are recorded as provenance and
 are not moved, since their generated build files contain absolute paths.
+
+A directory name does not establish a system account. A failed attempt found
+`/home/c00996840/ai` present while `pwd.getpwnam("c00996840")` was absent; requiring
+that lookup stopped relocation before any file changes. Use the existing parent
+directory's numeric ownership, including when the UID has no passwd entry; do
+not create accounts or infer ownership from the path spelling.

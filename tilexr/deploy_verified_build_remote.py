@@ -176,8 +176,7 @@ def deploy(args):
         return record
 
 
-def verify_as_user(base, release, owner):
-    require(shutil.which("runuser"), "runuser_unavailable")
+def verify_as_owner(base, release, uid, gid):
     script = (
         'set -e\n'
         'source "$1/current/set_env.sh" >/dev/null\n'
@@ -185,16 +184,24 @@ def verify_as_user(base, release, owner):
         'test -r "$TILEXR_CCU_AIV_FANOUT_KERNEL_SO"\n'
         'test "${PATH%%:*}" = "$2/bin"\n'
         'test "${LD_LIBRARY_PATH%%:*}" = "$2/lib"\n'
-        'shift 2\n'
+        'test "$(id -u)" = "$3"\n'
+        'test "$(id -g)" = "$4"\n'
+        'shift 4\n'
         'for relative in "$@"; do\n'
         '  dependencies=$(ldd -r "$TILEXR_INSTALL/$relative" 2>&1)\n'
         '  case "$dependencies" in *"not found"*|*"undefined symbol:"*) exit 21 ;; esac\n'
         'done\n'
     )
     paths = [path for path in ARTIFACT_PATHS.values() if not path.endswith(".o")]
-    result = subprocess.run(["runuser", "-u", owner, "--", "bash", "--noprofile", "--norc",
-                             "-c", script, "tilexr-user-check", str(base), str(release), *paths],
-                            capture_output=True, timeout=60)
+    try:
+        account = pwd.getpwuid(uid)
+        groups = os.getgrouplist(account.pw_name, gid)
+    except KeyError:
+        groups = []
+    result = subprocess.run(["bash", "--noprofile", "--norc",
+                             "-c", script, "tilexr-user-check", str(base), str(release), str(uid), str(gid), *paths],
+                            capture_output=True, timeout=60, cwd=str(base),
+                            user=uid, group=gid, extra_groups=groups)
     require(result.returncode == 0, "user_environment_or_link_check_failed")
 
 
@@ -204,10 +211,15 @@ def relocate(args):
     require(re.fullmatch(r"[0-9a-f]{40}", args["revision"]), "invalid_revision")
     require(isinstance(args["pr"], int) and args["pr"] > 0, "invalid_pr")
     require(set(args["expected_artifacts"]) == set(ARTIFACT_PATHS), "unexpected_artifact_set")
-    account = pwd.getpwnam(args["owner"])
     parent = Path(args["destination_parent"])
-    require(parent.is_absolute() and parent == Path(account.pw_dir) / "ai", "unexpected_destination_parent")
-    require(parent.resolve() == parent and Path(account.pw_dir).is_dir(), "destination_parent_not_physical")
+    require(parent == Path("/home/c00996840/ai"), "unexpected_destination_parent")
+    require(parent.is_dir() and parent.resolve() == parent, "destination_parent_not_physical")
+    owner = parent.stat()
+    uid, gid = owner.st_uid, owner.st_gid
+    try:
+        owner_name = pwd.getpwuid(uid).pw_name
+    except KeyError:
+        owner_name = None
     old = Path("/root/works/code/ai/crosszone/TileXR-deploy")
     require(old.is_dir() and not old.is_symlink() and old.resolve() == old, "unexpected_original_deployment")
     name = "pr%d-%s" % (args["pr"], args["revision"][:12])
@@ -228,9 +240,6 @@ def relocate(args):
         previous = json.loads((old / "last-deployment.json").read_text())
         require(previous["status"] == "PASS" and previous["revision"] == args["revision"],
                 "original_receipt_mismatch")
-        if not parent.exists():
-            parent.mkdir(mode=0o755)
-            os.chown(str(parent), account.pw_uid, account.pw_gid)
         stage = Path(tempfile.mkdtemp(prefix=".TileXR-deploy-relocate-", dir=str(parent)))
         shutil.copytree(str(old), str(stage), symlinks=True, dirs_exist_ok=True)
         release = target / "releases" / name
@@ -238,21 +247,26 @@ def relocate(args):
         record.update({"operation": "relocate", "deployment_directory": str(release),
                        "current": str(target / "current"), "environment_script": str(target / "current/set_env.sh"),
                        "relocated_from": str(old), "relocated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                       "verification_user": account.pw_name, "original_deployment_removed": False,
+                       "verification_user": owner_name, "verification_uid": uid, "verification_gid": gid,
+                       "destination_owner_uid": uid, "destination_owner_gid": gid,
+                       "original_deployment_removed": False,
                        "current_verified": False})
         (stage / "last-deployment.json").write_text(json.dumps(record, indent=2) + "\n")
         # lchown never follows current, which must remain a release-relative link.
         for directory, directories, files in os.walk(str(stage), followlinks=False):
-            os.chown(directory, account.pw_uid, account.pw_gid)
+            os.chown(directory, uid, gid)
             for entry in directories + files:
-                os.lchown(os.path.join(directory, entry), account.pw_uid, account.pw_gid)
+                os.lchown(os.path.join(directory, entry), uid, gid)
         copied_manifest = verify_release(stage / "releases" / name, args, ARTIFACT_PATHS)
         require(copied_manifest == original_manifest, "relocation_changed_release_manifest")
-        verify_as_user(stage, stage / "releases" / name, account.pw_name)
+        verify_as_owner(stage, stage / "releases" / name, uid, gid)
         os.rename(str(stage), str(target))
         require((target / "current").resolve() == release.resolve(), "relocated_current_invalid")
-        verify_as_user(target, release, account.pw_name)
+        verify_as_owner(target, release, uid, gid)
         require(tree_hashes(release) == original_manifest["files"], "relocated_files_changed")
+        owned_paths = [target, *target.rglob("*")]
+        require(all(path.lstat().st_uid == uid and path.lstat().st_gid == gid for path in owned_paths),
+                "relocated_ownership_mismatch")
         # Recheck the exact source path and its scope before completing the move.
         require(old.resolve() == Path("/root/works/code/ai/crosszone/TileXR-deploy"), "original_path_changed")
         require({p.name for p in old.iterdir()} == {"releases", "current", "last-deployment.json", ".deploy.lock"},
@@ -262,11 +276,12 @@ def relocate(args):
         shutil.rmtree(str(old))
         require(not old.exists(), "original_deployment_still_present")
         record.update(original_deployment_removed=True, current_verified=True,
+                      ownership_matches_parent=True,
                       artifact_hashes_verified=len(ARTIFACT_PATHS), installed_files=len(original_manifest["files"]),
                       elf_and_link_dependencies="PASS", environment_check="PASS", npu_tests_run=False)
         receipt = target / "last-deployment.json"
         receipt.write_text(json.dumps(record, indent=2) + "\n")
-        require(receipt.stat().st_uid == account.pw_uid, "receipt_owner_mismatch")
+        require(receipt.stat().st_uid == uid and receipt.stat().st_gid == gid, "receipt_owner_mismatch")
         return record
 
 
