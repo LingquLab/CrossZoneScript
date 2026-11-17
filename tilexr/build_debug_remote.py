@@ -44,20 +44,42 @@ def run(args, record):
     root = Path("/home/c00996840/ai") / ("TileXR-pr229-debug-" + args["revision"][:12])
     record["build_directory"] = str(root)
     source = root / "source"
-    resume = args.get("resume_verified_build", False)
+    resume_packaging = args.get("resume_packaging", False)
+    resume = args.get("resume_verified_build", False) or resume_packaging
     if resume:
         saved = json.loads((root / "debug-build-result.json").read_text())
+        expected_reason = "'ASCEND_DRIVER_PATH'" if resume_packaging else "host_prepare_regression_failed"
         require(saved["status"] == "FAIL" and saved["core_build"] == "PASS" and
-                saved["reason"] == "host_prepare_regression_failed", "build_not_resumable")
+                saved["reason"] == expected_reason, "build_not_resumable")
         require((root / "REVISION").read_text().strip() == args["revision"], "retained_revision_mismatch")
-        require((root / "SOURCE_ARCHIVE_SHA256").read_text().strip() == args["source_archive_sha256"],
+        require((root / "SOURCE_ARCHIVE_SHA256").read_text().strip() ==
+                args.get("retained_archive_sha256", args["source_archive_sha256"]),
                 "retained_archive_mismatch")
-        for relative, expected in args["source_hashes"].items():
-            require(digest(source / relative) == expected, "retained_source_changed")
-        require(digest(root / "build/src/comm/libtile-comm.so") == args["built_library_sha256"],
-                "retained_library_changed")
+        if resume_packaging:
+            packed = base64.b64decode("__CZ_SOURCE_ARCHIVE_B64__")
+            require(hashlib.sha256(packed).hexdigest() == args["source_archive_sha256"], "archive_hash_mismatch")
+            with tarfile.open(fileobj=io.BytesIO(packed), mode="r:gz") as archive:
+                for member in archive.getmembers():
+                    require((source / member.name).resolve().is_relative_to(source.resolve()), "archive_path_escape")
+                    require(member.isfile() or member.isdir(), "archive_nonregular_entry")
+                    if member.isfile():
+                        expected = hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+                        require(digest(source / member.name) == expected, "retained_source_changed")
+        else:
+            for relative, expected in args["source_hashes"].items():
+                require(digest(source / relative) == expected, "retained_source_changed")
+        built_digest = digest(root / "build/src/comm/libtile-comm.so")
+        if resume_packaging:
+            require(all(digest(root / relative) == built_digest for relative in
+                        ["install/lib/libtile-comm.so", "package/lib/libtile-comm.so"]),
+                    "retained_library_copies_differ")
+        else:
+            require(built_digest == args["built_library_sha256"], "retained_library_changed")
         for name in ["debug-build-result.json", "host-check.log", "host-check-build.log"]:
-            shutil.copy2(str(root / name), str(root / (name + ".attempt1")))
+            if (root / name).is_file():
+                backup = root / (name + ".before-" + args["run_id"])
+                require(not backup.exists(), "resume_backup_already_exists")
+                shutil.copy2(str(root / name), str(backup))
     else:
         root.mkdir(exist_ok=False)
         source.mkdir()
@@ -88,6 +110,7 @@ def run(args, record):
         logged(["cmake", "--install", str(build)], "install", 60)
     record["core_build"] = "PASS"
     record["reused_verified_build"] = resume
+    record["core_library_sha256"] = digest(build / "src/comm/libtile-comm.so")
     package = root / "package"
     shutil.copytree(str(baseline), str(package), dirs_exist_ok=resume)
     shutil.copytree(str(install), str(package), dirs_exist_ok=True)
@@ -107,7 +130,8 @@ def run(args, record):
     record["reused_aiv_source_hashes"] = {name: digest(source / name) for name in reused_sources}
     cann_root = Path(os.environ["ASCEND_HOME_PATH"]) / "aarch64-linux"
     cann_lib = cann_root / "lib64"
-    driver_lib = Path(os.environ["ASCEND_DRIVER_PATH"]) / "lib64/driver"
+    driver_lib = Path(os.environ.get("ASCEND_DRIVER_PATH") or "/usr/local/Ascend/driver") / "lib64/driver"
+    require(driver_lib.is_dir(), "driver_library_directory_missing")
     probe_source = source / "tests/ccu/ccu_tilexr_direct_smoke_probe.cpp"
     logged(["c++", "-std=c++14", "-O2", "-DTILEXR_CCU_TESTING=1",
             "-I", str(source / "src/include"), "-I", str(source / "src/comm"),
@@ -153,7 +177,8 @@ def run(args, record):
     files = {str(path.relative_to(package)): digest(path) for path in package.rglob("*")
              if path.is_file() and path != package / "deployment.json"}
     manifest = dict(previous, revision=args["revision"], source_directory=str(source),
-                    build_directory=str(root), source_archive_sha256=args["source_archive_sha256"],
+                    build_directory=str(root), source_archive_sha256=args.get(
+                        "retained_archive_sha256", args["source_archive_sha256"]),
                     baseline_revision=previous["revision"], files=files, npu_tests_run=False)
     (package / "deployment.json").write_text(json.dumps(manifest, indent=2) + "\n")
     rootinfo = Path(args["rootinfo"]).resolve(strict=True)

@@ -48,6 +48,17 @@ def main():
     source_bytes = packed.getvalue()
     assert len(source_bytes) < 32 * 1024 * 1024, "source_archive_too_large"
     args["source_archive_sha256"] = hashlib.sha256(source_bytes).hexdigest()
+    if "resume_from_run" in args:
+        assert re.fullmatch(r"pr229-[A-Za-z0-9_-]{1,58}", args["resume_from_run"])
+        prior = Path.cwd() / args["resume_from_run"]
+        prior_request = json.loads((prior / "request.json").read_text(encoding="utf-8"))
+        prior_result = json.loads((prior / "result.json").read_text(encoding="utf-8"))
+        assert all(args[key] == prior_request[key] for key in
+                   ["host", "devices", "revision", "rootinfo", "rootinfo_sha256", "topology_sha256"])
+        failed = prior_result["results"][0]
+        assert failed["status"] == "FAIL" and failed["core_build"] == "PASS"
+        assert failed["error_type"] == "KeyError" and failed["reason"] == "'ASCEND_DRIVER_PATH'"
+        args.update(resume_packaging=True, retained_archive_sha256=prior_request["source_archive_sha256"])
     setup = Path.cwd() / "relocate-pr229-141.61.73.107-ee779869-attempt2"
     inventory = json.loads((setup / "hosts.json").read_text(encoding="utf-8"))["clusters"]["deploy"]
     assert inventory["user"] == "root" and len(inventory["hosts"]) == 1

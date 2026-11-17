@@ -117,6 +117,13 @@ evidence before any retry after failure or interruption.
 `inspect_debug_build.py` reads that saved result and bounded compiler diagnostics
 for a pinned `revision` and build `run_id`. It does not rebuild or launch a workload.
 
+If packaging stopped because `ASCEND_DRIVER_PATH` was unset after the core was
+built, `build_debug.py` accepts `resume_from_run` naming that inspected run. It
+checks the original request/result, all retained source hashes and the matching
+built/installed/packaged core copies, preserves the failed result, and resumes
+probe compilation and validation. The driver path uses the smoke runner's default
+`/usr/local/Ascend/driver` when the environment does not provide one.
+
 GNUInstallDirs may default to `lib64` while the retained package loads `lib`.
 Copy the exact built core to the package's selected path, compare hashes, and
 verify the Host check's `ldd` resolution before interpreting a regression result.
