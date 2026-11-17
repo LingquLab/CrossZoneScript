@@ -44,11 +44,20 @@ for rank in [0, 1]:
     ranks.append({"rank": rank, "trace_event_counts": dict(events.most_common(45)),
                   "selected_fields": selected[:35]})
 plog_errors = []
+first_errors = []
 for path in sorted((work / "plog").rglob("*.log"))[:30]:
     for line in path.read_text(errors="replace").splitlines():
+        if "[ERROR]" in line and re.search(r"ccu|synchronize|timeout", line, re.I) and len(first_errors) < 6:
+            if not re.search(r"token|password|secret|\beid\b", line, re.I):
+                safe_line = re.sub(r"0x[0-9a-fA-F]{9,}", "<address omitted>", line)
+                first_errors.append(safe_line[:500])
         if any(term in line for term in ["CCU Launch task error", "CCU Launch link fault", "SetCcuExceptionSqeInfo"]):
             fields = dict(re.findall(r"(status|subStatus|device_id|stream_id|task_id|retCode|instrId|missionId)=(0x[0-9a-fA-F]+|\d+)", line))
             if fields:
                 plog_errors.append(fields)
+header = Path("/usr/local/Ascend/cann-9.1.0/aarch64-linux/include/acl/error_codes/rt_error_codes.h")
+error_definitions = [line.strip() for line in header.read_text().splitlines()
+                     if re.search(r"\b(?:507046|507056)\b", line)][:4]
 print("CZ_TRACE_INSPECT " + json.dumps({"inspection_only": True, "npu_workload_run": False,
-      "run_id": args["run_id"], "ranks": ranks, "plog_errors": plog_errors[:15]}))
+      "run_id": args["run_id"], "ranks": ranks, "plog_errors": plog_errors[:15],
+      "first_errors": first_errors, "error_definitions": error_definitions}))
