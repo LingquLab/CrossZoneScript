@@ -2,9 +2,11 @@
 
 import base64
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
@@ -15,17 +17,66 @@ work = (parent / args["run_id"]).resolve(strict=True)
 assert work.parent == parent
 result = json.loads((work / "result.json").read_text())
 assert result["devices"] == [2, 3]
+recovery_state = {}
+if args.get("recovery_state", False):
+    def occupancy(device):
+        record = {"device": device, "state": "indeterminate"}
+        try:
+            probe = subprocess.run(["npu-smi", "info", "-t", "proc-mem", "-i", str(device)],
+                                   capture_output=True, text=True, timeout=10)
+            record["query_exit_code"] = probe.returncode
+            record["process_ids"] = [int(value) for value in
+                                     re.findall(r"Process id\s*:\s*(\d+)", probe.stdout)][:16]
+            if probe.returncode == 0:
+                if record["process_ids"]:
+                    record["state"] = "busy"
+                elif re.search(r"NPU ID\s*:\s*" + str(device) + r"(?:\s|$)", probe.stdout):
+                    record["state"] = "idle"
+        except subprocess.TimeoutExpired:
+            record["query_timed_out"] = True
+        except OSError as error:
+            record["query_error_type"] = type(error).__name__
+        return record
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        recovery_state["devices"] = list(pool.map(occupancy, [2, 3]))
+    owned_processes = []
+    for process in Path("/proc").iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            if process.joinpath("cwd").resolve(strict=True) != work:
+                continue
+            name = process.joinpath("comm").read_text().strip()
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", name):
+                continue
+            status = process.joinpath("status").read_text()
+            state = re.search(r"^State:\s*(\w+)", status, re.M)
+            parent_id = re.search(r"^PPid:\s*(\d+)", status, re.M)
+            owned_processes.append({"pid": int(process.name), "name": name,
+                                    "state": state[1] if state else "unknown",
+                                    "ppid": int(parent_id[1]) if parent_id else None})
+        except (OSError, RuntimeError):
+            continue
+    recovery_state["processes_with_task_working_directory"] = owned_processes[:16]
 ranks = []
 for rank in [0, 1]:
     lines = (work / ("ccu_rank%d.log" % rank)).read_text(errors="replace").splitlines()
     events = Counter()
     selected = []
+    channel_tail = []
     for line in lines:
         if "TileXRDirectCcuTrace " not in line:
             continue
         content = line.split("TileXRDirectCcuTrace ", 1)[1]
         label = content.split("=", 1)[0].rsplit(" ", 1)[0]
         events[label] += 1
+        if label in ["customChannel", "customChannel.return"]:
+            channel_tail.append({"event": label, "fields": {
+                key: int(value, 16 if value.startswith("0x") else 10)
+                for key, value in re.findall(
+                    r"\b(dieId|requestDieId|opcode|driverRet|opRet|ret|inSize|outSize)="
+                    r"(-?(?:0x[0-9a-fA-F]+|\d+))\b", content)}})
         if any(key in content for key in ["endpointRoute raCtxEidInfo", "endpointRoute asyncPoll"]):
             continue
         if not ("endpointRoute " in content or "peerEndpoint " in content or
@@ -42,7 +93,7 @@ for rank in [0, 1]:
         if fields:
             selected.append({"event": label[:100], "fields": fields})
     ranks.append({"rank": rank, "trace_event_counts": dict(events.most_common(45)),
-                  "selected_fields": selected[:35]})
+                  "selected_fields": selected[:35], "custom_channel_tail": channel_tail[-6:]})
 plog_errors = []
 first_errors = []
 transport_errors = []
@@ -69,4 +120,5 @@ error_definitions = [line.strip() for line in header.read_text().splitlines()
 print("CZ_TRACE_INSPECT " + json.dumps({"inspection_only": True, "npu_workload_run": False,
       "run_id": args["run_id"], "ranks": ranks, "plog_errors": plog_errors[:15],
       "first_errors": first_errors, "transport_errors": transport_errors,
+      "recovery_state": recovery_state,
       "error_definitions": error_definitions}))
