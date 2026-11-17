@@ -119,3 +119,21 @@ verify the Host check's `ldd` resolution before interpreting a regression result
 selected the old library. It checks retained source/library hashes, preserves the
 failed check, finishes package validation, and runs the requested NPU 2/3 smoke
 once with the project-local rootinfo. It does not rebuild the completed core.
+
+## One-time CCU environment qualification
+
+After searching retained matching records, `hccl_baseline.py` can run the installed
+official HCCL Test once on NPU 2/3 in `ccu_ms` mode. It uses existing MPICH and
+128/256/384/512-byte cases with result checks. A private mount namespace binds the
+project rootinfo over HCCL's fixed path for this child process tree only. It
+checks that both paths identify the same inode and mounts that view read-only;
+the system file and global mounts remain unchanged. The referenced topology
+stays inside the project configuration directory. No system rootinfo is copied
+or used as input. The script retains binary hashes, environment metadata,
+command, correctness lines and final selected-device occupancy. Do not rerun a
+completed matching qualification; a failed platform baseline stops TileXR
+data-plane debugging until that environment is repaired or replaced.
+
+The installed HCCL Test parses `HCCL_TEST_USE_DEVS` before calling
+`aclrtSetDevice(dev_id)`. Set it to `2,3`; a framework's visible-device variable
+alone does not establish the physical devices selected by this native binary.
