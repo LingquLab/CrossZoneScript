@@ -4,8 +4,10 @@ import hashlib
 import json
 import os
 import re
+import sys
 
-ROOT = Path('/root/tilelang-107-general-64ed5828-20261117-run01')
+assert len(sys.argv) == 2 and sys.argv[1] in ('01', '02')
+ROOT = Path('/root/tilelang-107-general-64ed5828-20261117-run' + sys.argv[1])
 
 
 def sha(data):
@@ -17,10 +19,10 @@ def log_summary(path):
         return {'exists': False}
     raw = path.read_bytes()
     lines = raw.decode('utf-8', errors='replace').splitlines()
-    errors = [line[:450] for line in lines if re.search(r'error:|fatal error:|Error |Error:|undefined reference|Could NOT|CMake Error|FAILED:', line)]
+    errors = [line[:350] for line in lines if re.search(r'error:|fatal error:|Error |Error:|undefined reference|Could NOT|CMake Error|FAILED:', line)]
     # No broad log tails, environment or command lines. Error text only.
     errors = [line for line in errors if not re.search(r'(?i)authorization|password|token=|secret|api.key|https?://', line)]
-    return {'exists': True, 'bytes': len(raw), 'sha256': sha(raw), 'errors': errors[:8]}
+    return {'exists': True, 'bytes': len(raw), 'sha256': sha(raw), 'errors': errors[:4]}
 
 
 def main():
