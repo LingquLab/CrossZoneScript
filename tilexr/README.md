@@ -111,3 +111,11 @@ package reuses unchanged verified probe/AIV artifacts, runs the Host preparation
 check against the new core, and checks ELF dependencies and device occupancy.
 It does not activate the package or launch an NPU workload. Inspect saved build
 evidence before any retry after failure or interruption.
+
+GNUInstallDirs may default to `lib64` while the retained package loads `lib`.
+Copy the exact built core to the package's selected path, compare hashes, and
+verify the Host check's `ldd` resolution before interpreting a regression result.
+`resume_debug.py` resumes only the inspected successful build whose packaging
+selected the old library. It checks retained source/library hashes, preserves the
+failed check, finishes package validation, and runs the requested NPU 2/3 smoke
+once with the project-local rootinfo. It does not rebuild the completed core.

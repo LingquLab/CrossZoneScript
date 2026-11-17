@@ -42,19 +42,34 @@ def run(args, record):
     for name, expected in previous["files"].items():
         require(digest(baseline / name) == expected, "baseline_artifact_changed")
     root = Path("/home/c00996840/ai") / ("TileXR-pr229-debug-" + args["revision"][:12])
-    root.mkdir(exist_ok=False)
     record["build_directory"] = str(root)
     source = root / "source"
-    source.mkdir()
-    packed = base64.b64decode("__CZ_SOURCE_ARCHIVE_B64__")
-    require(hashlib.sha256(packed).hexdigest() == args["source_archive_sha256"], "archive_hash_mismatch")
-    with tarfile.open(fileobj=io.BytesIO(packed), mode="r:gz") as archive:
-        for member in archive.getmembers():
-            require((source / member.name).resolve().is_relative_to(source.resolve()), "archive_path_escape")
-            require(member.isfile() or member.isdir(), "archive_nonregular_entry")
-        archive.extractall(str(source))
-    (root / "REVISION").write_text(args["revision"] + "\n")
-    (root / "SOURCE_ARCHIVE_SHA256").write_text(args["source_archive_sha256"] + "\n")
+    resume = args.get("resume_verified_build", False)
+    if resume:
+        saved = json.loads((root / "debug-build-result.json").read_text())
+        require(saved["status"] == "FAIL" and saved["core_build"] == "PASS" and
+                saved["reason"] == "host_prepare_regression_failed", "build_not_resumable")
+        require((root / "REVISION").read_text().strip() == args["revision"], "retained_revision_mismatch")
+        require((root / "SOURCE_ARCHIVE_SHA256").read_text().strip() == args["source_archive_sha256"],
+                "retained_archive_mismatch")
+        for relative, expected in args["source_hashes"].items():
+            require(digest(source / relative) == expected, "retained_source_changed")
+        require(digest(root / "build/src/comm/libtile-comm.so") == args["built_library_sha256"],
+                "retained_library_changed")
+        for name in ["debug-build-result.json", "host-check.log", "host-check-build.log"]:
+            shutil.copy2(str(root / name), str(root / (name + ".attempt1")))
+    else:
+        root.mkdir(exist_ok=False)
+        source.mkdir()
+        packed = base64.b64decode("__CZ_SOURCE_ARCHIVE_B64__")
+        require(hashlib.sha256(packed).hexdigest() == args["source_archive_sha256"], "archive_hash_mismatch")
+        with tarfile.open(fileobj=io.BytesIO(packed), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                require((source / member.name).resolve().is_relative_to(source.resolve()), "archive_path_escape")
+                require(member.isfile() or member.isdir(), "archive_nonregular_entry")
+            archive.extractall(str(source))
+        (root / "REVISION").write_text(args["revision"] + "\n")
+        (root / "SOURCE_ARCHIVE_SHA256").write_text(args["source_archive_sha256"] + "\n")
 
     def logged(argv, name, timeout):
         with (root / (name + ".log")).open("wb") as output:
@@ -64,16 +79,22 @@ def run(args, record):
 
     build = root / "build"
     install = root / "install"
-    logged(["cmake", "-S", str(source), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_INSTALL_PREFIX=" + str(install), "-DBUILD_TESTING=OFF", "-DTILEXR_BUILD_TESTS=OFF",
-            "-DTILEXR_BUILD_UNITEST=OFF", "-DTILEXR_BUILD_COLLECTIVES=OFF", "-DTILEXR_BUILD_EP=OFF"],
-           "configure", 120)
-    logged(["cmake", "--build", str(build), "--target", "tile-comm", "-j16"], "build", 480)
-    logged(["cmake", "--install", str(build)], "install", 60)
+    if not resume:
+        logged(["cmake", "-S", str(source), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_INSTALL_PREFIX=" + str(install), "-DCMAKE_INSTALL_LIBDIR=lib",
+                "-DBUILD_TESTING=OFF", "-DTILEXR_BUILD_TESTS=OFF", "-DTILEXR_BUILD_UNITEST=OFF",
+                "-DTILEXR_BUILD_COLLECTIVES=OFF", "-DTILEXR_BUILD_EP=OFF"], "configure", 120)
+        logged(["cmake", "--build", str(build), "--target", "tile-comm", "-j16"], "build", 480)
+        logged(["cmake", "--install", str(build)], "install", 60)
     record["core_build"] = "PASS"
+    record["reused_verified_build"] = resume
     package = root / "package"
-    shutil.copytree(str(baseline), str(package))
+    shutil.copytree(str(baseline), str(package), dirs_exist_ok=resume)
     shutil.copytree(str(install), str(package), dirs_exist_ok=True)
+    # Pin the core at the package path selected by every probe, regardless of GNUInstallDirs.
+    shutil.copy2(str(build / "src/comm/libtile-comm.so"), str(package / "lib/libtile-comm.so"))
+    require(digest(package / "lib/libtile-comm.so") == digest(build / "src/comm/libtile-comm.so"),
+            "packaged_core_differs_from_build")
     (package / "REVISION").write_text(args["revision"] + "\n")
     environment = os.environ.copy()
     environment["LD_LIBRARY_PATH"] = str(package / "lib") + ":" + environment.get("LD_LIBRARY_PATH", "")
@@ -81,6 +102,9 @@ def run(args, record):
     logged(["g++", "-std=c++14", "-I", str(source / "src/include"), "-I", str(source / "src/comm"),
             str(source / "debug_checks/aiv_prepare_regression.cpp"), "-L", str(package / "lib"),
             "-Wl,-rpath," + str(package / "lib"), "-ltile-comm", "-o", str(check_bin)], "host-check-build", 60)
+    selected = subprocess.run(["ldd", str(check_bin)], env=environment, capture_output=True, text=True, timeout=15)
+    require(selected.returncode == 0 and str(package / "lib/libtile-comm.so") in selected.stdout,
+            "host_check_selected_wrong_core")
     cpu = subprocess.run([str(check_bin)], env=environment, capture_output=True, text=True, timeout=20)
     (root / "host-check.log").write_text(cpu.stdout + cpu.stderr)
     require(cpu.returncode == 0 and "4 Host cases passed" in cpu.stdout, "host_prepare_regression_failed")

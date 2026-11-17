@@ -157,6 +157,8 @@ def run(args, record):
         values["expected_device"] = device
         values["expected_rank"] = rank
         values["passed_round_lines"] = sum(line.startswith("tilexr_ccu_aiv_fanout round ") and "passed=1" in line for line in lines)
+        values["prepare_diagnostics"] = [line[:950] for line in lines
+                                         if "prepare ret=" in line][:2]
         results.append(values)
     record["rank_results"] = results
     record["post_test_devices"] = devices_state()
