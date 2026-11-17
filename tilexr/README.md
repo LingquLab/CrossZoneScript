@@ -162,3 +162,9 @@ For a two-rank route comparison, `run_aiv_p2p.py` accepts the explicit boolean
 clearing inherited variables. This exercises the peer-specific topology path
 without changing the candidate binary; keep its result distinct from the default
 two-rank loop/RTP path and require full payload checks before calling it a fix.
+
+An explicit `install_die` of 0 or 1 selects the existing runtime install-die
+override for a bounded comparison. Record it alongside the endpoint's runtime
+die, channel/jetty I/O die and CQE cross-die setting. A stream timeout alone
+does not establish which die field is wrong; compare an unchanged candidate
+with matching endpoint and mission placement before changing the implementation.

@@ -134,6 +134,10 @@ def run(args, record):
     if args.get("force_peer_endpoints", False):
         environment["TILEXR_CCU_DIRECT_FORCE_PEER_ENDPOINTS"] = "1"
         record["force_peer_endpoints"] = True
+    if "install_die" in args:
+        require(type(args["install_die"]) is int and args["install_die"] in [0, 1], "invalid_install_die")
+        environment["TILEXR_CCU_DIRECT_INSTALL_DIE_ID"] = str(args["install_die"])
+        record["install_die"] = args["install_die"]
     record["stage"] = "hardware-run"
     started = time.monotonic()
     with (work / "runner.log").open("wb") as output:
