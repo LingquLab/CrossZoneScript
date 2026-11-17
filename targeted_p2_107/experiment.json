@@ -1,0 +1,13 @@
+{
+  "schema": "tilelang_targeted_p2_experiment.v1",
+  "authorization": "COORD-20261117-019",
+  "candidate": "e788bc7214781112ee890c0771868227e713c9f6",
+  "experiment_revision": "e788bc7214781112ee890c0771868227e713c9f6",
+  "baseline": "a4b8257a44f78849cf2d2db37cccffee9fb295e4",
+  "variants": [
+    "B",
+    "U",
+    "R64",
+    "R128"
+  ]
+}
