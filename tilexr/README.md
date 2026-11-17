@@ -149,3 +149,10 @@ After the matching CCU qualification succeeds, reuse it. A TileXR smoke may set
 directory. Returned summaries omit endpoint identities, addresses and token
 values; complete logs remain green-local. Keep trace runs distinct from the
 correctness/performance baseline.
+
+`inspect_aiv_trace.py` reads an existing run by `run_id` on the selected host.
+It returns numeric endpoint, PFE, jetty, channel and first-transfer fields plus
+bounded plog error codes. It never reruns a workload, and omits endpoint IDs,
+addresses, handles and tokens from returned fields. Check the actual two-rank
+route path: the peer-specific path is normally selected only above two ranks,
+unless the explicit peer-endpoint diagnostic switch is enabled.
