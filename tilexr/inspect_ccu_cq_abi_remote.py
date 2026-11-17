@@ -46,10 +46,13 @@ def cq_string_xrefs(path, disassembler):
     program_offset = struct.unpack_from("<Q", data, 32)[0]
     entry_size, entry_count = struct.unpack_from("<HH", data, 54)
     segments = []
+    executable = []
     for index in range(entry_count):
         entry = struct.unpack_from("<IIQQQQQQ", data, program_offset + index * entry_size)
         if entry[0] == 1:
             segments.append((entry[2], entry[3], entry[5]))
+            if entry[1] & 1:
+                executable.append((entry[2], entry[3], entry[5]))
     strings = {}
     for needle in [b"RaHdcCtxCqCreate", b"RaHdcPrepareCqCreate", b"RaCtxPrepareCqCreate"]:
         start = 0
@@ -69,43 +72,64 @@ def cq_string_xrefs(path, disassembler):
         match = re.match(r"\s*([0-9a-f]+):\s+[0-9a-f]{8}\s+(.+)", line)
         if match:
             instructions.append((int(match[1], 16), match[2]))
+    string_references = []
+    for file_offset, virtual, size in executable:
+        for offset in range(file_offset, file_offset + size - 4, 4):
+            encoded = struct.unpack_from("<I", data, offset)[0]
+            kind = encoded & 0x9f000000
+            if kind not in [0x10000000, 0x90000000]:
+                continue
+            register = encoded & 31
+            immediate = ((encoded >> 29) & 3) | (((encoded >> 5) & 0x7ffff) << 2)
+            if immediate & (1 << 20):
+                immediate -= 1 << 21
+            pc = virtual + offset - file_offset
+            if kind == 0x10000000:
+                target = pc + immediate
+                if target in strings:
+                    string_references.append((pc, target))
+                continue
+            page = (pc & ~4095) + (immediate << 12)
+            for delta in range(1, 9):
+                if offset + delta * 4 + 4 > file_offset + size:
+                    break
+                following = struct.unpack_from("<I", data, offset + delta * 4)[0]
+                if following & 0xff000000 != 0x91000000 or (following >> 5) & 31 != register:
+                    continue
+                addition = ((following >> 10) & 0xfff) << (12 if following & (1 << 22) else 0)
+                target = page + addition
+                if target in strings:
+                    string_references.append((pc, target))
+    index_by_address = {address: index for index, (address, _) in enumerate(instructions)}
     located = []
-    for index, (_, instruction) in enumerate(instructions):
-        adrp = re.match(r"adrp\s+(x\d+),\s*([0-9a-f]+)", instruction)
-        if not adrp:
+    for reference, target in string_references:
+        if reference not in index_by_address:
             continue
-        for delta in range(1, 7):
-            if index + delta >= len(instructions):
-                break
-            add = re.match(r"add\s+(x\d+),\s*" + adrp[1] + r",\s*#(0x[0-9a-f]+|\d+)\b",
-                           instructions[index + delta][1])
-            if not add:
-                continue
-            target = int(adrp[2], 16) + int(add[2], 0)
-            if target not in strings:
-                continue
-            # The nearest preceding return bounds a code region, not a proven function.
-            begin = index
-            while begin > max(0, index - 240) and not instructions[begin - 1][1].startswith("ret"):
-                begin -= 1
-            end = index + delta
-            while end < min(len(instructions) - 1, index + 160) and not instructions[end][1].startswith("ret"):
-                end += 1
-            region = instructions[begin:end + 1]
-            accesses = []
-            for _, text in region:
-                access = re.match(r"(ldr\w*|str\w*|ldp|stp)\s+([wx]\d+)(?:,\s*[wx]\d+)?"
-                                  r",\s*\[(x\d+|sp)(?:,\s*#(0x[0-9a-f]+|\d+))?\]", text)
-                if access:
-                    accesses.append({"op": access[1], "width": access[2][0], "base": access[3],
-                                     "offset": int(access[4] or "0", 0)})
-            calls = [text.split("<", 1)[1].split(">", 1)[0].split("+", 1)[0]
-                     for _, text in region if text.startswith("bl\t") and "<" in text]
-            located.append({"diagnostic": strings[target], "instruction_count": len(region),
-                            "accesses": accesses[:50], "named_calls": sorted(set(calls))[:18],
-                            "extension_offset_accesses": [item for item in accesses
-                                                          if item["offset"] in [36, 40]]})
+        index = index_by_address[reference]
+        # The nearest preceding return bounds a code region, not a proven function.
+        begin = index
+        while begin > max(0, index - 240) and not instructions[begin - 1][1].startswith("ret"):
+            begin -= 1
+        end = index
+        while end < min(len(instructions) - 1, index + 160) and not instructions[end][1].startswith("ret"):
+            end += 1
+        region = instructions[begin:end + 1]
+        accesses = []
+        for _, text in region:
+            access = re.match(r"(ldr\w*|str\w*|ldp|stp)\s+([wx]\d+)(?:,\s*[wx]\d+)?"
+                              r",\s*\[(x\d+|sp)(?:,\s*#(0x[0-9a-f]+|\d+))?\]", text)
+            if access:
+                accesses.append({"op": access[1], "width": access[2][0], "base": access[3],
+                                 "offset": int(access[4] or "0", 0)})
+        calls = [text.split("<", 1)[1].split(">", 1)[0].split("+", 1)[0]
+                 for _, text in region if text.startswith("bl\t") and "<" in text]
+        located.append({"diagnostic": strings[target], "instruction_count": len(region),
+                        "accesses": accesses[:50], "named_calls": sorted(set(calls))[:18],
+                        "extension_offset_accesses": [item for item in accesses
+                                                      if item["offset"] in [36, 40]]})
     return {"diagnostic_strings_found": sorted(set(strings.values())), "regions": located[:2],
+            "machine_reference_count": len(string_references),
+            "parsed_instruction_count": len(instructions),
             "region_boundary_is_heuristic": True}
 
 headers = []
