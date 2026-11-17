@@ -37,13 +37,14 @@ def occupancy(device):
 
 def devices_state():
     with ThreadPoolExecutor(max_workers=2) as pool:
-        return list(pool.map(occupancy, [6, 7]))
+        return list(pool.map(occupancy, [2, 3]))
 
 
 def run(args, record):
-    require(args["devices"] == [6, 7], "unexpected_device_scope")
+    require(args["devices"] == [2, 3], "unexpected_device_scope")
     require(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args["run_id"]), "invalid_run_id")
-    release = Path("/home/c00996840/ai/TileXR-deploy/current").resolve()
+    release = Path(args.get("release", "/home/c00996840/ai/TileXR-deploy/current")).resolve()
+    require(release.is_relative_to(Path("/home/c00996840/ai").resolve()), "release_outside_project_parent")
     manifest = json.loads((release / "deployment.json").read_text())
     require(manifest["revision"] == args["revision"], "deployed_revision_mismatch")
     for relative, expected in manifest["files"].items():
@@ -68,7 +69,7 @@ def run(args, record):
     work = Path("/home/c00996840/ai/TileXR-test") / args["run_id"]
     work.parent.mkdir(exist_ok=True)
     work.mkdir(exist_ok=False)
-    record.update(work_directory=str(work), release=str(release), direction="6->7",
+    record.update(work_directory=str(work), release=str(release), direction="2->3",
                   payload_bytes=[128, 256, 384, 512], expected_rounds=4,
                   artifact_hashes=args["artifact_hashes"], runner_sha256=args["runner_sha256"])
     record["pre_test_devices"] = devices_state()
@@ -91,16 +92,16 @@ def run(args, record):
     smi = subprocess.run(["npu-smi", "info"], capture_output=True, text=True, timeout=20)
     (work / "pre-test-npu-smi.log").write_text(smi.stdout + smi.stderr)
     require(smi.returncode == 0, "npu_health_query_failed")
-    unhealthy, observed = guard.parse_unhealthy_devices(smi.stdout, {6, 7})
-    require(observed == {6, 7}, "selected_device_health_indeterminate")
+    unhealthy, observed = guard.parse_unhealthy_devices(smi.stdout, {2, 3})
+    require(observed == {2, 3}, "selected_device_health_indeterminate")
     allowed_health = set(args.get("allowed_health", ["OK", "ALARM"]))
     require(allowed_health <= {"OK", "ALARM", "WARNING"} and "OK" in allowed_health,
             "invalid_health_allowance")
     record["selected_health"] = [{"device": device, "health": dict(unhealthy).get(device, "OK")}
-                                 for device in [6, 7]]
+                                 for device in [2, 3]]
     record["allowed_health"] = sorted(allowed_health)
     require(all(health.upper() in allowed_health for _, health in unhealthy), "selected_device_health_unusable")
-    require(not guard.parse_busy_processes(smi.stdout, {6, 7}), "selected_device_became_busy")
+    require(not guard.parse_busy_processes(smi.stdout, {2, 3}), "selected_device_became_busy")
     record["alarm_devices"] = [device for device, health in unhealthy if health.upper() == "ALARM"]
     record["warning_devices"] = [device for device, health in unhealthy if health.upper() == "WARNING"]
 
@@ -110,7 +111,7 @@ def run(args, record):
     environment.update({
         "ASCEND_HOME_PATH": "/usr/local/Ascend/cann-9.1.0", "ASCEND_DRIVER_PATH": "/usr/local/Ascend/driver",
         "TILEXR_RUN_CCU_DIRECT_SMOKE_PROBE": "1", "TILEXR_CCU_RANK_SIZE": "2",
-        "TILEXR_CCU_SMOKE_DEVICES": "6,7", "TILEXR_TEST_DEVICES": "6,7",
+        "TILEXR_CCU_SMOKE_DEVICES": "2,3", "TILEXR_TEST_DEVICES": "2,3",
         "TILEXR_TILE_COMM_LIB": str(release / "lib/libtile-comm.so"),
         "TILEXR_CCU_HCCL_ROOT_INFO_PATH": str(rootinfo),
         "TILEXR_UDMA_ROOTINFO_PATH": str(rootinfo),
@@ -144,7 +145,7 @@ def run(args, record):
     text = (work / "runner.log").read_text(errors="replace")
     record["npu_tests_run"] = " launch rank=" in text
     results = []
-    for rank, device in enumerate([6, 7]):
+    for rank, device in enumerate([2, 3]):
         rank_log = work / ("ccu_rank%d.log" % rank)
         lines = rank_log.read_text(errors="replace").splitlines() if rank_log.is_file() else []
         summaries = [line for line in lines if line.startswith("tilexr_ccu_aiv_fanout result ")]
@@ -166,7 +167,7 @@ def run(args, record):
         record["post_test_devices"] = devices_state()
     require(status == 0, "hardware_runner_failed")
     require("tilexr_ccu_direct_smoke_runner success " in text, "runner_success_marker_missing")
-    for rank, device in enumerate([6, 7]):
+    for rank, device in enumerate([2, 3]):
         item = results[rank]
         require(item.get("rank") == rank and item.get("device") == device and item.get("rankSize") == 2,
                 "rank_device_mapping_mismatch")
@@ -185,7 +186,7 @@ def run(args, record):
 if __name__ == "__main__":
     settings = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode())
     summary = {"status": "FAIL", "stage": "preflight", "revision": settings["revision"],
-               "devices": [6, 7], "npu_tests_run": False}
+               "devices": [2, 3], "npu_tests_run": False}
     try:
         run(settings, summary)
     except Exception as error:

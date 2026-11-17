@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--args-file", required=True)
     options = parser.parse_args()
     args = json.loads(Path(options.args_file).read_text(encoding="utf-8"))
-    assert args["host"] == "141.61.73.107" and args["devices"] == [6, 7]
+    assert args["host"] == "141.61.73.107" and args["devices"] == [2, 3]
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args["run_id"])
     setup = Path.cwd() / "relocate-pr229-141.61.73.107-ee779869-attempt2"
     assert (setup / "hosts.json").is_file() and (setup / "ssh.cmd").is_file()

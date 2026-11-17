@@ -50,10 +50,12 @@ not create accounts or infer ownership from the path spelling.
 ## Authorized AIV-to-CCU point-to-point retest
 
 `run_aiv_p2p.py` uses the session's retained SSH setup for 141.61.73.107 and
-streams `run_aiv_p2p_remote.py`. Pass `host`, `revision`, `devices: [6, 7]`, a
+streams `run_aiv_p2p_remote.py`. Pass `host`, `revision`, `devices: [2, 3]`, a
 unique `run_id`, `runner_sha256`, `guard_sha256`, and release-relative
 `artifact_hashes`. It runs the PR's canonical two-rank AIV fanout runner with
-rank 0 on NPU 6 and rank 1 on NPU 7, reusing verified deployed binaries.
+rank 0 on NPU 2 and rank 1 on NPU 3, reusing verified package binaries. The
+operator changed the selected devices after the original 6/7 run. An optional
+`release` selects a separately built candidate package without activating it.
 Four loop requests send 128, 256, 384, and 512 bytes from rank 0 to rank 1.
 
 The helper checks selected-device occupancy immediately before launching and
@@ -88,3 +90,24 @@ directory and sets the CCU/UDMA overrides after clearing inherited test variable
 An environment-cleaning wrapper otherwise discards a shell's rootinfo override
 and silently restores the runtime's system default. Configuration preparation
 does not run an NPU workload or prove communication correctness.
+
+## Candidate preparation fix
+
+`check_aiv_prepare.py --repo <path>` compiles the real preparation components and
+`aiv_prepare_regression.cpp` into a temporary CPU executable. It excludes unused
+runtime-submit entry points at link time and checks one/three destination plans
+for sender preparation and participation-only preparation. The original PR
+fails with zero remote XNs; the candidate allocates distinct channel XNs and
+reconciles peer proofs. These are development checks, separate from TileXR's
+submitted test surface.
+
+`build_debug.py` takes the pinned candidate `revision`, `devices: [2, 3]`, unique
+`run_id`, host, and existing project-local rootinfo path/hashes. Green fetches the
+exact commit into a worktree under its code root, packages that tree with the
+already available spdlog/picojson dependencies, and streams it over the retained
+SSH setup. `build_debug_remote.py` builds and installs the core in a new
+`/home/c00996840/ai/TileXR-pr229-debug-<revision-prefix>` directory. Its separate
+package reuses unchanged verified probe/AIV artifacts, runs the Host preparation
+check against the new core, and checks ELF dependencies and device occupancy.
+It does not activate the package or launch an NPU workload. Inspect saved build
+evidence before any retry after failure or interruption.
