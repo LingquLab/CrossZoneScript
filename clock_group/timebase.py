@@ -48,15 +48,21 @@ for name in paths[:120]:
  path=pathlib.Path(name)
  if path.stat().st_size>200000:continue
  text=path.read_text(errors='replace');lines=text.splitlines()
- hits=[i for i,line in enumerate(lines) if 'GetSystemCycleImpl(' in line]
+ hits=[i for i,line in enumerate(lines) if 'GetSystemCycleImpl(' in line and not line.lstrip().startswith('return ')]
  if not hits:continue
  out['includes'].append(dict(path=name,headers=re.findall(r'#include\\s+[<"]([^>"]+)',text)[:12]))
  if lines_left:
-  i=hits[0];start=i;count=min(4,lines_left)
-  for j in range(i+1,min(len(lines),i+35)):
-   if 'return ' in lines[j] and re.search(r'get_.*\\(',lines[j]):start=max(i,j-1);break
+  i=hits[0];end=i;depth=0;opened=False
+  for j in range(i,min(len(lines),i+100)):
+   opened=opened or '{' in lines[j]
+   depth+=lines[j].count('{')-lines[j].count('}')
+   end=j
+   if opened and depth==0:break
+  returns=[j for j in range(i,end+1) if re.search(r'\\breturn\\b',lines[j])]
+  start=max(i,returns[-1]-1) if returns else i
+  count=min(4,lines_left,end-start+1)
   out['snippets'].append(dict(path=name,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                              line=start+1,code=lines[start:start+count]))
+                              function_start=i+1,function_end=end+1,line=start+1,code=lines[start:start+count]))
   lines_left-=count
  if len(out['includes'])==8:break
 out['exported_code_lines']=8-lines_left
