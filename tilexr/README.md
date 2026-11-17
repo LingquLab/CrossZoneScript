@@ -29,3 +29,13 @@ uses `readelf` and `ldd -r`. Detailed output and the result are saved in the gre
 session's `deploy-pr<pr>-<host>-<revision-prefix>` evidence directory. If dispatch
 fails or its effects are unknown, inspect those saved files and the remote
 `last-deployment.json`/current link before considering another invocation.
+
+For an operator-requested move, pass `operation: "relocate"`, `owner`, and
+`destination_parent` in addition to the original pinned deployment arguments.
+The destination must be the named account's `ai` directory. The helper copies
+only the verified deployment tree, preserves its release manifest and relative
+current link, changes copied entries to the destination account, and validates
+environment and dynamic linking as that account before removing the exact old
+deployment tree. An existing destination or unrelated entries stop the move.
+The retained source and CMake build directories are recorded as provenance and
+are not moved, since their generated build files contain absolute paths.

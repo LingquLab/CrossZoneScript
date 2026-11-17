@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import re
 import shutil
 import subprocess
@@ -18,6 +19,15 @@ import sys
 import tempfile
 import traceback
 import uuid
+
+
+ARTIFACT_PATHS = {
+    "install/lib/libtile-comm.so": "lib/libtile-comm.so",
+    "ccu-build/ccu_tilexr_direct_smoke_probe": "bin/ccu_tilexr_direct_smoke_probe",
+    "ccu-build/ccu_tilexr_basic_info_probe": "bin/ccu_tilexr_basic_info_probe",
+    "ccu-build/libtilexr_ccu_aiv_fanout_kernel.so": "lib/libtilexr_ccu_aiv_fanout_kernel.so",
+    "ccu-build/tilexr/kernels/ccu_tilexr_aiv_fanout_kernel.o": "lib/tilexr/kernels/ccu_tilexr_aiv_fanout_kernel.o",
+}
 
 
 def require(condition, code):
@@ -99,13 +109,7 @@ def deploy(args):
     require(core["status"] == ccu["status"] == "PASS" and core["revision"] == ccu["revision"] == revision,
             "retained_build_not_passing")
     require(core["source_archive_sha256"] == args["source_archive_sha256"], "build_provenance_mismatch")
-    artifact_paths = {
-        "install/lib/libtile-comm.so": "lib/libtile-comm.so",
-        "ccu-build/ccu_tilexr_direct_smoke_probe": "bin/ccu_tilexr_direct_smoke_probe",
-        "ccu-build/ccu_tilexr_basic_info_probe": "bin/ccu_tilexr_basic_info_probe",
-        "ccu-build/libtilexr_ccu_aiv_fanout_kernel.so": "lib/libtilexr_ccu_aiv_fanout_kernel.so",
-        "ccu-build/tilexr/kernels/ccu_tilexr_aiv_fanout_kernel.o": "lib/tilexr/kernels/ccu_tilexr_aiv_fanout_kernel.o",
-    }
+    artifact_paths = ARTIFACT_PATHS
     require(set(args["expected_artifacts"]) == set(artifact_paths), "unexpected_artifact_set")
     recorded = {item["path"]: item["sha256"] for item in ccu["artifacts"]}
     for source in artifact_paths:
@@ -172,10 +176,104 @@ def deploy(args):
         return record
 
 
+def verify_as_user(base, release, owner):
+    require(shutil.which("runuser"), "runuser_unavailable")
+    script = (
+        'set -e\n'
+        'source "$1/current/set_env.sh" >/dev/null\n'
+        'test "$TILEXR_INSTALL" = "$2"\n'
+        'test -r "$TILEXR_CCU_AIV_FANOUT_KERNEL_SO"\n'
+        'test "${PATH%%:*}" = "$2/bin"\n'
+        'test "${LD_LIBRARY_PATH%%:*}" = "$2/lib"\n'
+        'shift 2\n'
+        'for relative in "$@"; do\n'
+        '  dependencies=$(ldd -r "$TILEXR_INSTALL/$relative" 2>&1)\n'
+        '  case "$dependencies" in *"not found"*|*"undefined symbol:"*) exit 21 ;; esac\n'
+        'done\n'
+    )
+    paths = [path for path in ARTIFACT_PATHS.values() if not path.endswith(".o")]
+    result = subprocess.run(["runuser", "-u", owner, "--", "bash", "--noprofile", "--norc",
+                             "-c", script, "tilexr-user-check", str(base), str(release), *paths],
+                            capture_output=True, timeout=60)
+    require(result.returncode == 0, "user_environment_or_link_check_failed")
+
+
+def relocate(args):
+    """Move only the deployment tree; retained source/build paths remain provenance."""
+    require(os.geteuid() == 0 and platform.machine() == "aarch64", "unexpected_remote_identity")
+    require(re.fullmatch(r"[0-9a-f]{40}", args["revision"]), "invalid_revision")
+    require(isinstance(args["pr"], int) and args["pr"] > 0, "invalid_pr")
+    require(set(args["expected_artifacts"]) == set(ARTIFACT_PATHS), "unexpected_artifact_set")
+    account = pwd.getpwnam(args["owner"])
+    parent = Path(args["destination_parent"])
+    require(parent.is_absolute() and parent == Path(account.pw_dir) / "ai", "unexpected_destination_parent")
+    require(parent.resolve() == parent and Path(account.pw_dir).is_dir(), "destination_parent_not_physical")
+    old = Path("/root/works/code/ai/crosszone/TileXR-deploy")
+    require(old.is_dir() and not old.is_symlink() and old.resolve() == old, "unexpected_original_deployment")
+    name = "pr%d-%s" % (args["pr"], args["revision"][:12])
+    old_release = old / "releases" / name
+    target = parent / "TileXR-deploy"
+    require(not target.exists() and not target.is_symlink(), "destination_already_exists")
+    require({p.name for p in old.iterdir()} == {"releases", "current", "last-deployment.json", ".deploy.lock"},
+            "original_contains_unrelated_entries")
+    require(not (old / "releases").is_symlink() and not old_release.is_symlink(), "unexpected_release_symlink")
+    require({p.name for p in (old / "releases").iterdir()} == {name}, "original_contains_other_releases")
+    require((old / "current").is_symlink() and os.readlink(str(old / "current")) == "releases/" + name,
+            "unexpected_current_link")
+    require(not (old / ".deploy.lock").is_symlink() and not (old / "last-deployment.json").is_symlink(),
+            "unexpected_deployment_metadata_symlink")
+    with (old / ".deploy.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        original_manifest = verify_release(old_release, args, ARTIFACT_PATHS)
+        previous = json.loads((old / "last-deployment.json").read_text())
+        require(previous["status"] == "PASS" and previous["revision"] == args["revision"],
+                "original_receipt_mismatch")
+        if not parent.exists():
+            parent.mkdir(mode=0o755)
+            os.chown(str(parent), account.pw_uid, account.pw_gid)
+        stage = Path(tempfile.mkdtemp(prefix=".TileXR-deploy-relocate-", dir=str(parent)))
+        shutil.copytree(str(old), str(stage), symlinks=True, dirs_exist_ok=True)
+        release = target / "releases" / name
+        record = dict(previous)
+        record.update({"operation": "relocate", "deployment_directory": str(release),
+                       "current": str(target / "current"), "environment_script": str(target / "current/set_env.sh"),
+                       "relocated_from": str(old), "relocated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                       "verification_user": account.pw_name, "original_deployment_removed": False,
+                       "current_verified": False})
+        (stage / "last-deployment.json").write_text(json.dumps(record, indent=2) + "\n")
+        # lchown never follows current, which must remain a release-relative link.
+        for directory, directories, files in os.walk(str(stage), followlinks=False):
+            os.chown(directory, account.pw_uid, account.pw_gid)
+            for entry in directories + files:
+                os.lchown(os.path.join(directory, entry), account.pw_uid, account.pw_gid)
+        copied_manifest = verify_release(stage / "releases" / name, args, ARTIFACT_PATHS)
+        require(copied_manifest == original_manifest, "relocation_changed_release_manifest")
+        verify_as_user(stage, stage / "releases" / name, account.pw_name)
+        os.rename(str(stage), str(target))
+        require((target / "current").resolve() == release.resolve(), "relocated_current_invalid")
+        verify_as_user(target, release, account.pw_name)
+        require(tree_hashes(release) == original_manifest["files"], "relocated_files_changed")
+        # Recheck the exact source path and its scope before completing the move.
+        require(old.resolve() == Path("/root/works/code/ai/crosszone/TileXR-deploy"), "original_path_changed")
+        require({p.name for p in old.iterdir()} == {"releases", "current", "last-deployment.json", ".deploy.lock"},
+                "original_scope_changed")
+        require({p.name for p in (old / "releases").iterdir()} == {name}, "original_release_scope_changed")
+        require(tree_hashes(old_release) == original_manifest["files"], "original_release_changed")
+        shutil.rmtree(str(old))
+        require(not old.exists(), "original_deployment_still_present")
+        record.update(original_deployment_removed=True, current_verified=True,
+                      artifact_hashes_verified=len(ARTIFACT_PATHS), installed_files=len(original_manifest["files"]),
+                      elf_and_link_dependencies="PASS", environment_check="PASS", npu_tests_run=False)
+        receipt = target / "last-deployment.json"
+        receipt.write_text(json.dumps(record, indent=2) + "\n")
+        require(receipt.stat().st_uid == account.pw_uid, "receipt_owner_mismatch")
+        return record
+
+
 if __name__ == "__main__":
     try:
         settings = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
-        result = deploy(settings)
+        result = relocate(settings) if settings.get("operation") == "relocate" else deploy(settings)
         print("CROSSZONE_RESULT " + json.dumps(result))
     except Exception as error:
         # The orchestrator retains this output locally even on a nonzero SSH exit.
