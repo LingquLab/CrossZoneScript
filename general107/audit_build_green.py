@@ -32,6 +32,8 @@ def main():
     request = json.loads(Path(args.args_file).read_text())
     attempt = request.get('attempt', '01')
     assert attempt in ATTEMPTS, 'Unsupported build attempt'
+    headers = request.get('headers', False)
+    assert type(headers) is bool
     subject = 'tl-a5-107-general-abi3-build-20261117-' + attempt
     execution = Path(args.args_file).resolve().parent
     assert execution.name == 'execution'
@@ -56,7 +58,7 @@ def main():
     key = Path.home() / '.ssh/id_ed25519'
     command = ['ssh', '-i', str(key), '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
                '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15', '-o', 'ConnectionAttempts=1',
-               'root@141.61.73.107', 'python3 - ' + attempt]
+               'root@141.61.73.107', 'python3 - ' + attempt + (' headers' if headers else '')]
     try:
         proc = subprocess.run(command, input=remote, capture_output=True, timeout=150)
         (execution / 'build-audit-ssh.stdout.log').write_bytes(proc.stdout)

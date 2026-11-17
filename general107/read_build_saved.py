@@ -6,7 +6,8 @@ import os
 import re
 import sys
 
-assert len(sys.argv) == 2 and sys.argv[1] in ('01', '02')
+assert len(sys.argv) in (2, 3) and sys.argv[1] in ('01', '02')
+assert len(sys.argv) == 2 or sys.argv[2] == 'headers'
 ROOT = Path('/root/tilelang-107-general-64ed5828-20261117-run' + sys.argv[1])
 
 
@@ -59,6 +60,27 @@ def main():
             except OSError:
                 result['process_read_errors'].append(int(proc.name))
         result['phase_directories_exist'] = {name: (ROOT / name).exists() for name in ('correctness', 'capture', 'correctness-launch', 'capture-launch')}
+        if len(sys.argv) == 3:
+            toolkit = Path('/usr/local/Ascend/cann-9.1.0')
+            prefixes = ('include', 'pkg_inc', 'include/experiment', 'include/experiment/runtime',
+                        'aarch64-linux/include', 'aarch64-linux/pkg_inc',
+                        'aarch64-linux/include/experiment', 'aarch64-linux/include/experiment/runtime')
+            result['header_locations'] = {}
+            for relative in ('runtime/kernel.h', 'acl/acl.h', 'hccl/hccl.h'):
+                matches = []
+                for prefix in prefixes:
+                    header = toolkit / prefix / relative
+                    if header.is_file():
+                        matches.append({'include_root': str(header.parent.parent), 'path': str(header),
+                                        'resolved_path': str(header.resolve()), 'sha256': sha(header.read_bytes())})
+                result['header_locations'][relative] = matches
+            path = ROOT / 'runner-configure.log'
+            if path.is_file():
+                raw = path.read_bytes()
+                text = raw.decode('utf-8', errors='strict')
+                assert len(raw) <= 2048 and len(text.splitlines()) <= 24
+                assert not re.search(r'(?i)authorization|password|token=|secret|api.key|https?://', text)
+                result['runner_configure_diagnostic'] = text
     text = json.dumps(result, ensure_ascii=True, separators=(',', ':'))
     assert len(text.encode()) < 12000
     print(text)
