@@ -175,6 +175,12 @@ clearing inherited variables. This exercises the peer-specific topology path
 without changing the candidate binary; keep its result distinct from the default
 two-rank loop/RTP path and require full payload checks before calling it a fix.
 
+For completion debugging, `single_round: true` retains only the first 128-byte
+request. The normal four-round sequence later overwrites its destination, so a
+final mismatch count alone cannot establish whether that first write arrived.
+The single-round run checks the full destination buffer against that one write;
+overall success still requires sender completion, synchronization and launch checks.
+
 An explicit `install_die` of 0 or 1 selects the existing runtime install-die
 override for a bounded comparison. Record it alongside the endpoint's runtime
 die, channel/jetty I/O die and CQE cross-die setting. A stream timeout alone

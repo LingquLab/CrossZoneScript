@@ -42,6 +42,9 @@ def devices_state():
 
 def run(args, record):
     require(args["devices"] == [2, 3], "unexpected_device_scope")
+    single_round = args.get("single_round", False)
+    require(type(single_round) is bool, "invalid_single_round_switch")
+    expected_rounds = 1 if single_round else 4
     require(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args["run_id"]), "invalid_run_id")
     release = Path(args.get("release", "/home/c00996840/ai/TileXR-deploy/current")).resolve()
     require(release.is_relative_to(Path("/home/c00996840/ai").resolve()), "release_outside_project_parent")
@@ -70,7 +73,7 @@ def run(args, record):
     work.parent.mkdir(exist_ok=True)
     work.mkdir(exist_ok=False)
     record.update(work_directory=str(work), release=str(release), direction="2->3",
-                  payload_bytes=[128, 256, 384, 512], expected_rounds=4,
+                  payload_bytes=[128] if single_round else [128, 256, 384, 512], expected_rounds=expected_rounds,
                   artifact_hashes=args["artifact_hashes"], runner_sha256=args["runner_sha256"])
     record["pre_test_devices"] = devices_state()
     require(all(item["state"] == "idle" for item in record["pre_test_devices"]), "selected_device_busy_or_indeterminate")
@@ -126,6 +129,8 @@ def run(args, record):
         "TILEXR_CCU_AIV_FANOUT_DESCRIPTORS": "1:0:256:128",
         "TILEXR_CCU_AIV_FANOUT_ROUNDS": "1:0:256:128|1:128:512:256|1:512:0:384|1:1024:1024:512",
     })
+    if single_round:
+        environment["TILEXR_CCU_AIV_FANOUT_ROUNDS"] = "1:0:256:128"
     if args.get("trace", False):
         environment.update(TILEXR_CCU_DIRECT_TRACE="1", TILEXR_CCU_DIRECT_TRACE_ENDPOINT_ROUTE="1",
                            ASCEND_PROCESS_LOG_PATH=str(work / "plog"))
@@ -197,7 +202,8 @@ def run(args, record):
                 "payload_validation_failed")
         require(item.get("hostSubmitCallCount") == item.get("hostCcuLaunchCount") == item.get("aivLaunchCount") == (1 if rank == 0 else 0),
                 "launch_count_mismatch")
-    require(results[0].get("roundPassedCount") == results[0].get("roundCount") == results[0]["passed_round_lines"] == 4,
+    require(results[0].get("roundPassedCount") == results[0].get("roundCount") ==
+            results[0]["passed_round_lines"] == expected_rounds,
             "round_validation_failed")
     require(results[0].get("debugMismatches") == 0 and results[0].get("aivSyncRet") == results[0].get("ccuSyncRet") == 0,
             "kernel_or_ccu_completion_failed")
