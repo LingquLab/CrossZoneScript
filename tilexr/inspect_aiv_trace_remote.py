@@ -26,13 +26,15 @@ for rank in [0, 1]:
         content = line.split("TileXRDirectCcuTrace ", 1)[1]
         label = content.split("=", 1)[0].rsplit(" ", 1)[0]
         events[label] += 1
+        if any(key in content for key in ["endpointRoute raCtxEidInfo", "endpointRoute asyncPoll"]):
+            continue
         if not ("endpointRoute " in content or "peerEndpoint " in content or
                 " decoded=" in content and any(key in content for key in
                 ["PfeCtx", "LocalJettyCtx", "ChannelCtxV1", "TransLocMemToRmtMem"])):
             continue
         fields = {}
         for key, value in re.findall(r"(\w+)=([^\s]+)", content):
-            if key == "eidIndex" or not re.search(r"token|eid|handle|addr|va|qp$|imm$", key, re.I):
+            if key == "eidIndex" or not re.search(r"token|eid|handle|addr|va|qp$|imm$|^ctx$|^cq$|^req$", key, re.I):
                 if re.fullmatch(r"-?(?:0x[0-9a-fA-F]+|\d+)", value):
                     fields[key] = int(value, 16 if value.startswith("0x") else 10)
                 elif key == "decoded":

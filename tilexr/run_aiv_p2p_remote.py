@@ -130,6 +130,10 @@ def run(args, record):
         environment.update(TILEXR_CCU_DIRECT_TRACE="1", TILEXR_CCU_DIRECT_TRACE_ENDPOINT_ROUTE="1",
                            ASCEND_PROCESS_LOG_PATH=str(work / "plog"))
         record["trace_enabled"] = True
+    require(isinstance(args.get("force_peer_endpoints", False), bool), "invalid_peer_endpoint_switch")
+    if args.get("force_peer_endpoints", False):
+        environment["TILEXR_CCU_DIRECT_FORCE_PEER_ENDPOINTS"] = "1"
+        record["force_peer_endpoints"] = True
     record["stage"] = "hardware-run"
     started = time.monotonic()
     with (work / "runner.log").open("wb") as output:
@@ -165,11 +169,12 @@ def run(args, record):
                                          if "prepare ret=" in line][:2]
         if args.get("trace", False):
             traces = [line for line in lines if any(key in line for key in [
-                "peerEndpoint created", "peerEndpoint imported", "endpointRoute selectTp",
-                "lowerLayerChannel[", "decoded=ChannelCtx", "decoded=JettyCtx", "afterAiv",
-                "syncResource[", "remoteXnBinding[", "decoded=LocMemToRmtMem"])]
+                "peerEndpoint created", "peerEndpoint imported", "endpointRoute selectedTp",
+                "decoded=PfeCtx", "decoded=ChannelCtx", "decoded=LocalJettyCtx", "afterAiv",
+                "syncResource[", "remoteXnBinding[", "decoded=TransLocMemToRmtMem"])]
             values["trace_summary"] = [re.sub(r'\b\w*(?:[Tt]oken|[Ee]id|Handle|Addr|Va)\w*=\S+',
-                                              '<omitted>', line)[:800] for line in traces[:18]]
+                                              '<omitted>', re.sub(r'\brawWords=\S+', '<omitted>', line))[:800]
+                                       for line in traces[:26]]
         results.append(values)
     record["rank_results"] = results
     record["post_test_devices"] = devices_state()

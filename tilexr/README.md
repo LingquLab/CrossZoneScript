@@ -156,3 +156,9 @@ bounded plog error codes. It never reruns a workload, and omits endpoint IDs,
 addresses, handles and tokens from returned fields. Check the actual two-rank
 route path: the peer-specific path is normally selected only above two ranks,
 unless the explicit peer-endpoint diagnostic switch is enabled.
+
+For a two-rank route comparison, `run_aiv_p2p.py` accepts the explicit boolean
+`force_peer_endpoints`. It sets the existing runtime diagnostic switch after
+clearing inherited variables. This exercises the peer-specific topology path
+without changing the candidate binary; keep its result distinct from the default
+two-rank loop/RTP path and require full payload checks before calling it a fix.
