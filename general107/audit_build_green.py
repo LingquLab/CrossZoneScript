@@ -9,6 +9,7 @@ import subprocess
 ATTEMPTS = {
     '01': ('general-create', 'general-scp', 'general-build-ssh'),
     '02': ('build02-create', 'build02-scp', 'build02-ssh'),
+    '03': ('build03-ssh',),
 }
 
 
@@ -34,7 +35,8 @@ def main():
     assert attempt in ATTEMPTS, 'Unsupported build attempt'
     headers = request.get('headers', False)
     assert type(headers) is bool
-    subject = 'tl-a5-107-general-abi3-build-20261117-' + attempt
+    subject = ('tl-a5-107-general-runner-build-20261117-03' if attempt == '03'
+               else 'tl-a5-107-general-abi3-build-20261117-' + attempt)
     execution = Path(args.args_file).resolve().parent
     assert execution.name == 'execution'
     runs = execution.parents[2]
