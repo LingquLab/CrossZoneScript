@@ -1,4 +1,4 @@
-"""Build a candidate package, run CPU preparation checks, and inspect selected devices."""
+"""Build the candidate core and Host probe, verify reused AIV sources, and run CPU checks."""
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
@@ -95,6 +95,30 @@ def run(args, record):
     shutil.copy2(str(build / "src/comm/libtile-comm.so"), str(package / "lib/libtile-comm.so"))
     require(digest(package / "lib/libtile-comm.so") == digest(build / "src/comm/libtile-comm.so"),
             "packaged_core_differs_from_build")
+    reused_sources = ["tests/ccu/ccu_tilexr_aiv_fanout_kernel.cpp",
+                      "tests/ccu/ccu_tilexr_multi_mission_profile.h",
+                      "tests/ccu/ccu_tilexr_aiv_fanout_launch.cpp",
+                      "src/common/tilexr_kernel_binary_loader.cpp",
+                      "src/common/tilexr_kernel_binary_loader.h"]
+    baseline_source = Path(previous["source_directory"])
+    for relative in reused_sources:
+        require(digest(source / relative) == digest(baseline_source / relative),
+                "reused_aiv_source_changed")
+    record["reused_aiv_source_hashes"] = {name: digest(source / name) for name in reused_sources}
+    cann_root = Path(os.environ["ASCEND_HOME_PATH"]) / "aarch64-linux"
+    cann_lib = cann_root / "lib64"
+    driver_lib = Path(os.environ["ASCEND_DRIVER_PATH"]) / "lib64/driver"
+    probe_source = source / "tests/ccu/ccu_tilexr_direct_smoke_probe.cpp"
+    logged(["c++", "-std=c++14", "-O2", "-DTILEXR_CCU_TESTING=1",
+            "-I", str(source / "src/include"), "-I", str(source / "src/comm"),
+            "-I", str(cann_root / "pkg_inc"), "-I", str(cann_root / "pkg_inc/runtime"),
+            "-I", str(cann_root / "include"), str(probe_source),
+            "-L", str(package / "lib"), "-L", str(cann_lib), "-L", str(driver_lib),
+            "-Wl,-rpath-link," + str(package / "lib"), "-Wl,-rpath-link," + str(cann_lib),
+            "-Wl,-rpath-link," + str(driver_lib), "-ltile-comm", "-lascendcl", "-lruntime",
+            "-ldl", "-pthread", "-o", str(package / "bin/ccu_tilexr_direct_smoke_probe")],
+           "probe-build", 120)
+    record.update(probe_build="PASS", probe_source_sha256=digest(probe_source))
     (package / "REVISION").write_text(args["revision"] + "\n")
     environment = os.environ.copy()
     environment["LD_LIBRARY_PATH"] = str(package / "lib") + ":" + environment.get("LD_LIBRARY_PATH", "")
@@ -117,6 +141,8 @@ def run(args, record):
         (root / (Path(relative).name + ".ldd.log")).write_text(text)
         require(linked.returncode == 0 and "not found" not in text and "undefined symbol:" not in text,
                 "candidate_link_dependencies_unresolved")
+        if relative == "bin/ccu_tilexr_direct_smoke_probe":
+            require(str(package / "lib/libtile-comm.so") in text, "probe_selected_wrong_core")
     dynamic = subprocess.run(["readelf", "-d", str(package / "lib/libtile-comm.so")],
                              capture_output=True, text=True, timeout=10)
     require(dynamic.returncode == 0, "readelf_failed")

@@ -174,7 +174,7 @@ def run(args, record):
         if args.get("trace", False):
             traces = [line for line in lines if any(key in line for key in [
                 "peerEndpoint created", "peerEndpoint imported", "endpointRoute selectedTp",
-                "decoded=PfeCtx", "decoded=ChannelCtx", "decoded=LocalJettyCtx", "afterAiv",
+                "decoded=PfeCtx", "decoded=ChannelCtx", "decoded=LocalJettyCtx", "afterAiv", "failureDebug",
                 "syncResource[", "remoteXnBinding[", "decoded=TransLocMemToRmtMem"])]
             values["trace_summary"] = [re.sub(r'\b\w*(?:[Tt]oken|[Ee]id|Handle|Addr|Va)\w*=\S+',
                                               '<omitted>', re.sub(r'\brawWords=\S+', '<omitted>', line))[:800]

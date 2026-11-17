@@ -107,8 +107,10 @@ exact commit into a worktree under its code root, packages that tree with the
 already available spdlog/picojson dependencies, and streams it over the retained
 SSH setup. `build_debug_remote.py` builds and installs the core in a new
 `/home/c00996840/ai/TileXR-pr229-debug-<revision-prefix>` directory. Its separate
-package reuses unchanged verified probe/AIV artifacts, runs the Host preparation
-check against the new core, and checks ELF dependencies and device occupancy.
+package rebuilds the Host smoke probe from the candidate source and reuses AIV
+artifacts only after their kernel, launcher, loader and local header sources match
+the retained baseline. It records source and binary hashes, runs the Host
+preparation check against the new core, and checks ELF dependencies and device occupancy.
 It does not activate the package or launch an NPU workload. Inspect saved build
 evidence before any retry after failure or interruption.
 
