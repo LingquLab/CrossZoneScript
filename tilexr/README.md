@@ -69,3 +69,22 @@ launch, synchronization results, and final device occupancy. Logs stay under
 `/home/c00996840/ai/TileXR-test/<run_id>` and the matching green session directory.
 Do not replay a failed or interrupted hardware run without inspecting those
 records and device state. This is a correctness smoke test, not a bandwidth claim.
+
+## Project-local rootinfo and prepare diagnostics
+
+`debug_prepare.py` reads the retained prepare failure and invokes the installed
+official `mindcluster-tools rootinfo --output` generator in a new directory under
+`/home/c00996840/ai/TileXR-deploy/config/<run_id>`. It does not use the system
+rootinfo as an input or seed. It copies the generator's referenced topology into
+the same project directory, rewrites that reference, verifies that devices 6 and
+7 have endpoints and a topology edge, and saves configuration hashes. Generated
+addresses, raw topology and generator output remain on green. If the generator
+is unavailable, the diagnostic explicitly reports `rootinfo_prepared: false`;
+there is no fallback to `/etc/hccl_rootinfo.json`.
+
+The hardware helper now requires `rootinfo`, `rootinfo_sha256`, and
+`topology_sha256`. It verifies both files are inside the project configuration
+directory and sets the CCU/UDMA overrides after clearing inherited test variables.
+An environment-cleaning wrapper otherwise discards a shell's rootinfo override
+and silently restores the runtime's system default. Configuration preparation
+does not run an NPU workload or prove communication correctness.

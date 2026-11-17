@@ -55,6 +55,16 @@ def run(args, record):
     source = Path(manifest["source_directory"])
     runner = source / "tests/ccu/run_tilexr_ccu_direct_smoke.sh"
     require(hashlib.sha256(runner.read_bytes()).hexdigest() == args["runner_sha256"], "runner_hash_mismatch")
+    rootinfo = Path(args["rootinfo"]).resolve(strict=True)
+    config_parent = Path("/home/c00996840/ai/TileXR-deploy/config").resolve(strict=True)
+    require(rootinfo.is_relative_to(config_parent), "rootinfo_outside_project_config")
+    require(hashlib.sha256(rootinfo.read_bytes()).hexdigest() == args["rootinfo_sha256"], "rootinfo_hash_mismatch")
+    root_content = json.loads(rootinfo.read_text())
+    topology = Path(root_content["topo_file_path"]).resolve(strict=True)
+    require(topology.parent == rootinfo.parent, "topology_outside_task_config")
+    require(hashlib.sha256(topology.read_bytes()).hexdigest() == args["topology_sha256"], "topology_hash_mismatch")
+    record.update(rootinfo=str(rootinfo), rootinfo_sha256=args["rootinfo_sha256"],
+                  topology=str(topology), topology_sha256=args["topology_sha256"])
     work = Path("/home/c00996840/ai/TileXR-test") / args["run_id"]
     work.parent.mkdir(exist_ok=True)
     work.mkdir(exist_ok=False)
@@ -102,6 +112,8 @@ def run(args, record):
         "TILEXR_RUN_CCU_DIRECT_SMOKE_PROBE": "1", "TILEXR_CCU_RANK_SIZE": "2",
         "TILEXR_CCU_SMOKE_DEVICES": "6,7", "TILEXR_TEST_DEVICES": "6,7",
         "TILEXR_TILE_COMM_LIB": str(release / "lib/libtile-comm.so"),
+        "TILEXR_CCU_HCCL_ROOT_INFO_PATH": str(rootinfo),
+        "TILEXR_UDMA_ROOTINFO_PATH": str(rootinfo),
         "TILEXR_CCU_SMOKE_WORK_DIR": str(work), "TILEXR_CCU_SMOKE_TIMEOUT": "90",
         "TILEXR_CCU_SMOKE_REUSE_PROBE": "1", "TILEXR_CCU_SMOKE_REUSE_FANOUT_KERNEL": "1",
         "TILEXR_CCU_SMOKE_REQUIRE_NPU_SMI": "1", "TILEXR_CCU_SMOKE_ALLOW_BUSY_NPU": "0",
