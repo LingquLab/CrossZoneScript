@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -37,6 +38,76 @@ assert library_path.name == "libra.so" or library_path.name.startswith("libra.so
 library_identity = {"path": str(library_path),
                     "sha256": hashlib.sha256(library_path.read_bytes()).hexdigest()}
 
+
+def cq_string_xrefs(path, disassembler):
+    """Locate stripped CQ helpers by their diagnostic strings; return numeric observations."""
+    data = path.read_bytes()
+    assert data[:6] == b"\x7fELF\x02\x01"
+    program_offset = struct.unpack_from("<Q", data, 32)[0]
+    entry_size, entry_count = struct.unpack_from("<HH", data, 54)
+    segments = []
+    for index in range(entry_count):
+        entry = struct.unpack_from("<IIQQQQQQ", data, program_offset + index * entry_size)
+        if entry[0] == 1:
+            segments.append((entry[2], entry[3], entry[5]))
+    strings = {}
+    for needle in [b"RaHdcCtxCqCreate", b"RaHdcPrepareCqCreate", b"RaCtxPrepareCqCreate"]:
+        start = 0
+        while True:
+            offset = data.find(needle + b"\0", start)
+            if offset < 0:
+                break
+            for file_offset, virtual, size in segments:
+                if file_offset <= offset < file_offset + size:
+                    strings[virtual + offset - file_offset] = needle.decode()
+            start = offset + 1
+    process = subprocess.run([disassembler, "-d", str(path)], capture_output=True,
+                             text=True, timeout=15)
+    assert process.returncode == 0
+    instructions = []
+    for line in process.stdout.splitlines():
+        match = re.match(r"\s*([0-9a-f]+):\s+[0-9a-f]{8}\s+(.+)", line)
+        if match:
+            instructions.append((int(match[1], 16), match[2]))
+    located = []
+    for index, (_, instruction) in enumerate(instructions):
+        adrp = re.match(r"adrp\s+(x\d+),\s*([0-9a-f]+)", instruction)
+        if not adrp:
+            continue
+        for delta in range(1, 7):
+            if index + delta >= len(instructions):
+                break
+            add = re.match(r"add\s+(x\d+),\s*" + adrp[1] + r",\s*#(0x[0-9a-f]+|\d+)\b",
+                           instructions[index + delta][1])
+            if not add:
+                continue
+            target = int(adrp[2], 16) + int(add[2], 0)
+            if target not in strings:
+                continue
+            # The nearest preceding return bounds a code region, not a proven function.
+            begin = index
+            while begin > max(0, index - 240) and not instructions[begin - 1][1].startswith("ret"):
+                begin -= 1
+            end = index + delta
+            while end < min(len(instructions) - 1, index + 160) and not instructions[end][1].startswith("ret"):
+                end += 1
+            region = instructions[begin:end + 1]
+            accesses = []
+            for _, text in region:
+                access = re.match(r"(ldr\w*|str\w*|ldp|stp)\s+([wx]\d+)(?:,\s*[wx]\d+)?"
+                                  r",\s*\[(x\d+|sp)(?:,\s*#(0x[0-9a-f]+|\d+))?\]", text)
+                if access:
+                    accesses.append({"op": access[1], "width": access[2][0], "base": access[3],
+                                     "offset": int(access[4] or "0", 0)})
+            calls = [text.split("<", 1)[1].split(">", 1)[0].split("+", 1)[0]
+                     for _, text in region if text.startswith("bl\t") and "<" in text]
+            located.append({"diagnostic": strings[target], "instruction_count": len(region),
+                            "accesses": accesses[:50], "named_calls": sorted(set(calls))[:18],
+                            "extension_offset_accesses": [item for item in accesses
+                                                          if item["offset"] in [36, 40]]})
+    return {"diagnostic_strings_found": sorted(set(strings.values())), "regions": located[:2],
+            "region_boundary_is_heuristic": True}
+
 headers = []
 for root in [Path("/usr/local/Ascend/cann-9.1.0/aarch64-linux/include"),
              Path("/usr/local/Ascend/driver/include")]:
@@ -66,12 +137,16 @@ if objdump:
                 loads.append({"op": match[1], "width": match[2][0], "base": match[3],
                               "offset": int(match[4] or "0", 0)})
         binary_functions.append({"name": name, "exit_code": process.returncode,
-                                 "found": any("<" + name + ">:" in line for line in lines),
+                                 "found": any(re.search("<" + name + r"(?:@@[^>]*)?>:", line)
+                                              for line in lines),
                                  "loads": loads[:50]})
+
+stripped_helpers = cq_string_xrefs(library_path, objdump) if objdump else {}
 
 output = {"inspection_only": True, "npu_workload_run": False, "run_id": args["run_id"],
           "revision": saved["revision"], "library": library_identity, "headers": headers[:8],
           "objdump_available": objdump is not None, "binary_functions": binary_functions,
+          "stripped_helpers": stripped_helpers,
           "resolution_context": "deployment_environment_probe_not_saved_process_map",
           "offsets_are_observations_not_a_forwarding_proof": True}
 print("CZ_CQ_ABI_INSPECT " + json.dumps(output))
