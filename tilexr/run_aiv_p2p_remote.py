@@ -72,7 +72,7 @@ def run(args, record):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(release / original), str(target))
 
-    # Use the repository's own selected-device health parser; Alarm is allowed by AGENTS.md.
+    # Keep a task-local health allowance for this explicitly requested bounded smoke.
     guard_path = source / "tests/ccu/ccu_npu_smi_busy_guard.py"
     require(hashlib.sha256(guard_path.read_bytes()).hexdigest() == args["guard_sha256"], "health_guard_hash_mismatch")
     spec = importlib.util.spec_from_file_location("ccu_guard", str(guard_path))
@@ -83,9 +83,16 @@ def run(args, record):
     require(smi.returncode == 0, "npu_health_query_failed")
     unhealthy, observed = guard.parse_unhealthy_devices(smi.stdout, {6, 7})
     require(observed == {6, 7}, "selected_device_health_indeterminate")
-    require(all(health.upper() == "ALARM" for _, health in unhealthy), "selected_device_health_unusable")
+    allowed_health = set(args.get("allowed_health", ["OK", "ALARM"]))
+    require(allowed_health <= {"OK", "ALARM", "WARNING"} and "OK" in allowed_health,
+            "invalid_health_allowance")
+    record["selected_health"] = [{"device": device, "health": dict(unhealthy).get(device, "OK")}
+                                 for device in [6, 7]]
+    record["allowed_health"] = sorted(allowed_health)
+    require(all(health.upper() in allowed_health for _, health in unhealthy), "selected_device_health_unusable")
     require(not guard.parse_busy_processes(smi.stdout, {6, 7}), "selected_device_became_busy")
-    record["alarm_devices"] = [device for device, _ in unhealthy]
+    record["alarm_devices"] = [device for device, health in unhealthy if health.upper() == "ALARM"]
+    record["warning_devices"] = [device for device, health in unhealthy if health.upper() == "WARNING"]
 
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(("TILEXR_", "HCCL_", "MOONEP_"))

@@ -56,9 +56,12 @@ unique `run_id`, `runner_sha256`, `guard_sha256`, and release-relative
 rank 0 on NPU 6 and rank 1 on NPU 7, reusing verified deployed binaries.
 Four loop requests send 128, 256, 384, and 512 bytes from rank 0 to rank 1.
 
-The helper checks selected-device occupancy immediately before launching,
-rejects busy or indeterminate devices, and allows Alarm only after verifying
-that every selected non-OK health is Alarm. Each rank has a 90-second deadline;
+The helper checks selected-device occupancy immediately before launching and
+rejects busy or indeterminate devices. `allowed_health` defaults to OK/Alarm.
+For the requested short retest on the already selected devices, it can also
+contain Warning; the helper records each actual health value and uses the
+runner's task-local health override only after checking the allowed values.
+Fault and unrecognized states cannot be allowed. Each rank has a 90-second deadline;
 the enclosing runner has a 135-second deadline and only its own process group
 is terminated on timeout. Result assertions cover both device mappings,
 payload correctness, four completed rounds, exactly one sender-side Host/CCU/AIV
