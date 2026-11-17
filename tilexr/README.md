@@ -143,3 +143,9 @@ its accepted range starts at 120 seconds. Use 120 for the HCCL connect/execute
 settings and retain a separate outer process deadline. A rejected setup with no
 communication submitted is not a failed communication qualification; preserve
 its logs, correct only that setup, and complete the intended qualification.
+
+After the matching CCU qualification succeeds, reuse it. A TileXR smoke may set
+`trace: true` to collect endpoint/plan trace and after-AIV state in a fresh work
+directory. Returned summaries omit endpoint identities, addresses and token
+values; complete logs remain green-local. Keep trace runs distinct from the
+correctness/performance baseline.

@@ -126,6 +126,10 @@ def run(args, record):
         "TILEXR_CCU_AIV_FANOUT_DESCRIPTORS": "1:0:256:128",
         "TILEXR_CCU_AIV_FANOUT_ROUNDS": "1:0:256:128|1:128:512:256|1:512:0:384|1:1024:1024:512",
     })
+    if args.get("trace", False):
+        environment.update(TILEXR_CCU_DIRECT_TRACE="1", TILEXR_CCU_DIRECT_TRACE_ENDPOINT_ROUTE="1",
+                           ASCEND_PROCESS_LOG_PATH=str(work / "plog"))
+        record["trace_enabled"] = True
     record["stage"] = "hardware-run"
     started = time.monotonic()
     with (work / "runner.log").open("wb") as output:
@@ -152,13 +156,20 @@ def run(args, record):
         tokens = dict(re.findall(r"(\w+)=([^\s]+)", summaries[-1])) if summaries else {}
         fields = ["rank", "rankSize", "device", "active", "roundCount", "roundPassedCount",
                   "hostSubmitCallCount", "hostCcuLaunchCount", "aivLaunchCount", "aivSyncRet", "ccuSyncRet",
-                  "destinationReadRet", "mappingOnly", "mappingReady", "mappingReleaseRet", "mismatches", "debugMismatches", "passed"]
+                  "destinationReadRet", "debugReadRet", "debugStage", "debugProgress", "mappingOnly", "mappingReady", "mappingReleaseRet", "mismatches", "debugMismatches", "passed"]
         values = {key: int(tokens[key]) for key in fields if key in tokens and re.fullmatch(r"-?\d+", tokens[key])}
         values["expected_device"] = device
         values["expected_rank"] = rank
         values["passed_round_lines"] = sum(line.startswith("tilexr_ccu_aiv_fanout round ") and "passed=1" in line for line in lines)
         values["prepare_diagnostics"] = [line[:950] for line in lines
                                          if "prepare ret=" in line][:2]
+        if args.get("trace", False):
+            traces = [line for line in lines if any(key in line for key in [
+                "peerEndpoint created", "peerEndpoint imported", "endpointRoute selectTp",
+                "lowerLayerChannel[", "decoded=ChannelCtx", "decoded=JettyCtx", "afterAiv",
+                "syncResource[", "remoteXnBinding[", "decoded=LocMemToRmtMem"])]
+            values["trace_summary"] = [re.sub(r'\b\w*(?:[Tt]oken|[Ee]id|Handle|Addr|Va)\w*=\S+',
+                                              '<omitted>', line)[:800] for line in traces[:18]]
         results.append(values)
     record["rank_results"] = results
     record["post_test_devices"] = devices_state()
