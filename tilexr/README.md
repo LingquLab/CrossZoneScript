@@ -46,3 +46,23 @@ A directory name does not establish a system account. A failed attempt found
 that lookup stopped relocation before any file changes. Use the existing parent
 directory's numeric ownership, including when the UID has no passwd entry; do
 not create accounts or infer ownership from the path spelling.
+
+## Authorized AIV-to-CCU point-to-point retest
+
+`run_aiv_p2p.py` uses the session's retained SSH setup for 141.61.73.107 and
+streams `run_aiv_p2p_remote.py`. Pass `host`, `revision`, `devices: [6, 7]`, a
+unique `run_id`, `runner_sha256`, `guard_sha256`, and release-relative
+`artifact_hashes`. It runs the PR's canonical two-rank AIV fanout runner with
+rank 0 on NPU 6 and rank 1 on NPU 7, reusing verified deployed binaries.
+Four loop requests send 128, 256, 384, and 512 bytes from rank 0 to rank 1.
+
+The helper checks selected-device occupancy immediately before launching,
+rejects busy or indeterminate devices, and allows Alarm only after verifying
+that every selected non-OK health is Alarm. Each rank has a 90-second deadline;
+the enclosing runner has a 135-second deadline and only its own process group
+is terminated on timeout. Result assertions cover both device mappings,
+payload correctness, four completed rounds, exactly one sender-side Host/CCU/AIV
+launch, synchronization results, and final device occupancy. Logs stay under
+`/home/c00996840/ai/TileXR-test/<run_id>` and the matching green session directory.
+Do not replay a failed or interrupted hardware run without inspecting those
+records and device state. This is a correctness smoke test, not a bandwidth claim.
