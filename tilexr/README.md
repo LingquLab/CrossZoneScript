@@ -137,3 +137,9 @@ data-plane debugging until that environment is repaired or replaced.
 The installed HCCL Test parses `HCCL_TEST_USE_DEVS` before calling
 `aclrtSetDevice(dev_id)`. Set it to `2,3`; a framework's visible-device variable
 alone does not establish the physical devices selected by this native binary.
+
+CANN 9.1 rejects `HCCL_CONNECT_TIMEOUT=60` before `HcclGetRootInfo` can complete;
+its accepted range starts at 120 seconds. Use 120 for the HCCL connect/execute
+settings and retain a separate outer process deadline. A rejected setup with no
+communication submitted is not a failed communication qualification; preserve
+its logs, correct only that setup, and complete the intended qualification.

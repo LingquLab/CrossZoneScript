@@ -71,7 +71,7 @@ def run(args, record):
     environment.update({
         "LD_LIBRARY_PATH": "/usr/local/mpi/mpich/lib:" + environment.get("LD_LIBRARY_PATH", ""),
         "PATH": "/usr/local/mpi/mpich/bin:" + environment.get("PATH", ""),
-        "HCCL_TEST_USE_DEVS": "2,3", "HCCL_CONNECT_TIMEOUT": "60", "HCCL_EXEC_TIMEOUT": "60",
+        "HCCL_TEST_USE_DEVS": "2,3", "HCCL_CONNECT_TIMEOUT": "120", "HCCL_EXEC_TIMEOUT": "120",
         "ASCEND_PROCESS_LOG_PATH": str(root / "plog"), "ASCEND_GLOBAL_LOG_LEVEL": "3",
     })
     namespace_script = root / "private-rootinfo.sh"
