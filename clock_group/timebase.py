@@ -9,9 +9,22 @@ from alltoall.common import arguments, CONTAINER, ssh
 
 revision = arguments()['revision']
 assert re.fullmatch('[0-9a-f]{40}', revision)
+root = '/opt/sim/alltoall-clock-group-' + revision[:8] + '-20261117'
 query = '''import hashlib,json,os,pathlib,re,shutil,subprocess,time
 toolkit=pathlib.Path('/opt/sim/Ascend/cann-9.1.0')
-if shutil.which('rg'):
+root=pathlib.Path(ROOT_VALUE)
+depdir=root/'build/CMakeFiles/direct_two_group_clock_object.dir'
+used=set();dependency_files=[]
+for dependency in list(depdir.glob('*.o.d'))+list(depdir.glob('compiler_depend.*')):
+ if not dependency.is_file() or dependency.stat().st_size>4000000:continue
+ dependency_files.append(dependency.name)
+ for token in dependency.read_text(errors='replace').replace(chr(92)+chr(10),' ').split():
+  if 'kernel_operator_sys_var_' in token and token.endswith('.h'):
+   p=pathlib.Path(token.rstrip(':'))
+   if p.is_file():used.add(str(p.resolve()))
+if used:
+ paths=list(used);method='compiler_dependencies'
+elif shutil.which('rg'):
  p=subprocess.run(['rg','--files','--follow',str(toolkit),'-g','*sys_var*'],
                   capture_output=True,text=True,timeout=40)
  paths=p.stdout.splitlines();method='rg'
@@ -24,8 +37,12 @@ else:
   seen.add(real)
   paths.extend(str(pathlib.Path(directory)/name) for name in files if 'sys_var' in name)
 paths=sorted(set(str(pathlib.Path(p).resolve()) for p in paths),
-             key=lambda p:('dav_c310' not in p,'impl' not in p,p))
-out=dict(read_only=True,simulation_launched=False,scan_method=method,candidates=len(paths),snippets=[],includes=[])
+             key=lambda p:('dav_m310' not in p,'dav_c310' not in p,'impl' not in p,p))
+flags=(depdir/'flags.make').read_text(errors='replace') if (depdir/'flags.make').is_file() else ''
+out=dict(read_only=True,simulation_launched=False,scan_method=method,candidates=len(paths),snippets=[],includes=[],
+         dependency_files=dependency_files,used_sys_var_headers=sorted(used),
+         compiled_arch=re.findall(r'--cce-aicore-arch=([^\\s]+)',flags),
+         cpu_debug_defined='-DASCENDC_CPU_DEBUG=1' in flags)
 lines_left=8
 for name in paths[:120]:
  path=pathlib.Path(name)
@@ -36,13 +53,15 @@ for name in paths[:120]:
  out['includes'].append(dict(path=name,headers=re.findall(r'#include\\s+[<"]([^>"]+)',text)[:12]))
  if lines_left:
   i=hits[0];start=i;count=min(4,lines_left)
+  for j in range(i+1,min(len(lines),i+35)):
+   if 'return ' in lines[j] and re.search(r'get_.*\\(',lines[j]):start=max(i,j-1);break
   out['snippets'].append(dict(path=name,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
                               line=start+1,code=lines[start:start+count]))
   lines_left-=count
  if len(out['includes'])==8:break
 out['exported_code_lines']=8-lines_left
 print(json.dumps(out))
-'''
+'''.replace('ROOT_VALUE', repr(root))
 host = '''import json,subprocess
 p=subprocess.run(['docker','inspect',NAME_VALUE],capture_output=True,text=True,timeout=10,check=True)
 c=json.loads(p.stdout)[0]
