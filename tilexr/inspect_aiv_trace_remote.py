@@ -45,8 +45,16 @@ for rank in [0, 1]:
                   "selected_fields": selected[:35]})
 plog_errors = []
 first_errors = []
+transport_errors = []
 for path in sorted((work / "plog").rglob("*.log"))[:30]:
     for line in path.read_text(errors="replace").splitlines():
+        if "[ERROR]" in line and re.search(r"HCCP|URMA|RDMA|jetty|jfc|jfs|transport", line, re.I):
+            sites = re.findall(r"\[([\w./-]+\.(?:cc|cpp|c|h):\d+)\]", line)
+            fields = dict(re.findall(
+                r"\b(ret|retCode|errno|errCode|errorCode|status|subStatus|devId|device_id|dieId|tpn|qpId)"
+                r"[=:\[]\s*(-?(?:0x[0-9a-fA-F]+|\d+))", line))
+            if len(transport_errors) < 16:
+                transport_errors.append({"file": path.name, "sites": sites[:2], "fields": fields})
         if "[ERROR]" in line and re.search(r"ccu|synchronize|timeout", line, re.I) and len(first_errors) < 6:
             if not re.search(r"token|password|secret|\beid\b", line, re.I):
                 safe_line = re.sub(r"0x[0-9a-fA-F]{9,}", "<address omitted>", line)
@@ -60,4 +68,5 @@ error_definitions = [line.strip() for line in header.read_text().splitlines()
                      if re.search(r"\b(?:507046|507056)\b", line)][:4]
 print("CZ_TRACE_INSPECT " + json.dumps({"inspection_only": True, "npu_workload_run": False,
       "run_id": args["run_id"], "ranks": ranks, "plog_errors": plog_errors[:15],
-      "first_errors": first_errors, "error_definitions": error_definitions}))
+      "first_errors": first_errors, "transport_errors": transport_errors,
+      "error_definitions": error_definitions}))
