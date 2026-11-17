@@ -9,12 +9,23 @@ from alltoall.common import arguments, CONTAINER, ssh
 
 revision = arguments()['revision']
 assert re.fullmatch('[0-9a-f]{40}', revision)
-query = '''import hashlib,json,pathlib,re,subprocess
+query = '''import hashlib,json,os,pathlib,re,shutil,subprocess,time
 toolkit=pathlib.Path('/opt/sim/Ascend/cann-9.1.0')
-p=subprocess.run(['rg','--files','--follow',str(toolkit),'-g','*sys_var*'],
-                 capture_output=True,text=True,timeout=40)
-paths=sorted(set(p.stdout.splitlines()),key=lambda p:('dav_c310' not in p,'impl' not in p,p))
-out=dict(read_only=True,simulation_launched=False,candidates=len(paths),snippets=[],includes=[])
+if shutil.which('rg'):
+ p=subprocess.run(['rg','--files','--follow',str(toolkit),'-g','*sys_var*'],
+                  capture_output=True,text=True,timeout=40)
+ paths=p.stdout.splitlines();method='rg'
+else:
+ paths=[];seen=set();deadline=time.monotonic()+40;method='python_walk'
+ for directory,children,files in os.walk(toolkit,followlinks=True):
+  if time.monotonic()>deadline:raise TimeoutError('bounded CANN header scan expired')
+  real=os.path.realpath(directory)
+  if real in seen:children[:]=[];continue
+  seen.add(real)
+  paths.extend(str(pathlib.Path(directory)/name) for name in files if 'sys_var' in name)
+paths=sorted(set(str(pathlib.Path(p).resolve()) for p in paths),
+             key=lambda p:('dav_c310' not in p,'impl' not in p,p))
+out=dict(read_only=True,simulation_launched=False,scan_method=method,candidates=len(paths),snippets=[],includes=[])
 lines_left=8
 for name in paths[:120]:
  path=pathlib.Path(name)
