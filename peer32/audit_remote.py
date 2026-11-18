@@ -63,15 +63,18 @@ for label in labels:
             records = profile.decode(actual[len(golden):], cfg['clock'], rank, 'single')
             assert records == row['phase_records']
             decoded.append(dict(phase_records=records))
-    phase = None
+    phase = None; windows = None
     if mode == 'profile':
         phase = profile.summarize(decoded, cfg['clock'], 'single')
         assert phase == report['phase_profile'] == summary['phase_profile']
+        windows = profile.stats([max(r['stamps'][3] for r in rank['phase_records'])-
+            min(r['stamps'][2] for r in rank['phase_records']) for rank in decoded])
+        assert windows == summary['communication_window']
     elapsed = report['phases']['simulation']['simulated_us']
     assert elapsed == summary['simulated_us'] and elapsed > 0
     rows.append(dict(label=label, mode=mode, bytes_per_peer=summary['bytes_per_peer'], validated=True,
         ranks=32, records=phase['records'] if phase else 0, simulated_us=elapsed,
-        phase_groups=phase['groups'] if phase else None, communication_window=summary['communication_window'],
+        phase_groups=phase['groups'] if phase else None, communication_window=windows,
         kernel_sha256=expected))
 print(json.dumps(dict(status='audited', runtime_commit=revision, simulation_launched=False,
     case_count=len(rows), source_hashes_verified=True, deployed_kernels_verified=True,
