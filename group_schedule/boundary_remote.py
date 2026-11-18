@@ -12,6 +12,8 @@ sys.path.insert(0,str(root/'source/tools/unitest'))
 from controller import direct_group_schedule as schedule
 
 peer=args['peer_bytes'];stage=args['stage'];entry=32768
+prefix='margin-' if stage.startswith('margin-') else ''
+phase_stage=stage[len(prefix):]
 work=root/('boundary-'+str(peer));work.mkdir(exist_ok=True)
 receipt=work/(stage+'.json')
 assert not receipt.exists(),'inspect existing stage before retry'
@@ -28,6 +30,7 @@ def write(name,data):
     target.write_text(json.dumps(data,indent=2))
 
 def one(mode,label,budget=None,delay=None):
+    label=prefix+label
     spec=dict(mode=mode,trace='perf',peer_bytes=peer,label='boundary-'+str(peer)+'-'+label,
               width=32,entry_target=entry,plan_id=2,max_wait_cycles=1000000,simulation_timeout=1800)
     if budget is not None:spec['targets']=[entry+budget]
@@ -57,7 +60,7 @@ def compact(row):
                 simulated_us=row['simulated_us'],**{k:phase[k] for k in keep})
 
 rows=[]
-if stage=='baseline':
+if phase_stage=='baseline':
     rows.append(one('sync','sync-warmup'))
     rows.extend(one('sync','base-r'+str(i)) for i in (1,2))
     training=[r['schedule_profile'] for r in rows[1:]]
@@ -65,20 +68,22 @@ if stage=='baseline':
     guard=max(256,max(s['body_budget'] for s in training)-min(s['body_budget'] for s in training))
     boot=schedule.bootstrap_boundary_budget(training,bootstrap_guard=guard)
     result=dict(bootstrap=boot,calls=[compact(r) for r in rows])
-elif stage=='bootstrap':
+elif phase_stage=='bootstrap':
     boot=read('baseline')['bootstrap']
     rows=[one('local-cross','boot-r'+str(i),boot['B_boot']) for i in (1,2,3)]
     training=[r['schedule_profile'] for r in rows]
-    phase_guard=max(256,max(s['first_phase_budget'] for s in training)-min(s['first_phase_budget'] for s in training))
+    phase_floor=1024 if prefix else 256
+    phase_guard=max(phase_floor,max(s['first_phase_budget'] for s in training)-min(s['first_phase_budget'] for s in training))
     ready_guard=max(256,max(s['cross_ready_budget'] for s in training)-min(s['cross_ready_budget'] for s in training))
     frozen=schedule.freeze_boundary_budget(training,phase_guard=phase_guard,ready_guard=ready_guard)
     frozen.update(epsilon=0,g_min=0,spread_max=max(s['spread'] for s in training)+256,
                   entry=entry,peer_bytes=peer,ranks=64,blocks=64,reference_basis='identity_assumption',
                   runtime_commit=args['revision'],trace='perf',bootstrap=boot)
-    write('frozen',frozen)
+    if prefix:frozen.update(calibration_round='margin-1024',phase_guard_floor=1024)
+    write(prefix+'frozen',frozen)
     result=dict(frozen=frozen,calls=[compact(r) for r in rows])
-elif stage=='verify':
-    frozen=read('frozen')
+elif phase_stage=='verify':
+    frozen=read(prefix+'frozen')
     assert frozen['entry']==entry and frozen['peer_bytes']==peer and frozen['runtime_commit']==args['revision']
     rows=[one('local-cross','clock-warmup',frozen['B']),one('no-gate','no-gate-warmup')]
     # Fresh fixtures, predetermined order and three independent samples per mode.
@@ -110,4 +115,4 @@ else:
 result.update(runtime_commit=args['revision'],stage=stage,peer_bytes=peer,total_bytes_per_rank=64*peer,
               physical_clock_calibration_verified=False,simulator_counter_frequency_verified=False)
 receipt.write_text(json.dumps(result,indent=2));print(json.dumps(result),flush=True)
-if stage=='verify':assert result['accepted'],'frozen clock boundary rejected; retain all evidence'
+if phase_stage=='verify':assert result['accepted'],'frozen clock boundary rejected; retain all evidence'

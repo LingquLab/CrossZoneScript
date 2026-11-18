@@ -10,8 +10,9 @@ args=arguments()
 assert set(args)=={'revision','peer_bytes','stage'}
 assert re.fullmatch('[0-9a-f]{40}',args['revision'])
 assert args['peer_bytes'] in (512,8192,65536,262144)
-assert args['stage'] in ('baseline','bootstrap','verify','late-entry')
+assert args['stage'] in ('baseline','bootstrap','verify','late-entry','margin-bootstrap','margin-verify')
 assert args['stage']!='late-entry' or args['peer_bytes']==512
+assert not args['stage'].startswith('margin-') or args['peer_bytes'] in (65536,262144)
 root='/opt/sim/alltoall-group-schedule-'+args['revision'][:8]+'-20261118'
 source=Path(__file__).with_name('boundary_remote.py').read_text()
 case_source=Path(__file__).with_name('case_remote.py').read_text()
