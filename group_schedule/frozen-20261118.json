@@ -1,0 +1,498 @@
+{
+  "frozen_at_utc": "2026-11-18T05:32:53.661465+00:00",
+  "revision": "10bb64c4eaa826d9683a466150c99f202d122667",
+  "selection": "fastest zero-miss zero-error clock tuning sample per size; final data never used for retuning",
+  "scope": "64 ranks, 64 AIV/rank, SST single call; status recording symmetric except original object",
+  "warmup_per_arm": 1,
+  "measured_per_arm": 3,
+  "groups": [
+    {
+      "peer_bytes": 512,
+      "clock": {
+        "width": 32,
+        "targets": [
+          6144
+        ]
+      },
+      "warmup": [
+        "final512b-original-warmup",
+        "final512b-sync-warmup",
+        "final512b-no-gate-warmup",
+        "final512b-local-cross-warmup"
+      ],
+      "rounds": [
+        [
+          "final512b-original-r1",
+          "final512b-sync-r1",
+          "final512b-no-gate-r1",
+          "final512b-local-cross-r1"
+        ],
+        [
+          "final512b-local-cross-r2",
+          "final512b-no-gate-r2",
+          "final512b-sync-r2",
+          "final512b-original-r2"
+        ],
+        [
+          "final512b-sync-r3",
+          "final512b-original-r3",
+          "final512b-local-cross-r3",
+          "final512b-no-gate-r3"
+        ]
+      ]
+    },
+    {
+      "peer_bytes": 8192,
+      "clock": {
+        "width": 32,
+        "targets": [
+          6144
+        ]
+      },
+      "warmup": [
+        "final8k-original-warmup",
+        "final8k-sync-warmup",
+        "final8k-no-gate-warmup",
+        "final8k-local-cross-warmup"
+      ],
+      "rounds": [
+        [
+          "final8k-original-r1",
+          "final8k-sync-r1",
+          "final8k-no-gate-r1",
+          "final8k-local-cross-r1"
+        ],
+        [
+          "final8k-local-cross-r2",
+          "final8k-no-gate-r2",
+          "final8k-sync-r2",
+          "final8k-original-r2"
+        ],
+        [
+          "final8k-sync-r3",
+          "final8k-original-r3",
+          "final8k-local-cross-r3",
+          "final8k-no-gate-r3"
+        ]
+      ]
+    },
+    {
+      "peer_bytes": 65536,
+      "clock": {
+        "width": 8,
+        "targets": [
+          6144,
+          10240,
+          14336,
+          18432
+        ]
+      },
+      "warmup": [
+        "final64k-original-warmup",
+        "final64k-sync-warmup",
+        "final64k-no-gate-warmup",
+        "final64k-local-cross-warmup"
+      ],
+      "rounds": [
+        [
+          "final64k-original-r1",
+          "final64k-sync-r1",
+          "final64k-no-gate-r1",
+          "final64k-local-cross-r1"
+        ],
+        [
+          "final64k-local-cross-r2",
+          "final64k-no-gate-r2",
+          "final64k-sync-r2",
+          "final64k-original-r2"
+        ],
+        [
+          "final64k-sync-r3",
+          "final64k-original-r3",
+          "final64k-local-cross-r3",
+          "final64k-no-gate-r3"
+        ]
+      ]
+    }
+  ],
+  "batches": [
+    {
+      "name": "final512b-part1",
+      "cases": [
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-original-warmup"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-sync-warmup"
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-no-gate-warmup"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-local-cross-warmup",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-original-r1"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-sync-r1"
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-no-gate-r1"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-local-cross-r1",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        }
+      ]
+    },
+    {
+      "name": "final512b-part2",
+      "cases": [
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-local-cross-r2",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-no-gate-r2"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-sync-r2"
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-original-r2"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-sync-r3"
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-original-r3"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-local-cross-r3",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 512,
+          "label": "final512b-no-gate-r3"
+        }
+      ]
+    },
+    {
+      "name": "final8k-part1",
+      "cases": [
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-original-warmup"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-sync-warmup"
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-no-gate-warmup"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-local-cross-warmup",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-original-r1"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-sync-r1"
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-no-gate-r1"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-local-cross-r1",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        }
+      ]
+    },
+    {
+      "name": "final8k-part2",
+      "cases": [
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-local-cross-r2",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-no-gate-r2"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-sync-r2"
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-original-r2"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-sync-r3"
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-original-r3"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-local-cross-r3",
+          "width": 32,
+          "targets": [
+            6144
+          ]
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 8192,
+          "label": "final8k-no-gate-r3"
+        }
+      ]
+    },
+    {
+      "name": "final64k-part1",
+      "cases": [
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-original-warmup"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-sync-warmup"
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-no-gate-warmup"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-local-cross-warmup",
+          "width": 8,
+          "targets": [
+            6144,
+            10240,
+            14336,
+            18432
+          ]
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-original-r1"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-sync-r1"
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-no-gate-r1"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-local-cross-r1",
+          "width": 8,
+          "targets": [
+            6144,
+            10240,
+            14336,
+            18432
+          ]
+        }
+      ]
+    },
+    {
+      "name": "final64k-part2",
+      "cases": [
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-local-cross-r2",
+          "width": 8,
+          "targets": [
+            6144,
+            10240,
+            14336,
+            18432
+          ]
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-no-gate-r2"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-sync-r2"
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-original-r2"
+        },
+        {
+          "mode": "sync",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-sync-r3"
+        },
+        {
+          "mode": "original",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-original-r3"
+        },
+        {
+          "mode": "local-cross",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-local-cross-r3",
+          "width": 8,
+          "targets": [
+            6144,
+            10240,
+            14336,
+            18432
+          ]
+        },
+        {
+          "mode": "no-gate",
+          "trace": "perf",
+          "peer_bytes": 65536,
+          "label": "final64k-no-gate-r3"
+        }
+      ]
+    }
+  ]
+}
