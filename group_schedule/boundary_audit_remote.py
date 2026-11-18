@@ -1,4 +1,4 @@
-"""从保留的69次独立调用重算预算和验收；不构建、不启动仿真、不修改结果。"""
+"""重算四档与独立余量复验的预算和验收，保留阴性结果；不修改或重跑实验。"""
 import contextlib
 import io
 import json
@@ -7,6 +7,7 @@ import statistics
 import sys
 
 root, revision = Path(BOUNDARY_ROOT_VALUE), BOUNDARY_REV_VALUE
+margin_peers = MARGIN_PEERS_VALUE
 sys.path.insert(0, str(root / 'source/tools/unitest'))
 from controller import direct_group_schedule as schedule
 
@@ -17,9 +18,11 @@ suffixes = ['sync-warmup', 'base-r1', 'base-r2'] + ['boot-r' + str(i) for i in (
 suffixes += ['clock-warmup', 'no-gate-warmup']
 suffixes += [mode + '-r' + str(i) for i, modes in enumerate(orders, 1) for mode in modes]
 labels = ['boundary-' + str(peer) + '-' + suffix for peer in peers for suffix in suffixes]
+labels += ['boundary-' + str(peer) + '-margin-' + suffix
+           for peer in margin_peers for suffix in suffixes[3:]]
 fault_label = 'boundary-512-late-entry-r63'
 labels.append(fault_label)
-assert len(labels) == len(set(labels)) == 69
+assert len(labels) == len(set(labels)) == 69 + 14 * len(margin_peers)
 actual_labels = {path.name for path in (root / 'cases').iterdir()}
 assert actual_labels == set(labels), 'missing or unexpected case; inspect inventory before completion'
 
@@ -33,7 +36,7 @@ with contextlib.redirect_stdout(capture):
     exec(compile(audit_source, 'audit_remote.py', 'exec'), {})
 audit = json.loads(capture.getvalue())
 assert audit['status'] == 'audited' and audit['runtime_commit'] == revision
-assert audit['case_count'] == 69 and audit['all_owned_processes_clean']
+assert audit['case_count'] == len(labels) and audit['all_owned_processes_clean']
 
 
 def load(path):
@@ -87,41 +90,39 @@ def stage(peer, name, calls):
     return data
 
 
-def guard(samples, field):
+def guard(samples, field, floor=256):
     values = [sample[field] for sample in samples]
-    return max(256, max(values) - min(values))
+    return max(floor, max(values) - min(values))
 
 
-sizes = []
-for peer in peers:
-    baseline_calls = [case(peer, suffix, 'sync') for suffix in suffixes[:3]]
-    baseline = stage(peer, 'baseline', baseline_calls)
-    samples = [row['schedule_profile'] for row in baseline_calls[1:]]
-    boot = schedule.bootstrap_boundary_budget(samples, bootstrap_guard=guard(samples, 'body_budget'))
-    assert boot == baseline['bootstrap']
-    training_calls = [case(peer, 'boot-r' + str(i), 'local-cross', boot['B_boot']) for i in (1, 2, 3)]
-    training = stage(peer, 'bootstrap', training_calls)
+def audit_round(peer, boot, prefix='', phase_floor=256):
+    training_calls = [case(peer, prefix + 'boot-r' + str(i), 'local-cross', boot['B_boot']) for i in (1, 2, 3)]
+    training = stage(peer, prefix + 'bootstrap', training_calls)
     samples = [row['schedule_profile'] for row in training_calls]
-    frozen = schedule.freeze_boundary_budget(samples, phase_guard=guard(samples, 'first_phase_budget'),
+    frozen = schedule.freeze_boundary_budget(samples, phase_guard=guard(samples, 'first_phase_budget', phase_floor),
                                              ready_guard=guard(samples, 'cross_ready_budget'))
     frozen.update(epsilon=0, g_min=0, spread_max=max(sample['spread'] for sample in samples) + 256,
                   entry=32768, peer_bytes=peer, ranks=64, blocks=64, reference_basis='identity_assumption',
                   runtime_commit=revision, trace='perf', bootstrap=boot)
-    assert frozen == training['frozen'] == load(root / ('boundary-' + str(peer)) / 'frozen.json')
-    calls = [case(peer, 'clock-warmup', 'local-cross', frozen['B']), case(peer, 'no-gate-warmup', 'no-gate')]
+    if prefix:
+        frozen.update(calibration_round='margin-1024', phase_guard_floor=1024)
+    assert frozen == training['frozen'] == load(root / ('boundary-' + str(peer)) / (prefix + 'frozen.json'))
+    calls = [case(peer, prefix + 'clock-warmup', 'local-cross', frozen['B']),
+             case(peer, prefix + 'no-gate-warmup', 'no-gate')]
     measured = []
     acceptance = []
     for i, modes in enumerate(orders, 1):
         for mode in modes:
-            row = case(peer, mode + '-r' + str(i), mode, frozen['B'] if mode == 'local-cross' else None)
+            row = case(peer, prefix + mode + '-r' + str(i), mode, frozen['B'] if mode == 'local-cross' else None)
             calls.append(row)
             measured.append(row)
             if mode == 'local-cross':
                 acceptance.append(schedule.evaluate_boundary(row['schedule_profile'], epsilon=frozen['epsilon'],
                     g_min=frozen['g_min'], spread_max=frozen['spread_max']))
-    verify = stage(peer, 'verify', calls)
+    verify = stage(peer, prefix + 'verify', calls)
     assert verify['frozen'] == frozen and verify['acceptance'] == acceptance
-    assert verify['accepted'] and all(row['accepted'] for row in acceptance)
+    accepted = all(row['accepted'] for row in acceptance)
+    assert type(verify['accepted']) is bool and verify['accepted'] == accepted
     tables = []
     for mode in ('sync', 'no-gate', 'local-cross'):
         group = [row for row in measured if row['mode'] == mode]
@@ -133,16 +134,34 @@ for peer in peers:
             gaps=[row['schedule_profile']['gap'] for row in group],
             spreads=[row['schedule_profile']['spread'] for row in group], entry_on_time=True))
     assert tables == verify['tables']
-    sizes.append(dict(peer_bytes=peer, total_bytes_per_rank=64 * peer, frozen=frozen,
-                      accepted=True, acceptance=acceptance, tables=tables))
+    return dict(frozen=frozen, accepted=accepted, acceptance=acceptance, tables=tables)
+
+
+sizes = []
+for peer in peers:
+    baseline_calls = [case(peer, suffix, 'sync') for suffix in suffixes[:3]]
+    baseline = stage(peer, 'baseline', baseline_calls)
+    samples = [row['schedule_profile'] for row in baseline_calls[1:]]
+    boot = schedule.bootstrap_boundary_budget(samples, bootstrap_guard=guard(samples, 'body_budget'))
+    assert boot == baseline['bootstrap']
+    row = dict(peer_bytes=peer, total_bytes_per_rank=64 * peer, **audit_round(peer, boot))
+    if peer in margin_peers:
+        row['margin'] = audit_round(peer, boot, prefix='margin-', phase_floor=1024)
+    sizes.append(row)
 
 fault_call = case(512, 'late-entry-r63', 'local-cross', sizes[0]['frozen']['B'], fault=True)
 fault = stage(512, 'late-entry', [fault_call])
 rejection = schedule.evaluate_boundary(fault_call['schedule_profile'], epsilon=0, g_min=0,
                                      spread_max=sizes[0]['frozen']['spread_max'])
 assert fault['expected_rejection'] and fault['acceptance'] == rejection and not rejection['accepted']
+assert all(row['records'] == 4096 and row['ranks'] == 64 for row in audit['records'])
+audit.pop('records')
 audit.update(read_only=True, inventory_exact=True, incomplete_labels=[],
              budgets_recomputed=True, frozen_targets_verified=True, statistics_recomputed=True,
-             payload_passed_cases=69, measured_calls=36, calibration_calls=20, independent_preruns=12,
-             expected_fault_cases=1, fault_expected_rejection_verified=True, sizes=sizes)
+             payload_passed_cases=len(labels), measured_calls=36 + 9 * len(margin_peers),
+             calibration_calls=20 + 3 * len(margin_peers), independent_preruns=12 + 2 * len(margin_peers),
+             expected_fault_cases=1, fault_expected_rejection_verified=True, margin_peers=margin_peers,
+             audited_labels=labels, records_per_case=4096, total_records=4096 * len(labels),
+             initial_boundary_accepted=all(row['accepted'] for row in sizes),
+             final_configuration_accepted=all(row.get('margin', row)['accepted'] for row in sizes), sizes=sizes)
 print(json.dumps(audit), flush=True)
