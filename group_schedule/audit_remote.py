@@ -69,12 +69,30 @@ for label in labels:
     if mode != 'original':
         phase = schedule.summarize(decoded, cfg['schedule'], trace == 'profile')
         assert phase == report['schedule_profile'] == summary['schedule_profile']
+    diagnostic_overlap = None
+    if phase and trace == 'profile':
+        metrics = []
+        for rank_row in decoded:
+            records = rank_row['schedule_records']
+            if not all(r['clock_valid'] for r in records):
+                continue
+            value = {}
+            for prefix, same in (('same', True), ('cross', False)):
+                group = [r for r in records if r['same_group'] == same]
+                other = [r for r in records if r['same_group'] != same]
+                begin, end = schedule._phase_indices(mode, not same)
+                value[prefix+'_ledger_other_communication_overlap'] = schedule._overlap(
+                    [(r['stamps'][13],r['stamps'][28]) for r in group],
+                    [(r['stamps'][begin],r['stamps'][end]) for r in other])
+            metrics.append(value)
+        diagnostic_overlap = {key: schedule._stats([r[key] for r in metrics]) for key in (
+            'same_ledger_other_communication_overlap','cross_ledger_other_communication_overlap')}
     elapsed = report['phases']['simulation']['simulated_us']
     assert elapsed == summary['simulated_us'] and elapsed > 0
     rows.append(dict(label=label, mode=mode, bytes_per_peer=summary['bytes_per_peer'], validated=True,
         ranks=64, records=phase['records'] if phase else 0, simulated_us=elapsed,
         schedule_profile={k:v for k,v in phase.items() if k!='ranks'} if phase else None,
-        kernel_sha256=expected))
+        diagnostic_dma_overlap=diagnostic_overlap, kernel_sha256=expected))
 print(json.dumps(dict(status='audited', runtime_commit=revision, simulation_launched=False,
     case_count=len(rows), source_hashes_verified=True, deployed_kernels_verified=True,
     loaded_libraries_verified=True, launch_geometry_verified=True,

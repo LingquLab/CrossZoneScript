@@ -27,6 +27,14 @@ if mode!='original':
     cfg['schedule']=schedule.identity_schedule(mode,targets,width=width,
         plan_id=spec.get('plan_id',1),max_wait_cycles=spec.get('max_wait_cycles',1000000),
         delay_cycles=spec.get('delay_cycles'))
+    if 'model_reference_error_cycles' in spec or 'model_rate_q32' in spec:
+        cfg['schedule']['model_source']='ready_drift_snapshot'
+        for rank, model in enumerate(cfg['schedule']['models']):
+            sign=1 if rank%2 else -1
+            model['reference_anchor']=sign*spec.get('model_reference_error_cycles',0)
+            model['rate_correction_q32']=sign*spec.get('model_rate_q32',0)
+        schedule.validate(cfg['schedule'])
+(output/'experiment.json').write_text(json.dumps(spec,indent=2))
 (output/'config.json').write_text(json.dumps(cfg,indent=2))
 cfg=mem.load_config(output/'config.json',cfg)
 report=mem.run(cfg,case,dict(mode='single',profiling=dict(enabled=False)),{},output)
