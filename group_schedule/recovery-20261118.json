@@ -1,0 +1,77 @@
+{
+  "revision": "10bb64c4eaa826d9683a466150c99f202d122667",
+  "recovery_event": "green-c6713dc55e6b4b5c81c93157ef6c72e7",
+  "container_started": true,
+  "active_sst_count": 0,
+  "owned_runner_count": 0,
+  "retained_complete": {
+    "label": "final64k-local-cross-r2",
+    "simulated_us": 37.9629,
+    "payload_valid": true,
+    "misses": 0,
+    "scheduling_errors": 0,
+    "cleanup": true
+  },
+  "interrupted_original": {
+    "label": "final64k-no-gate-r2",
+    "summary_exists": false,
+    "report_status": "running",
+    "saved_phases": [],
+    "no_process_receipt": true
+  },
+  "replacement_labels": {
+    "final64k-no-gate-r2": "final64k-no-gate-r2-resumed"
+  },
+  "remaining_cases": [
+    {
+      "mode": "no-gate",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-no-gate-r2-resumed"
+    },
+    {
+      "mode": "sync",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-sync-r2"
+    },
+    {
+      "mode": "original",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-original-r2"
+    },
+    {
+      "mode": "sync",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-sync-r3"
+    },
+    {
+      "mode": "original",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-original-r3"
+    },
+    {
+      "mode": "local-cross",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-local-cross-r3",
+      "width": 8,
+      "targets": [
+        6144,
+        10240,
+        14336,
+        18432
+      ]
+    },
+    {
+      "mode": "no-gate",
+      "trace": "perf",
+      "peer_bytes": 65536,
+      "label": "final64k-no-gate-r3"
+    }
+  ],
+  "parameter_retuning": false
+}
