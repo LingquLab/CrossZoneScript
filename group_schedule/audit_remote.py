@@ -7,6 +7,7 @@ import sys
 import yaml
 
 root, revision, labels = Path(ROOT_VALUE), REV_VALUE, LABELS_VALUE
+compact = COMPACT_VALUE
 sys.path.insert(0, str(root/'source/tools/unitest'))
 from controller import direct_group_schedule as schedule, memory_sst as mem
 
@@ -89,10 +90,15 @@ for label in labels:
             'same_ledger_other_communication_overlap','cross_ledger_other_communication_overlap')}
     elapsed = report['phases']['simulation']['simulated_us']
     assert elapsed == summary['simulated_us'] and elapsed > 0
-    rows.append(dict(label=label, mode=mode, bytes_per_peer=summary['bytes_per_peer'], validated=True,
-        ranks=64, records=phase['records'] if phase else 0, simulated_us=elapsed,
-        schedule_profile={k:v for k,v in phase.items() if k!='ranks'} if phase else None,
-        diagnostic_dma_overlap=diagnostic_overlap, kernel_sha256=expected))
+    row = dict(label=label, mode=mode, bytes_per_peer=summary['bytes_per_peer'], validated=True,
+        ranks=64, records=phase['records'] if phase else 0, simulated_us=elapsed)
+    if compact:
+        row.update(scheduling_misses=phase['scheduling_misses'] if phase else 0,
+                   scheduling_errors=phase['scheduling_errors'] if phase else 0)
+    else:
+        row.update(schedule_profile={k:v for k,v in phase.items() if k!='ranks'} if phase else None,
+                   diagnostic_dma_overlap=diagnostic_overlap, kernel_sha256=expected)
+    rows.append(row)
 print(json.dumps(dict(status='audited', runtime_commit=revision, simulation_launched=False,
     case_count=len(rows), source_hashes_verified=True, deployed_kernels_verified=True,
     loaded_libraries_verified=True, launch_geometry_verified=True,
