@@ -21,12 +21,14 @@ case_path=output/'case.json';case_path.write_text(json.dumps(raw))
 case=load_case(case_path,list(range(64)))
 cfg=dict(schema='tilexr.unitest.sst.memory.v1',rank_size=64,suite_output=str(suite),
     build_report=str(root/('build-'+key+'.json')),environment_report=str(root/'environment-report.json'),
-    threads=64,simulation_timeout=900,iterations=1)
+    threads=64,simulation_timeout=spec.get('simulation_timeout',900),iterations=1)
 if mode!='original':
     width=spec.get('width',32);targets=spec.get('targets',[0]*(32//width))
     cfg['schedule']=schedule.identity_schedule(mode,targets,width=width,
         plan_id=spec.get('plan_id',1),max_wait_cycles=spec.get('max_wait_cycles',1000000),
         delay_cycles=spec.get('delay_cycles'))
+    if 'entry_target' in spec:
+        cfg['schedule']=schedule.boundary_schedule(cfg['schedule'],spec['entry_target'])
     if 'model_reference_error_cycles' in spec or 'model_rate_q32' in spec:
         cfg['schedule']['model_source']='ready_drift_snapshot'
         for rank, model in enumerate(cfg['schedule']['models']):
