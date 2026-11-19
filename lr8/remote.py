@@ -107,7 +107,7 @@ def run():
         anchor = 'PROFILE_STREAMS, PROFILE_CAPACITY = 33, 256'
         assert suite.count(anchor) == 1
         suite = suite.replace(anchor, 'PROFILE_STREAMS, PROFILE_CAPACITY = 33, 512')
-    if any(ranks * elements * 4 > 128 * 1024**2 for ranks, elements in ARGS['cases']):
+    if any(ranks * ranks * elements * 4 > 128 * 1024**2 for ranks, elements in ARGS['cases']):
         with open('/proc/meminfo', encoding='ascii') as info:
             available_kib = next(int(line.split()[1]) for line in info if line.startswith('MemAvailable:'))
         assert available_kib >= 32 * 1024**2
