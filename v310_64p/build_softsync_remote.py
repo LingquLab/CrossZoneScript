@@ -6,7 +6,7 @@ import shutil
 import subprocess
 
 source_package = Path('/work/src/dispatch_memory_64p_handoff')
-destination = Path('/work/results/v310-native-64p-softsync-build-20261119-01')
+destination = Path('/work/results/v310-native-64p-softsync-build-20261119-02')
 relative_header = 'kernel/source/src/ep/kernels/tilexr_ep_dispatch_memory_kernel.h'
 binary = destination/'tilexr_ep_dispatch_memory_kernel.o'
 result = {'binary': str(binary), 'sst_started': False}
@@ -24,12 +24,17 @@ try:
     replacement = b'''        // Simulator-only workspace supplied through the unused scale pointer (quantMode=0).
         AscendC::GlobalTensor<int32_t> syncGlobal;
         syncGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(
-            dynamicScalesOutGMTensor_.GetPhyAddr()), aivNum_ * 8U);
+            simulationSyncWorkspaceGM_), aivNum_ * 8U);
         // Both roles have finished using this scratch before the barrier, and overwrite it on reuse.
         AscendC::SyncAll(syncGlobal, subExpBuf_.Get<int32_t>(), static_cast<int32_t>(aivNum_));
 '''
     assert baseline.count(source) == 1, 'SYNCALL_CALL_SITE_IDENTITY'
-    changed = baseline.replace(source, replacement)
+    declaration = b'    GlobalTensor<uint8_t> dynamicScalesOutGMTensor_;\n'
+    initialization = b'    dynamicScalesOutGMTensor_.SetGlobalBuffer(reinterpret_cast<__gm__ uint8_t *>(dynamicScalesOut));\n'
+    assert baseline.count(declaration) == baseline.count(initialization) == 1, 'WORKSPACE_POINTER_IDENTITY'
+    changed = baseline.replace(declaration, declaration+b'    GM_ADDR simulationSyncWorkspaceGM_{nullptr};\n')
+    changed = changed.replace(initialization, initialization+b'    simulationSyncWorkspaceGM_ = dynamicScalesOut;\n')
+    changed = changed.replace(source, replacement)
     header.write_bytes(changed)
     sums = package/'SHA256SUMS'
     lines = sums.read_text().splitlines()
