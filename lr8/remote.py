@@ -101,8 +101,16 @@ def run():
         stream.extractall(sources, filter='data')
     assert digest(sources / 'SOURCE_LOCK.json') == LOCK['source_lock_sha256']
     worker = base64.b64decode(DATA[1], validate=True)
+    if ARGS.get('cq_gm_doorbell'):
+        anchor = b'SPLIT_UDMA_WRITES=splitting, CQ_GM_DOORBELL=0)'
+        assert worker.count(anchor) == 1
+        worker = worker.replace(anchor, b'SPLIT_UDMA_WRITES=splitting, CQ_GM_DOORBELL=int(label == variant))')
     (ROOT / 'kernel_worker.py').write_bytes(worker)
     suite = base64.b64decode(DATA[2], validate=True).decode('utf-8').replace('\r\n', '\n')
+    if ARGS.get('cq_gm_doorbell'):
+        anchor = 'cq_store_instruction="st_dev", cq_address_contract='
+        assert suite.count(anchor) == 1
+        suite = suite.replace(anchor, 'cq_store_instruction="mte3", cq_address_contract=')
     if ARGS.get('profiling', False):
         anchor = 'PROFILE_STREAMS, PROFILE_CAPACITY = 33, 256'
         assert suite.count(anchor) == 1
