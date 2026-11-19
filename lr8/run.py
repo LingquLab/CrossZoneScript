@@ -32,6 +32,8 @@ def main():
     settings = args.get('schedules', [0])
     assert all(type(value) is int and 0 <= value <= 0xFFFFFFFF for value in settings)
     assert 1 <= len(settings) <= 12 and len(settings) == len(set(settings))
+    if args.get('tune'):
+        assert args.get('profiling') and 'schedules' not in args
     for commit in (revision, TOOL, GENERATOR):
         git('fetch', '--no-tags', 'origin', commit)
     with tempfile.TemporaryDirectory() as temp:

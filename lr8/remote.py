@@ -56,6 +56,30 @@ def phase_boundaries(destination, ranks):
     return dict(first_send_cycle=first, last_quiet_cycle=last,
                 gap_cycles=[begin - end for begin, end in zip(first[1:], last)])
 
+def select_period(measure, seed):
+    """Bracket a valid period, refine the boundary, then rank valid samples by SST time."""
+    trials = {}
+    low = 0
+    high = None
+    period = max(1, seed)
+    for _ in range(7):
+        row = measure(period, 'search')
+        trials[period] = row
+        if min(row['gap_cycles']) >= 0:
+            high = period
+        else:
+            low = period
+        if high is None:
+            period = min(0xfffffffe, period + max(64, period // 8, -min(row['gap_cycles'])))
+        else:
+            period = (low + high) // 2
+        if period == 0 or period in trials:
+            break
+    valid = [trial for trial in trials.values() if min(trial['gap_cycles']) >= 0]
+    if not valid:
+        raise RuntimeError('No valid LR8 clock period in the measured search')
+    return min(valid, key=lambda row: (row['simulated_us'], row['schedule']))['schedule']
+
 def run():
     global STAGE, STARTED, ROOT
     actual = docker('image', 'inspect', '--format', '{{.Id}}', IMAGE).decode().strip()
@@ -89,7 +113,7 @@ def run():
         assert available_kib >= 32 * 1024**2
         assert suite.count('1024 ** 3') == 2
         suite = suite.replace('1024 ** 3', '8 * 1024 ** 3')
-    if any(ARGS.get('schedules', [])):
+    if ARGS.get('tune') or any(ARGS.get('schedules', [])):
         anchor = '    from case_tools import preflight\n\n    output = Path(config["suite_output"])'
         assert suite.count(anchor) == 1
         adapter = '''
@@ -141,8 +165,8 @@ def run():
     print(json.dumps(dict(runtime_commit=LOCK['runtime_commit'], generator_commit=LOCK['tooling_commit'],
                           binary_sha256=manifest['binary_sha256'], transport=manifest['features'])), flush=True)
     for ranks, elements in ARGS['cases']:
-        for setting in ARGS.get('schedules', [0]):
-            label = f'{ranks}p-{elements}i32-{setting}'
+        def measure(setting, sample):
+            label = f'{ranks}p-{elements}i32-{setting}-{sample}'
             sim_timeout = ARGS.get('simulation_timeout', 600)
             options = dict(environment_report='/work/environment', suite_output='/work/' + label,
                            rank_size=ranks, elements_per_peer=elements, threads=min(ranks, 32),
@@ -151,11 +175,29 @@ def run():
             phase('run', options, sim_timeout + 240, 'run-' + label)
             case = ROOT / label
             result = json.loads((case / 'execution.json').read_text())
-            row = dict(ranks=ranks, elements_per_peer=elements, schedule=setting,
-                       verified=True, simulated_us=result['simulated_us'])
+            row = dict(ranks=ranks, elements_per_peer=elements, schedule=setting, sample=sample,
+                       payload_verified=True, simulated_us=result['simulated_us'])
             if config['stage_profiling']:
                 row.update(phase_boundaries(case / 'stage-profiling', ranks))
             print(json.dumps(row), flush=True)
+            return row
+
+        if not ARGS.get('tune'):
+            for setting in ARGS.get('schedules', [0]):
+                measure(setting, 'measurement')
+            continue
+
+        baseline = measure(0, 'measurement')
+        measure(0xffffffff, 'measurement')
+        prior_groups = baseline['last_quiet_cycle'][:-1]
+        if not prior_groups:
+            measure(1, 'measurement')
+            continue
+        seed = max((end + index - 1) // index for index, end in enumerate(prior_groups, 1))
+        period = select_period(measure, seed)
+        final = measure(period, 'confirmation')
+        if min(final['gap_cycles']) < 0:
+            raise RuntimeError('Selected LR8 clock period overlapped in confirmation')
 
 try:
     run()
