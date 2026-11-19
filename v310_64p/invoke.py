@@ -14,6 +14,9 @@ def main():
     operation = args['operation']
     assert operation in ('run', 'status', 'report')
     source = Path(__file__).with_name(operation + '_remote.py').read_bytes()
+    if operation == 'run':
+        diagnostic = Path(__file__).with_name('sst_crash_trace.c').read_bytes()
+        source = ('crash_trace_source = ' + repr(diagnostic) + '\n').encode() + source
     command = ['ssh', '-i', str(Path.home()/'.ssh/deploy_ed25519'),
                '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
                '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10',

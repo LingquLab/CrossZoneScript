@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib,json,os,re,shutil,subprocess,time
 sim=Path('/opt/sim/simulator')
 source=sim/'Testcases/dispatch_memory_64p_top6_profile'
-case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run04')
+case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run05_debug')
 package=Path('/work/src/dispatch_memory_64p_handoff')
 sha='7bcb77bf4be8f61cbc8172180e8ef877de40010ef3070943a5f88bd6cf09f625'
 def digest(data):
@@ -87,23 +87,34 @@ try:
     check=json.loads((case/'preflight.log').read_text())
     assert (check['status'], check['world_size'], check['input_golden_members'], check['profile_dump_regions'])==('PASS',64,448,128)
     state['preflight']=check
+    cc = shutil.which('gcc') or shutil.which('cc')
+    assert cc, 'HOST_C_COMPILER_MISSING'
+    c_file = case / 'sst_crash_trace.c'
+    c_file.write_bytes(crash_trace_source)
+    assert stage('compile-diagnostic', [cc, '-g', '-O2', '-Wall', '-Wextra', '-Werror',
+                  '-shared', '-fPIC', str(c_file), '-o', str(case/'sst_crash_trace.so')], 30) == 0, 'CRASH_DIAGNOSTIC_COMPILE_FAILED'
+    state['crash_diagnostic_compiled'] = True
     assert active_sst()==0,'SST_ALREADY_ACTIVE'
     state['sst_threads']=min(20,len(os.sched_getaffinity(0)))
     state['sst_started']=True
-    command='source /opt/sim/sst-env.sh && export SST_PATH=/opt/sim/local/sstcore SST_CONFIG_FILE_PATH=/opt/sim/simulator/config/sst-plugins.conf SST_CONFIG_FILE_PATH_SEPARATOR=: && ulimit -n 524288 && exec timeout -k 15s 1800s sst -n "$1" ./test_UBusSim.py'
+    command='source /opt/sim/sst-env.sh && export SST_PATH=/opt/sim/local/sstcore SST_CONFIG_FILE_PATH=/opt/sim/simulator/config/sst-plugins.conf SST_CONFIG_FILE_PATH_SEPARATOR=: && ulimit -n 524288 && exec timeout -k 15s 1800s env LD_PRELOAD="$PWD/sst_crash_trace.so" sst -n "$1" ./test_UBusSim.py'
     start=time.monotonic()
     rc=stage('run',['bash','-lc',command,'launch',str(state['sst_threads'])],1840)
     state['sst_wall_seconds']=round(time.monotonic()-start,3)
     finish=[]
     interesting=[]
+    captured_stack=[]
     with (case/'run.log').open(errors='replace') as log:
         for line in log:
+            if line.startswith('[sst-crash]') or captured_stack and len(captured_stack)<12:
+                captured_stack.append(line.strip()[:250])
             hit=re.search(r'Simulation is complete, simulated time:\s*([0-9.]+)\s*(ps|ns|us|ms|s)',line)
             if hit: finish.append([float(hit[1]),hit[2]])
             if len(interesting)<8:
                 for label in ('FATAL','Unknown low level','Unsupported instructions','Traceback','Out of memory','Killed'):
                     if label in line: interesting.append(label)
     state['completion_times']=finish[:8]
+    state['crash_backtrace']=captured_stack
     state['log_error_kinds']=sorted(set(interesting))
     assert rc==0 and len(finish)==1 and not interesting,'SST_INCOMPLETE'
     assert stage('output-generator',['python3','-B','output_generator.py','v310_config'],300)==0,'OUTPUT_GENERATOR_FAILED'
@@ -117,7 +128,7 @@ try:
     state['status']='SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
 except (AssertionError,OSError,KeyError,ValueError,subprocess.TimeoutExpired) as error:
     state['status']='STOPPED'
-    reasons={'UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
+    reasons={'HOST_C_COMPILER_MISSING','CRASH_DIAGNOSTIC_COMPILE_FAILED','UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
     state['reason']=str(error) if str(error) in reasons else type(error).__name__
     if state['reason']=='PREFLIGHT_FAILED':
         text=(case/'preflight.log').read_text(errors='replace')

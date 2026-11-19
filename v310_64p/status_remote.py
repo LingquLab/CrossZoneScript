@@ -1,6 +1,6 @@
 from pathlib import Path
 import json,os,re,time
-case=Path('/opt/sim/simulator/Testcases/dispatch_memory_64p_top6_profile_bridge_20261119_run04')
+case=Path('/opt/sim/simulator/Testcases/dispatch_memory_64p_top6_profile_bridge_20261119_run05_debug')
 r={'case_exists':case.is_dir(),'own_sst_processes':0}
 receipt=case/'bridge-run-receipt.json'
 if receipt.is_file():
