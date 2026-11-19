@@ -171,12 +171,14 @@ def run():
             options = dict(environment_report='/work/environment', suite_output='/work/' + label,
                            rank_size=ranks, elements_per_peer=elements, threads=min(ranks, 32),
                            simulation_timeout=sim_timeout, lr8_schedule=setting)
-            phase('prepare', options, 600, 'prepare-' + label)
+            phase('prepare', dict(options, fullmesh_routing=ARGS.get('routing', 'installed')),
+                  600, 'prepare-' + label)
             phase('run', options, sim_timeout + 240, 'run-' + label)
             case = ROOT / label
             result = json.loads((case / 'execution.json').read_text())
             row = dict(ranks=ranks, elements_per_peer=elements, schedule=setting, sample=sample,
-                       payload_verified=True, simulated_us=result['simulated_us'])
+                       payload_verified=True, simulated_us=result['simulated_us'],
+                       routing=ARGS.get('routing', 'installed'))
             if config['stage_profiling']:
                 row.update(phase_boundaries(case / 'stage-profiling', ranks))
             print(json.dumps(row), flush=True)
