@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib,json,os,re,shutil,subprocess,time
 sim=Path('/opt/sim/simulator')
 source=sim/'Testcases/dispatch_memory_64p_top6_profile'
-case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run03')
+case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run04')
 package=Path('/work/src/dispatch_memory_64p_handoff')
 sha='7bcb77bf4be8f61cbc8172180e8ef877de40010ef3070943a5f88bd6cf09f625'
 def digest(data):
@@ -74,14 +74,21 @@ try:
     orig['workload_sha256']=digest(staged)
     (case/'manifest.json').write_text(json.dumps(orig,indent=2)+'\n')
     state['phase_wall_seconds']['stage_case']=round(time.monotonic()-stage_start,3)
-    assert (case/'UBusSim_config/UBusSim_simulator_config.yml').is_file()
+    ubus_config=case/'UBusSim_config/UBusSim_simulator_config.yml'
+    simulator_cfg=ubus_config.read_bytes()
+    patched, count=re.subn(rb'(?m)^([ \t]*stat_trace_flag:[ \t]*&stat_trace_flag[ \t]+)True(?=[ \t\r\n]*(?:#|$))',rb'\g<1>False',simulator_cfg)
+    assert count==1,'UBUS_TRACE_CONFIG_NOT_IDENTIFIED'
+    ubus_config.write_bytes(patched)
+    state['ubus_trace_disabled']=True
+    state['ubus_config_sha256_before']=digest(simulator_cfg)
+    state['ubus_config_sha256_after']=digest(patched)
     assert (case/'UBusSim_config/UBusSim_simulator_config_topo.yml').is_file()
     assert stage('preflight',['python3','-B',str(package/'generator/preflight_64p.py'),'--testcase',str(case)],120)==0,'PREFLIGHT_FAILED'
     check=json.loads((case/'preflight.log').read_text())
     assert (check['status'], check['world_size'], check['input_golden_members'], check['profile_dump_regions'])==('PASS',64,448,128)
     state['preflight']=check
     assert active_sst()==0,'SST_ALREADY_ACTIVE'
-    state['sst_threads']=min(8,len(os.sched_getaffinity(0)))
+    state['sst_threads']=min(20,len(os.sched_getaffinity(0)))
     state['sst_started']=True
     command='source /opt/sim/sst-env.sh && export SST_PATH=/opt/sim/local/sstcore SST_CONFIG_FILE_PATH=/opt/sim/simulator/config/sst-plugins.conf SST_CONFIG_FILE_PATH_SEPARATOR=: && ulimit -n 524288 && exec timeout -k 15s 1800s sst -n "$1" ./test_UBusSim.py'
     start=time.monotonic()
@@ -110,7 +117,7 @@ try:
     state['status']='SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
 except (AssertionError,OSError,KeyError,ValueError,subprocess.TimeoutExpired) as error:
     state['status']='STOPPED'
-    reasons={'SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
+    reasons={'UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
     state['reason']=str(error) if str(error) in reasons else type(error).__name__
     if state['reason']=='PREFLIGHT_FAILED':
         text=(case/'preflight.log').read_text(errors='replace')
