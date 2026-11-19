@@ -29,6 +29,9 @@ def main():
     for ranks, elements in args['cases']:
         assert ranks in (8, 16, 32, 64)
         assert elements in (128, 512 * 1024 // (ranks * 4), 4 * 1024**2 // (ranks * 4), 16 * 1024**2 // (ranks * 4))
+    settings = args.get('schedules', [0])
+    assert all(type(value) is int and 0 <= value <= 0xFFFFFFFF for value in settings)
+    assert 1 <= len(settings) <= 12 and len(settings) == len(set(settings))
     for commit in (revision, TOOL, GENERATOR):
         git('fetch', '--no-tags', 'origin', commit)
     with tempfile.TemporaryDirectory() as temp:

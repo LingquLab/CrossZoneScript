@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -20,13 +21,48 @@ def docker(*args):
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def phase_boundaries(destination, ranks):
+    groups = (ranks + 14) // 16
+    starts = [[] for _ in range(groups)]
+    completions = [[] for _ in range(groups)]
+    for rank in range(ranks):
+        data = (destination / f'rank{rank}.records.bin').read_bytes()
+        offset = 48
+        while offset < len(data):
+            stream, count, _, _, size = struct.unpack_from('<IIIIQ', data, offset)
+            core = stream & 0xffff
+            samples = list(struct.iter_unpack('<QII', data[offset + 24:offset + size]))
+            assert count == len(samples)
+            offset += size
+            if core >= 32:
+                continue
+            lane, route = core % 16, core // 16
+            active = []
+            for group in range(groups):
+                distance = group * 8 + lane % 8 + 1
+                if distance > ranks // 2 or (lane >= 8 and distance == ranks // 2):
+                    continue
+                peer = (rank + (distance if lane < 8 else -distance)) % ranks
+                if route == 0 or rank // 8 != peer // 8:
+                    active.append(group)
+            posted = [tick for tick, event, _ in samples if event == 10]
+            quiet = [tick for tick, event, _ in samples if event == 17]
+            assert len(active) == len(posted) == len(quiet)
+            for group, begin, end in zip(active, posted, quiet):
+                starts[group].append(begin)
+                completions[group].append(end)
+    first = [min(group) for group in starts]
+    last = [max(group) for group in completions]
+    return dict(first_send_cycle=first, last_quiet_cycle=last,
+                gap_cycles=[begin - end for begin, end in zip(first[1:], last)])
+
 def run():
     global STAGE, STARTED, ROOT
     actual = docker('image', 'inspect', '--format', '{{.Id}}', IMAGE).decode().strip()
     assert actual == IMAGE_ID
     ROOT = Path(tempfile.mkdtemp(prefix=NAME + '-', dir='/opt'))
     cid = docker('run', '--pull=never', '-dt', '--name', NAME, '--runtime=ascend',
-                 '--ipc=shareable', '--shm-size=64m', '--ulimit', 'nofile=524288:524288',
+                 '--ipc=shareable', '--shm-size=4g',
                  '--mount', 'type=bind,src=' + str(ROOT) + ',dst=/work', IMAGE, '/bin/bash', '-l').decode().strip()
     STARTED = True
     assert docker('inspect', '--format', '{{.Id}} {{.Image}}', NAME).decode().split() == [cid, IMAGE_ID]
@@ -43,6 +79,29 @@ def run():
     worker = base64.b64decode(DATA[1], validate=True)
     (ROOT / 'kernel_worker.py').write_bytes(worker)
     suite = base64.b64decode(DATA[2], validate=True).decode('utf-8').replace('\r\n', '\n')
+    if ARGS.get('profiling', False):
+        anchor = 'PROFILE_STREAMS, PROFILE_CAPACITY = 33, 256'
+        assert suite.count(anchor) == 1
+        suite = suite.replace(anchor, 'PROFILE_STREAMS, PROFILE_CAPACITY = 33, 512')
+    if any(ranks * elements * 4 > 128 * 1024**2 for ranks, elements in ARGS['cases']):
+        with open('/proc/meminfo', encoding='ascii') as info:
+            available_kib = next(int(line.split()[1]) for line in info if line.startswith('MemAvailable:'))
+        assert available_kib >= 32 * 1024**2
+        assert suite.count('1024 ** 3') == 2
+        suite = suite.replace('1024 ** 3', '8 * 1024 ** 3')
+    if any(ARGS.get('schedules', [])):
+        anchor = '    from case_tools import preflight\n\n    output = Path(config["suite_output"])'
+        assert suite.count(anchor) == 1
+        adapter = '''
+    parameter_values = rt.parameters
+    def scheduled_parameters(*args):
+        values = parameter_values(*args)
+        values['reservedProfiling'] = config['lr8_schedule']
+        return values
+    rt.parameters = scheduled_parameters
+'''
+        suite = suite.replace(anchor, '    from case_tools import preflight\n' + adapter
+                              + '\n    output = Path(config["suite_output"])')
     (ROOT / 'suite.py').write_text(suite, encoding='utf-8')
     (ROOT / 'worker.py').write_text(
         "import sys, types\n"
@@ -62,7 +121,7 @@ def run():
         source_lock_sha256=LOCK['source_lock_sha256'], cann_root='/opt/sim/Ascend/cann-9.1.0',
         driver_root='/usr/local/Ascend/driver', cann_env=cann_env, cann_env_sha256=hashes[0].split()[0],
         ubus_library=ubus, ubus_sha256=hashes[1].split()[0], kernel_name='urma_lr8',
-        sim_variant='sim-split1', stage_profiling=0,
+        sim_variant='sim-split1', stage_profiling=int(ARGS.get('profiling', False)),
         suite_adapter_sha256=hashlib.sha256(suite.encode()).hexdigest())
 
     def phase(mode, options, timeout, log_name):
@@ -82,20 +141,27 @@ def run():
     print(json.dumps(dict(runtime_commit=LOCK['runtime_commit'], generator_commit=LOCK['tooling_commit'],
                           binary_sha256=manifest['binary_sha256'], transport=manifest['features'])), flush=True)
     for ranks, elements in ARGS['cases']:
-        label = f'{ranks}p-{elements}i32'
-        sim_timeout = ARGS.get('simulation_timeout', 600)
-        options = dict(environment_report='/work/environment', suite_output='/work/' + label,
-                       rank_size=ranks, elements_per_peer=elements, threads=min(ranks, 32),
-                       simulation_timeout=sim_timeout)
-        phase('prepare', options, 250, 'prepare-' + label)
-        phase('run', options, sim_timeout + 240, 'run-' + label)
-        result = json.loads((ROOT / label / 'execution.json').read_text())
-        print(json.dumps(dict(ranks=ranks, elements_per_peer=elements, verified=True,
-                              simulated_us=result['simulated_us'])), flush=True)
+        for setting in ARGS.get('schedules', [0]):
+            label = f'{ranks}p-{elements}i32-{setting}'
+            sim_timeout = ARGS.get('simulation_timeout', 600)
+            options = dict(environment_report='/work/environment', suite_output='/work/' + label,
+                           rank_size=ranks, elements_per_peer=elements, threads=min(ranks, 32),
+                           simulation_timeout=sim_timeout, lr8_schedule=setting)
+            phase('prepare', options, 600, 'prepare-' + label)
+            phase('run', options, sim_timeout + 240, 'run-' + label)
+            case = ROOT / label
+            result = json.loads((case / 'execution.json').read_text())
+            row = dict(ranks=ranks, elements_per_peer=elements, schedule=setting,
+                       verified=True, simulated_us=result['simulated_us'])
+            if config['stage_profiling']:
+                row.update(phase_boundaries(case / 'stage-profiling', ranks))
+            print(json.dumps(row), flush=True)
 
 try:
     run()
 except Exception as error:
+    if ROOT is not None and isinstance(error, subprocess.CalledProcessError) and error.stderr:
+        (ROOT / (STAGE + '-stderr.log')).write_bytes(error.stderr)
     print(json.dumps(dict(stage=STAGE, error_class=type(error).__name__,
                           returncode=getattr(error, 'returncode', None))), flush=True)
     raise SystemExit(1)
