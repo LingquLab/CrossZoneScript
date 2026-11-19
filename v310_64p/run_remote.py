@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib,json,os,re,shutil,subprocess,time
 sim=Path('/opt/sim/simulator')
 source=sim/'Testcases/dispatch_memory_64p_top6_profile'
-case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run02')
+case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run03')
 package=Path('/work/src/dispatch_memory_64p_handoff')
 sha='7bcb77bf4be8f61cbc8172180e8ef877de40010ef3070943a5f88bd6cf09f625'
 def digest(data):
@@ -81,7 +81,7 @@ try:
     assert (check['status'], check['world_size'], check['input_golden_members'], check['profile_dump_regions'])==('PASS',64,448,128)
     state['preflight']=check
     assert active_sst()==0,'SST_ALREADY_ACTIVE'
-    state['sst_threads']=min(20,len(os.sched_getaffinity(0)))
+    state['sst_threads']=min(8,len(os.sched_getaffinity(0)))
     state['sst_started']=True
     command='source /opt/sim/sst-env.sh && export SST_PATH=/opt/sim/local/sstcore SST_CONFIG_FILE_PATH=/opt/sim/simulator/config/sst-plugins.conf SST_CONFIG_FILE_PATH_SEPARATOR=: && ulimit -n 524288 && exec timeout -k 15s 1800s sst -n "$1" ./test_UBusSim.py'
     start=time.monotonic()
