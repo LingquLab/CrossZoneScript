@@ -61,9 +61,9 @@ def run():
     actual = docker('image', 'inspect', '--format', '{{.Id}}', IMAGE).decode().strip()
     assert actual == IMAGE_ID
     ROOT = Path(tempfile.mkdtemp(prefix=NAME + '-', dir='/opt'))
-    cid = docker('run', '--pull=never', '-dt', '--name', NAME, '--runtime=ascend',
+    cid = docker('run', '-dt', '--name', NAME, '--runtime=ascend',
                  '--ipc=shareable', '--shm-size=4g',
-                 '--mount', 'type=bind,src=' + str(ROOT) + ',dst=/work', IMAGE, '/bin/bash', '-l').decode().strip()
+                 '-v', str(ROOT) + ':/work', IMAGE_ID, '/bin/bash', '-l').decode().strip()
     STARTED = True
     assert docker('inspect', '--format', '{{.Id}} {{.Image}}', NAME).decode().split() == [cid, IMAGE_ID]
     print(json.dumps(dict(container=NAME, container_id=cid, root=str(ROOT), image_id=IMAGE_ID)), flush=True)
