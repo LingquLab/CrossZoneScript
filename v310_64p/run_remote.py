@@ -11,8 +11,13 @@ def active_sst():
     count=0
     for record in Path('/proc').glob('[0-9]*/comm'):
         try:
-            count+=record.read_text().strip() in ('sst','sstsim.x')
-        except OSError:
+            if record.read_text().strip() not in ('sst','sstsim.x'):
+                continue
+            stat=(record.parent/'stat').read_text()
+            process_state=stat.rsplit(')',1)[1].split()[0]
+            if process_state not in ('Z','X'):
+                count+=1
+        except FileNotFoundError:
             continue
     return count
 started_at=time.monotonic()
@@ -47,7 +52,8 @@ try:
     scalars=scenario['kernel']['scalars']
     assert scenario['world_size']==64 and scenario['block_dim_by_rank']==[64]*64
     assert [scalars[k] for k in ('bs','h','moeExpertNum','topK','dtype','magic')]==[128,7168,384,6,11,1]
-    assert not (source/'run.log').exists() and active_sst()==0,'SST_OR_SOURCE_RUN_PRESENT'
+    assert not (source/'run.log').exists(),'SOURCE_RUN_LOG_PRESENT'
+    assert active_sst()==0,'SST_ALREADY_ACTIVE'
     assert (package/'generator/preflight_64p.py').is_file()
     case.mkdir()
     created=True
@@ -102,7 +108,7 @@ try:
     state['status']='SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
 except (AssertionError,OSError,KeyError,ValueError,subprocess.TimeoutExpired) as error:
     state['status']='STOPPED'
-    reasons={'SST_OR_SOURCE_RUN_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
+    reasons={'SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
     state['reason']=str(error) if str(error) in reasons else type(error).__name__
     if state['reason']=='PREFLIGHT_FAILED':
         text=(case/'preflight.log').read_text(errors='replace')
