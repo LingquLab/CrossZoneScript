@@ -37,6 +37,10 @@ def main():
     if 'clock_seed' in args:
         assert args.get('tune') and len(args['cases']) == 1 and args['cases'][0][0] >= 32
         assert type(args['clock_seed']) is int and 0 < args['clock_seed'] < 0xffffffff
+    if args.get('instruction_dump_chips'):
+        assert len(args['cases']) == 1
+        chips = args['instruction_dump_chips']
+        assert len(chips) == len(set(chips)) and all(type(chip) is int and 0 <= chip < args['cases'][0][0] for chip in chips)
     assert args.get('routing', 'installed') in ('installed', 'with-clos')
     for commit in (revision, TOOL, GENERATOR):
         git('fetch', '--no-tags', 'origin', commit)

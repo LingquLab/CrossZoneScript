@@ -171,7 +171,8 @@ def run():
             options = dict(environment_report='/work/environment', suite_output='/work/' + label,
                            rank_size=ranks, elements_per_peer=elements, threads=min(ranks, 32),
                            simulation_timeout=sim_timeout, lr8_schedule=setting)
-            phase('prepare', dict(options, fullmesh_routing=ARGS.get('routing', 'installed')),
+            phase('prepare', dict(options, fullmesh_routing=ARGS.get('routing', 'installed'),
+                                  instruction_dump_chips=ARGS.get('instruction_dump_chips', [])),
                   600, 'prepare-' + label)
             phase('run', options, sim_timeout + 240, 'run-' + label)
             case = ROOT / label
