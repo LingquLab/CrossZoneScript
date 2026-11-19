@@ -12,7 +12,7 @@ result = {'architecture': platform.machine(), 'result': 'READ_ONLY'}
 if log.is_file() and log.stat().st_size < 8*1024*1024:
     data = log.read_bytes()
     lines = data.decode(errors='replace').splitlines()
-    regex = re.compile(r'(fatal|exception|assert|segmentation|error|stall)|Simulation is complete|dumped core', re.I)
+    regex = re.compile(r'\b(fatal|exception|assert|segmentation|error|stall)\b|Simulation is complete|dumped core', re.I)
     result['run_log'] = {
         'sha256': hashlib.sha256(data).hexdigest(),
         'line_count': len(lines),

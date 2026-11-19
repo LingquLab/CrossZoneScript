@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib,json,os,re,shutil,subprocess,time
 sim=Path('/opt/sim/simulator')
 source=sim/'Testcases/dispatch_memory_64p_top6_profile'
-case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run05_debug')
+case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run06_debug')
 package=Path('/work/src/dispatch_memory_64p_handoff')
 sha='7bcb77bf4be8f61cbc8172180e8ef877de40010ef3070943a5f88bd6cf09f625'
 def digest(data):
@@ -133,6 +133,12 @@ except (AssertionError,OSError,KeyError,ValueError,subprocess.TimeoutExpired) as
     if state['reason']=='PREFLIGHT_FAILED':
         text=(case/'preflight.log').read_text(errors='replace')
         state['preflight_error']=text.splitlines()[-1][:220] if text.splitlines() else ''
+    if state['reason']=='CRASH_DIAGNOSTIC_COMPILE_FAILED':
+        log=case/'compile-diagnostic.log'
+        state['compiler_log_sha256']=digest(log.read_bytes())
+        state['compiler_error_excerpt']=[
+            line[:200] for line in log.read_text(errors='replace').splitlines()[-10:]
+        ]
 state['total_wall_seconds']=round(time.monotonic()-started_at,3)
 record()
 print(json.dumps(state,separators=(',',':')))

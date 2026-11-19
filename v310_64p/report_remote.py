@@ -5,7 +5,7 @@ import json
 import subprocess
 import time
 
-case = Path('/opt/sim/simulator/Testcases/dispatch_memory_64p_top6_profile_bridge_20261119_run05_debug')
+case = Path('/opt/sim/simulator/Testcases/dispatch_memory_64p_top6_profile_bridge_20261119_run06_debug')
 package = Path('/work/src/dispatch_memory_64p_handoff')
 started = time.monotonic()
 evidence = {'case': str(case), 'phase_wall_seconds': {}}
