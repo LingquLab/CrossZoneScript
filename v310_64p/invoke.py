@@ -17,12 +17,26 @@ def main():
         'run_softsync': 'run',
         'status_softsync': 'status',
         'report_softsync': 'report',
+        'build_single': 'build_softsync',
+        'run_single': 'run',
+        'status_single': 'status',
+        'report_single': 'report',
     }
     assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'probe', 'build_softsync', *scripts)
     source = Path(__file__).with_name(scripts.get(operation, 'debug' if operation == 'probe' else operation) +
                                       '_remote.py').read_bytes()
     if operation in scripts:
-        source = source.replace(b'20261119_run07_corecount', b'20261119_run09_softsync')
+        single = operation.endswith('_single')
+        name = b'20261119_run13_single_round' if single else b'20261119_run09_softsync'
+        source = source.replace(b'20261119_run07_corecount', name)
+        if operation == 'build_single':
+            source = b'single_round_probe = True\n' + source
+        if operation == 'run_single':
+            checksum = args['kernel_sha256']
+            assert re.fullmatch(r'[0-9a-f]{64}', checksum)
+            stage = Path(__file__).with_name('stage_single_round.py').read_bytes()
+            source = ('single_round_binary_sha256 = ' + repr(checksum) + '\n').encode() + stage + b'\n' + source
+            source = source.replace(b'1800s sst', b'3600s sst').replace(b'],1840)', b'],3640)')
         if operation == 'run_softsync':
             checksum = args['kernel_sha256']
             assert re.fullmatch(r'[0-9a-f]{64}', checksum)
@@ -48,10 +62,10 @@ def main():
                remote]
     start = time.monotonic()
     try:
-        process = subprocess.run(command, input=source, capture_output=True,
-                                 timeout={'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
+        timeout = 4260 if operation == 'run_single' else {'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
                                           'debug': 2200, 'probe': 600, 'build_softsync': 210}
-                                 [scripts.get(operation, operation)])
+        process = subprocess.run(command, input=source, capture_output=True,
+                                 timeout=timeout if isinstance(timeout, int) else timeout[scripts.get(operation, operation)])
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {
                 'status': 'SSH_OR_REMOTE_FAILURE', 'sst_start_verified': False,

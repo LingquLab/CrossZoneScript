@@ -112,6 +112,10 @@ try:
         state['effective_kernel_sha256']=softsync_binary_sha256
         state['softsync_input_bins']=64
         record()
+    if 'single_round_binary_sha256' in globals():
+        state['simulation_variant']=stage_single_round(case,orig,single_round_binary_sha256)
+        state['effective_kernel_sha256']=single_round_binary_sha256
+        record()
     assert active_sst()==0,'SST_ALREADY_ACTIVE'
     state['sst_threads']=min(20,len(os.sched_getaffinity(0)))
     state['sst_started']=True

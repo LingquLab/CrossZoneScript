@@ -7,6 +7,9 @@ import subprocess
 
 source_package = Path('/work/src/dispatch_memory_64p_handoff')
 destination = Path('/work/results/v310-native-64p-softsync-build-20261119-02')
+single_round = 'single_round_probe' in globals()
+if single_round:
+    destination = Path('/work/results/v310-native-64p-single-round-build-20261119-01')
 relative_header = 'kernel/source/src/ep/kernels/tilexr_ep_dispatch_memory_kernel.h'
 binary = destination/'tilexr_ep_dispatch_memory_kernel.o'
 result = {'binary': str(binary), 'sst_started': False}
@@ -35,6 +38,13 @@ try:
     changed = baseline.replace(declaration, declaration+b'    GM_ADDR simulationSyncWorkspaceGM_{nullptr};\n')
     changed = changed.replace(initialization, initialization+b'    simulationSyncWorkspaceGM_ = dynamicScalesOut;\n')
     changed = changed.replace(source, replacement)
+    if single_round:
+        start = b'    const bool doubleGroupEnabled = !isSmallBs_ && IsDoubleGroupRankSize() &&\n'
+        end = b'    sendRoundNum_ = doubleGroupEnabled ? TileXREp::kEpMemoryDoubleGroupRoundNum : 1U;\n'
+        assert baseline.count(start) == baseline.count(end) == 1
+        before, tail = baseline.split(start)
+        _, after = tail.split(end)
+        changed = before + b'    sendRoundNum_ = 1U;\n' + after
     header.write_bytes(changed)
     sums = package/'SHA256SUMS'
     lines = sums.read_text().splitlines()
