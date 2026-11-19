@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib,json,os,re,shutil,subprocess,time
 sim=Path('/opt/sim/simulator')
 source=sim/'Testcases/dispatch_memory_64p_top6_profile'
-case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run01')
+case=source.with_name('dispatch_memory_64p_top6_profile_bridge_20261119_run02')
 package=Path('/work/src/dispatch_memory_64p_handoff')
 sha='7bcb77bf4be8f61cbc8172180e8ef877de40010ef3070943a5f88bd6cf09f625'
 def digest(data):
@@ -61,7 +61,7 @@ try:
     state['phase_wall_seconds']['source_identity']=round(stage_start-started_at,3)
     state['phase']='stage_case'
     record()
-    for directory in ('input','expected','v310_config'):
+    for directory in ('input','expected','UBusSim_config','v310_config'):
         shutil.copytree(source/directory,case/directory)
     allowed={'.py','.json','.yml','.yaml','.conf','.ini','.o'}
     for path in source.iterdir():
@@ -74,6 +74,8 @@ try:
     orig['workload_sha256']=digest(staged)
     (case/'manifest.json').write_text(json.dumps(orig,indent=2)+'\n')
     state['phase_wall_seconds']['stage_case']=round(time.monotonic()-stage_start,3)
+    assert (case/'UBusSim_config/UBusSim_simulator_config.yml').is_file()
+    assert (case/'UBusSim_config/UBusSim_simulator_config_topo.yml').is_file()
     assert stage('preflight',['python3','-B',str(package/'generator/preflight_64p.py'),'--testcase',str(case)],120)==0,'PREFLIGHT_FAILED'
     check=json.loads((case/'preflight.log').read_text())
     assert (check['status'], check['world_size'], check['input_golden_members'], check['profile_dump_regions'])==('PASS',64,448,128)
