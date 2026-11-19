@@ -18,8 +18,9 @@ def main():
         'status_softsync': 'status',
         'report_softsync': 'report',
     }
-    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'build_softsync', *scripts)
-    source = Path(__file__).with_name(scripts.get(operation, operation) + '_remote.py').read_bytes()
+    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'probe', 'build_softsync', *scripts)
+    source = Path(__file__).with_name(scripts.get(operation, 'debug' if operation == 'probe' else operation) +
+                                      '_remote.py').read_bytes()
     if operation in scripts:
         source = source.replace(b'20261119_run07_corecount', b'20261119_run09_softsync')
         if operation == 'run_softsync':
@@ -28,9 +29,16 @@ def main():
             stage = Path(__file__).with_name('stage_softsync.py').read_bytes()
             source = ('softsync_binary_sha256 = ' + repr(checksum) + '\n').encode() + stage + b'\n' + source
     remote = 'docker exec -i simbox python3 -B -'
-    if operation == 'debug':
+    if operation in ('debug', 'probe'):
         controller = Path(__file__).with_name('run_remote.py').read_bytes()
-        controller = controller.replace(b'20261119_run07_corecount', b'20261119_run08_host_gdb')
+        name = b'20261119_run08_host_gdb'
+        if operation == 'probe':
+            new_name = b'20261119_run10_sync_probe'
+            source = b'probe_mode = True\n' + source.replace(name, new_name)
+            name = new_name
+            controller = Path(__file__).with_name('stage_sync_probe.py').read_bytes() + b'\n' + controller
+            controller = controller.replace(b'1800s sst', b'300s sst')
+        controller = controller.replace(b'20261119_run07_corecount', name)
         source = ('run_script = ' + repr(controller) + '\n').encode() + source
         remote = 'python3 -B -'
     command = ['ssh', '-i', str(Path.home()/'.ssh/deploy_ed25519'),
@@ -42,7 +50,7 @@ def main():
     try:
         process = subprocess.run(command, input=source, capture_output=True,
                                  timeout={'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
-                                          'debug': 2200, 'build_softsync': 210}
+                                          'debug': 2200, 'probe': 600, 'build_softsync': 210}
                                  [scripts.get(operation, operation)])
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {

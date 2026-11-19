@@ -103,6 +103,10 @@ try:
     check=json.loads((case/'preflight.log').read_text())
     assert (check['status'], check['world_size'], check['input_golden_members'], check['profile_dump_regions'])==('PASS',64,448,128)
     state['preflight']=check
+    if 'stage_sync_probe' in globals():
+        state['phase']='sync-probe-build'
+        record()
+        state['sync_probe_kernel_sha256']=stage_sync_probe(case,orig,package)
     if 'softsync_binary_sha256' in globals():
         state['simulation_sync_variant']=stage_softsync(case,orig,softsync_binary_sha256)
         state['effective_kernel_sha256']=softsync_binary_sha256
@@ -127,7 +131,8 @@ try:
     state['completion_times']=finish[:8]
     state['log_error_kinds']=sorted(set(interesting))
     assert rc==0 and len(finish)==1 and not interesting,'SST_INCOMPLETE'
-    assert stage('output-generator',['python3','-B','output_generator.py','v310_config'],300)==0,'OUTPUT_GENERATOR_FAILED'
+    if 'stage_sync_probe' not in globals():
+        assert stage('output-generator',['python3','-B','output_generator.py','v310_config'],300)==0,'OUTPUT_GENERATOR_FAILED'
     output=[]
     for folder in ('bin','OUTPUT','output'):
         path=case/folder
@@ -135,14 +140,19 @@ try:
             files=[p for p in path.rglob('*') if p.is_file()]
             output.append({'directory':folder,'files':len(files),'bytes':sum(p.stat().st_size for p in files),'first_names':[p.relative_to(path).as_posix() for p in sorted(files)[:6]]})
     state['outputs']=output
-    state['status']='SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
+    state['status']='SYNC_PROBE_COMPLETE' if 'stage_sync_probe' in globals() else 'SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
 except (AssertionError,OSError,KeyError,ValueError,subprocess.TimeoutExpired) as error:
     state['status']='STOPPED'
-    reasons={'PERF_CONFIG_IDENTITY_CHANGED','STOCK_CORE_COUNT_CHANGED','CASE_CORE_COUNT_CHANGED','UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED'}
+    reasons={'PERF_CONFIG_IDENTITY_CHANGED','STOCK_CORE_COUNT_CHANGED','CASE_CORE_COUNT_CHANGED','UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED','SOURCE_PACKAGE_SHA','SYNC_PROBE_BUILD_FAILED'}
     state['reason']=str(error) if str(error) in reasons else type(error).__name__
     if state['reason']=='PREFLIGHT_FAILED':
         text=(case/'preflight.log').read_text(errors='replace')
         state['preflight_error']=text.splitlines()[-1][:220] if text.splitlines() else ''
+    if state['reason']=='SYNC_PROBE_BUILD_FAILED':
+        log=case/'probe-source/tilexr_ep_dispatch_memory_kernel.o.build.log'
+        if log.is_file():
+            state['compiler_errors']=[line[-280:] for line in log.read_text(errors='replace').splitlines()
+                                      if 'error:' in line.lower()][-5:]
 state['total_wall_seconds']=round(time.monotonic()-started_at,3)
 record()
 print(json.dumps(state,separators=(',',':')))

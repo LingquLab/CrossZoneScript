@@ -36,7 +36,8 @@ def collect_stack(pid, output):
         'handle SIGSEGV stop print pass',
         'continue',
         'info symbol $pc',
-        'info registers pc sp',
+        'info registers pc sp x0 x1 x2',
+        'info args',
         'bt 24',
         'detach',
     ]
@@ -62,7 +63,7 @@ def run():
         with controller.stdin:
             controller.stdin.write(run_script)
         pid = None
-        for _ in range(35):
+        for _ in range(175 if 'probe_mode' in globals() else 35):
             pid = simulator_pid()
             if pid is not None or controller.poll() is not None:
                 break
@@ -77,7 +78,7 @@ def run():
             evidence['captured_sigsegv'] = any('received signal SIGSEGV' in line for line in lines)
             evidence['stack_excerpt'] = [
                 line[:300] for line in lines if re.search(
-                    r'^#\d+|received signal SIGSEGV|^pc\s|^sp\s|^No symbol matches|^ptrace:', line)
+                    r'^#\d+|received signal SIGSEGV|^(pc|sp|x0|x1|x2)\s|^this\s*=|^No symbol matches|^ptrace:', line)
             ][:24]
             if not evidence['captured_sigsegv']:
                 evidence['gdb_log_tail'] = [line[:200] for line in lines[-8:]]
