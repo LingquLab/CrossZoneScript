@@ -12,7 +12,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     target = str(ipaddress.IPv4Address(args['target']))
     operation = args['operation']
-    assert operation in ('run', 'status')
+    assert operation in ('run', 'status', 'report')
     source = Path(__file__).with_name(operation + '_remote.py').read_bytes()
     command = ['ssh', '-i', str(Path.home()/'.ssh/deploy_ed25519'),
                '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
@@ -22,7 +22,7 @@ def main():
     start = time.monotonic()
     try:
         process = subprocess.run(command, input=source, capture_output=True,
-                                 timeout=2400 if operation == 'run' else 25)
+                                 timeout={'run': 2400, 'status': 25, 'report': 650}[operation])
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {
                 'status': 'SSH_OR_REMOTE_FAILURE', 'sst_start_verified': False,
