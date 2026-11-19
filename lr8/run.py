@@ -34,6 +34,9 @@ def main():
     assert 1 <= len(settings) <= 12 and len(settings) == len(set(settings))
     if args.get('tune'):
         assert args.get('profiling') and 'schedules' not in args
+    if 'clock_seed' in args:
+        assert args.get('tune') and len(args['cases']) == 1 and args['cases'][0][0] >= 32
+        assert type(args['clock_seed']) is int and 0 < args['clock_seed'] < 0xffffffff
     assert args.get('routing', 'installed') in ('installed', 'with-clos')
     for commit in (revision, TOOL, GENERATOR):
         git('fetch', '--no-tags', 'origin', commit)

@@ -189,13 +189,15 @@ def run():
                 measure(setting, 'measurement')
             continue
 
-        baseline = measure(0, 'measurement')
-        measure(0xffffffff, 'measurement')
-        prior_groups = baseline['last_quiet_cycle'][:-1]
-        if not prior_groups:
-            measure(1, 'measurement')
-            continue
-        seed = max((end + index - 1) // index for index, end in enumerate(prior_groups, 1))
+        seed = ARGS.get('clock_seed')
+        if seed is None:
+            baseline = measure(0, 'measurement')
+            measure(0xffffffff, 'measurement')
+            prior_groups = baseline['last_quiet_cycle'][:-1]
+            if not prior_groups:
+                measure(1, 'measurement')
+                continue
+            seed = max((end + index - 1) // index for index, end in enumerate(prior_groups, 1))
         period = select_period(measure, seed)
         final = measure(period, 'confirmation')
         if min(final['gap_cycles']) < 0:
