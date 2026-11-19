@@ -33,7 +33,7 @@ def main():
         controller = Path(__file__).with_name('run_remote.py').read_bytes()
         name = b'20261119_run08_host_gdb'
         if operation == 'probe':
-            new_name = b'20261119_run11_sync_ports'
+            new_name = b'20261119_run12_sync_port_key'
             source = b'probe_mode = True\n' + source.replace(name, new_name)
             name = new_name
             controller = Path(__file__).with_name('stage_sync_probe.py').read_bytes() + b'\n' + controller
