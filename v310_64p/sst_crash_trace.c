@@ -6,11 +6,22 @@
 #include <ucontext.h>
 #include <unistd.h>
 
+static void write_message(const char *message, size_t length)
+{
+    while (length != 0) {
+        ssize_t written = write(STDERR_FILENO, message, length);
+        if (written <= 0)
+            return;
+        message += written;
+        length -= (size_t)written;
+    }
+}
+
 static void record_crash(int signo, siginfo_t *info, void *context)
 {
     void *frames[48];
     static const char title[] = "[sst-crash] received fatal signal\n";
-    (void)write(STDERR_FILENO, title, sizeof(title) - 1);
+    write_message(title, sizeof(title) - 1);
 
     const ucontext_t *machine = context;
 #if defined(__aarch64__)
@@ -25,7 +36,7 @@ static void record_crash(int signo, siginfo_t *info, void *context)
     int length = snprintf(fault, sizeof(fault), "[sst-crash] signal=%d code=%d address=%p pc=%p\n",
                           signo, info->si_code, info->si_addr, pc);
     if (length > 0 && (size_t)length < sizeof(fault))
-        (void)write(STDERR_FILENO, fault, (size_t)length);
+        write_message(fault, (size_t)length);
     if (pc)
         backtrace_symbols_fd(&pc, 1, STDERR_FILENO);
     int count = backtrace(frames, (int)(sizeof(frames) / sizeof(frames[0])));
