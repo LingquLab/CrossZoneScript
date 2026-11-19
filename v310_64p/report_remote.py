@@ -2,6 +2,7 @@ from pathlib import Path
 import csv
 import hashlib
 import json
+import shutil
 import subprocess
 import time
 
@@ -10,6 +11,27 @@ package = Path('/work/src/dispatch_memory_64p_handoff')
 started = time.monotonic()
 evidence = {'case': str(case), 'phase_wall_seconds': {}}
 session_dir = case / 'analysis-01'
+
+
+def report_script(manifest):
+    variant = manifest.get('simulation_variant')
+    if variant is None:
+        return package / 'profile/report.py'
+    assert variant['schedule'] == 'SINGLE_ROUND' and variant['send_groups'] == 1
+    analysis_package = session_dir / 'analysis-package'
+    shutil.copytree(package / 'profile', analysis_package / 'profile')
+    shutil.copytree(package / 'generator', analysis_package / 'generator')
+    script = analysis_package / 'profile/report.py'
+    text = script.read_text()
+    for old, new in (
+        ('groups != 2 or blocks != 30', 'groups != 1 or blocks != 30'),
+        ("name='双组同步后'", "name='单轮发送结束'"),
+    ):
+        assert text.count(old) == 1
+        text = text.replace(old, new)
+    script.write_text(text)
+    evidence['simulation_variant'] = variant
+    return script
 
 
 def run(name, argv, timeout):
@@ -68,7 +90,7 @@ try:
         evidence['business_validation'] = json.loads((session_dir / 'compare.log').read_text())
         assert evidence['business_validation']['status'] == 'PASS' and evidence['business_validation']['checked_files'] == 256
         report = session_dir / 'report'
-        assert run('report', ['python3', '-B', str(package / 'profile/report.py'),
+        assert run('report', ['python3', '-B', str(report_script(manifest)),
                               '--testcase', str(case), '--run-log', str(case / 'run.log'),
                               '--actual', str(normalized / 'actual'), '--records', str(normalized / 'records'),
                               '--out', str(report)], 240) == 0
