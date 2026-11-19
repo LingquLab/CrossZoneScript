@@ -1,11 +1,11 @@
 from pathlib import Path
 import json,os,re,time
-case=Path('/opt/sim/simulator/Testcases/dispatch_memory_64p_top6_profile_bridge_20261119_run06_debug')
+case=Path('/opt/sim/simulator/Testcases/dispatch_memory_64p_top6_profile_bridge_20261119_run07_corecount')
 r={'case_exists':case.is_dir(),'own_sst_processes':0}
 receipt=case/'bridge-run-receipt.json'
 if receipt.is_file():
     data=json.loads(receipt.read_text())
-    for key in ('phase_wall_seconds','total_wall_seconds','phase','status','reason','preflight_error','compiler_log_sha256','compiler_error_excerpt','sst_started','sst_threads','run_exit_code','sst_wall_seconds','completion_times','log_error_kinds','output-generator_exit_code','outputs'):
+    for key in ('phase_wall_seconds','total_wall_seconds','phase','status','reason','preflight_error','per_chip_aicore_num','sst_started','sst_threads','run_exit_code','sst_wall_seconds','completion_times','log_error_kinds','output-generator_exit_code','outputs'):
         if key in data: r[key]=data[key]
     r['receipt_age_s']=round(time.time()-receipt.stat().st_mtime)
 log=case/'run.log'
