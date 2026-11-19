@@ -113,6 +113,13 @@ def run():
         assert available_kib >= 32 * 1024**2
         assert suite.count('1024 ** 3') == 2
         suite = suite.replace('1024 ** 3', '8 * 1024 ** 3')
+    if ARGS.get('lsu_level') == 2:
+        anchor = '    configs, lsu_level = configure(resources, args)'
+        assert suite.count(anchor) == 1
+        suite = suite.replace(anchor, anchor + '''
+    su = configs[V310_CONFIG]['simulator_config']['su']
+    assert lsu_level == 1 and su['params']['lsu_level'] == 1
+    lsu_level = su['params']['lsu_level'] = 2''')
     if ARGS.get('tune') or any(ARGS.get('schedules', [])):
         anchor = '    from case_tools import preflight\n\n    output = Path(config["suite_output"])'
         assert suite.count(anchor) == 1
@@ -180,6 +187,8 @@ def run():
             row = dict(ranks=ranks, elements_per_peer=elements, schedule=setting, sample=sample,
                        payload_verified=True, simulated_us=result['simulated_us'],
                        routing=ARGS.get('routing', 'installed'))
+            scenario = json.loads((case / 'scenario.json').read_text())
+            row['lsu_level'] = scenario['simulator']['lsu_level']
             if config['stage_profiling']:
                 row.update(phase_boundaries(case / 'stage-profiling', ranks))
             print(json.dumps(row), flush=True)
