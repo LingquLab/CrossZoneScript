@@ -22,7 +22,7 @@ def main():
         'status_single': 'status',
         'report_single': 'report',
     }
-    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'probe', 'build_softsync', *scripts)
+    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'probe', 'build_softsync', 'p2_profile', *scripts)
     source = Path(__file__).with_name(scripts.get(operation, 'debug' if operation == 'probe' else operation) +
                                       '_remote.py').read_bytes()
     if operation in scripts:
@@ -43,6 +43,8 @@ def main():
             stage = Path(__file__).with_name('stage_softsync.py').read_bytes()
             source = ('softsync_binary_sha256 = ' + repr(checksum) + '\n').encode() + stage + b'\n' + source
     remote = 'docker exec -i simbox python3 -B -'
+    if operation == 'p2_profile':
+        source = Path(__file__).with_name('p2_profile_decode.py').read_bytes() + b'\n' + source
     if operation in ('debug', 'probe'):
         controller = Path(__file__).with_name('run_remote.py').read_bytes()
         name = b'20261119_run08_host_gdb'
@@ -63,7 +65,7 @@ def main():
     start = time.monotonic()
     try:
         timeout = 4260 if operation == 'run_single' else {'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
-                                          'debug': 2200, 'probe': 600, 'build_softsync': 210}
+                                          'debug': 2200, 'probe': 600, 'build_softsync': 210, 'p2_profile': 620}
         process = subprocess.run(command, input=source, capture_output=True,
                                  timeout=timeout if isinstance(timeout, int) else timeout[scripts.get(operation, operation)])
         try:
