@@ -12,7 +12,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     target = str(ipaddress.IPv4Address(args['target']))
     operation = args['operation']
-    assert operation in ('run', 'status', 'report', 'inspect', 'debug')
+    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'build_softsync')
     source = Path(__file__).with_name(operation + '_remote.py').read_bytes()
     remote = 'docker exec -i simbox python3 -B -'
     if operation == 'debug':
@@ -29,7 +29,7 @@ def main():
     try:
         process = subprocess.run(command, input=source, capture_output=True,
                                  timeout={'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
-                                          'debug': 2200}[operation])
+                                          'debug': 2200, 'build_softsync': 210}[operation])
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {
                 'status': 'SSH_OR_REMOTE_FAILURE', 'sst_start_verified': False,
