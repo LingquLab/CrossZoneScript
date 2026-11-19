@@ -103,6 +103,11 @@ try:
     check=json.loads((case/'preflight.log').read_text())
     assert (check['status'], check['world_size'], check['input_golden_members'], check['profile_dump_regions'])==('PASS',64,448,128)
     state['preflight']=check
+    if 'softsync_binary_sha256' in globals():
+        state['simulation_sync_variant']=stage_softsync(case,orig,softsync_binary_sha256)
+        state['effective_kernel_sha256']=softsync_binary_sha256
+        state['softsync_input_bins']=64
+        record()
     assert active_sst()==0,'SST_ALREADY_ACTIVE'
     state['sst_threads']=min(20,len(os.sched_getaffinity(0)))
     state['sst_started']=True

@@ -2,6 +2,7 @@ import argparse
 import ipaddress
 import json
 from pathlib import Path
+import re
 import subprocess
 import time
 
@@ -12,8 +13,20 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     target = str(ipaddress.IPv4Address(args['target']))
     operation = args['operation']
-    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'build_softsync')
-    source = Path(__file__).with_name(operation + '_remote.py').read_bytes()
+    scripts = {
+        'run_softsync': 'run',
+        'status_softsync': 'status',
+        'report_softsync': 'report',
+    }
+    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'build_softsync', *scripts)
+    source = Path(__file__).with_name(scripts.get(operation, operation) + '_remote.py').read_bytes()
+    if operation in scripts:
+        source = source.replace(b'20261119_run07_corecount', b'20261119_run09_softsync')
+        if operation == 'run_softsync':
+            checksum = args['kernel_sha256']
+            assert re.fullmatch(r'[0-9a-f]{64}', checksum)
+            stage = Path(__file__).with_name('stage_softsync.py').read_bytes()
+            source = ('softsync_binary_sha256 = ' + repr(checksum) + '\n').encode() + stage + b'\n' + source
     remote = 'docker exec -i simbox python3 -B -'
     if operation == 'debug':
         controller = Path(__file__).with_name('run_remote.py').read_bytes()
@@ -29,7 +42,8 @@ def main():
     try:
         process = subprocess.run(command, input=source, capture_output=True,
                                  timeout={'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
-                                          'debug': 2200, 'build_softsync': 210}[operation])
+                                          'debug': 2200, 'build_softsync': 210}
+                                 [scripts.get(operation, operation)])
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {
                 'status': 'SSH_OR_REMOTE_FAILURE', 'sst_start_verified': False,
