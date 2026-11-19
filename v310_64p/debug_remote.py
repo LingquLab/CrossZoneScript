@@ -39,8 +39,11 @@ def collect_stack(pid, output):
         'info registers pc sp x0 x1 x2',
         'info args',
         'bt 24',
-        'detach',
     ]
+    if 'probe_mode' in globals():
+        script += ['frame 1', 'info registers x19 x20 x21 x22 x23 x24 x25 x26 x27 x28',
+                   'x/24i $pc-88']
+    script.append('detach')
     command = ['gdb', '-q', '-nx', '-batch']
     for instruction in script:
         command.extend(('-ex', instruction))
@@ -80,6 +83,12 @@ def run():
                 line[:300] for line in lines if re.search(
                     r'^#\d+|received signal SIGSEGV|^(pc|sp|x0|x1|x2)\s|^this\s*=|^No symbol matches|^ptrace:', line)
             ][:24]
+            evidence['caller_registers'] = [
+                line[:155] for line in lines if re.match(r'^x(?:19|2[0-8])\s', line)
+            ][:10]
+            evidence['caller_instructions_near_return'] = [
+                line[:190] for line in lines[-45:] if re.match(r'^\s*(?:=>\s*)?0x[0-9a-f]+\s*<', line)
+            ][-24:]
             if not evidence['captured_sigsegv']:
                 evidence['gdb_log_tail'] = [line[:200] for line in lines[-8:]]
         try:
