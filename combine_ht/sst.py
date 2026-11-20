@@ -146,7 +146,7 @@ def param_table(addresses, spec, mode):
         for n, (name, value) in enumerate(zip(fields, vals)):
             params[name] = dict(value=value, param_offset=str(start + width * n), param_type=str(code))
     for name, value, offset, code in (("comm_peer_begin", spec.rank // 8 * 8, 164, 5),
-                                      ("magic", 0, 224, 6), ("wqe_snapshot", 0, 232, 11)):
+                                      ("magic", 0, 224, 6), ("wqe_snapshot", addresses.get("wqe_snapshot", 0), 232, 11)):
         params[name] = dict(value=value, param_offset=str(offset), param_type=str(code))
     return params
 
@@ -181,6 +181,10 @@ def create_workload(case, specs, prepared, mode, send_state=None, trace_send=Fal
             addresses["fullmesh_info"] = addresses["udma_info"]
             images["status"] = b"\x5a" * 32 + bytes(480)
             addresses["status"] = record["addresses"]["status"]
+            if trace_send and rank == 2:
+                snap_rows = 8 * (spec.backward_capacity + spec.chunks)
+                images["wqe_snapshot"] = bytes(fixtures.align(snap_rows * 64))
+                addresses["wqe_snapshot"] = base + 0x371000000
         else:
             images["workspace"] = (send_state[rank].read_bytes() if send_state is not None
                                    else prepared[rank][1])
@@ -203,6 +207,9 @@ def create_workload(case, specs, prepared, mode, send_state=None, trace_send=Fal
                 entries = sum(len(items) + bool(items) for items in spec.backward[0])
                 outputs["sqTrace"] = dict(addr=queue["sq"], size=fixtures.align(entries * 64))
                 outputs["cqTrace"] = dict(addr=queue["cq"], size=512)
+                payload_entries = sum(len(items) for items in spec.backward[0])
+                outputs["wqeSnapshot"] = dict(addr=addresses["wqe_snapshot"],
+                                               size=fixtures.align(payload_entries * 64))
         output["workload_config"][f"chip{rank}"] = dict(gm_size=rt.GM_BYTES, sys_va_base_addr=base,
             ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
             block_dim=64, subblock_dim=1, kernel_file=str(KERNEL), vec_func=ENTRY, kernel_param=params,
@@ -308,6 +315,11 @@ def diagnose_send(case, workload, specs, prepared):
     workspace = read_output(case / "bin", 0, "workspace", target_mem["addr"], target_mem["size"], verified)
     expected_gather = prepared[0][1]
     index = 0
+    snap_index = 0
+    snapshot = None
+    if "wqeSnapshot" in outputs:
+        item = outputs["wqeSnapshot"]
+        snapshot = read_output(case / "bin", 2, "wqeSnapshot", item["addr"], item["size"], verified)
     entries = []
     for chunk, batch in enumerate(specs[2].backward[0]):
         rows = [(s, r, p & 0xFFFFFFFF) for s, r, p in batch]
@@ -335,6 +347,14 @@ def diagnose_send(case, workload, specs, prepared):
             entries.append(dict(entry=index, chunk=chunk, source=source, input_row=row, gather_row=gather,
                 descriptor_ok=descriptor_ok, received=received, opcode=(word1 >> 8) & 0xFF,
                 length=size, flag=observed_flag, local=hex(local), remote=hex(remote)))
+            if snapshot is not None and not so:
+                snap = snapshot[snap_index * 64:(snap_index + 1) * 64]
+                snap0, snap1 = struct.unpack_from("<II", snap)
+                entries[-1]["ub_snapshot_matches"] = (
+                    *struct.unpack_from("<QI4xQ", snap, 40), snap0 & 0xFFFF,
+                    (snap0 >> 16) & 0xFF, (snap1 >> 8) & 0xFF) == (
+                    expected_dest, size_expected, expected_src, index, expected_flag, 3)
+                snap_index += 1
             index += 1
     completions = []
     for index in range(len(cq) // 64):
