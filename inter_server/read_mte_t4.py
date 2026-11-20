@@ -47,6 +47,44 @@ if status in {"running", "timed_out", "failed", "sst_and_checker_passed"}:
         "counts", "sq_doorbell_counts", "drain_order_counts",
         "sq_cq_ring_coverage", "post_timeout_dump",
     ) if key in evidence})
+if (CASE / "actual").is_dir():
+    evidence = collections.Counter()
+    status_values = collections.Counter()
+    difference_widths = collections.Counter()
+    examples = {}
+    for rank in range(64):
+        folder = CASE / "actual" / f"rank{rank:02d}"
+        fixture = CASE / "fixture-data" / folder.name
+        status_dump = (folder / "status.bin").read_bytes()
+        if len(status_dump) == 512:
+            status_values.update(struct.unpack_from("<I", status_dump, i * 32)[0]
+                                 for i in range(16))
+        else:
+            evidence["invalid_status_length"] += 1
+        for field, width in (("returned", 512), ("completed", 8)):
+            actual = (folder / (field + ".bin")).read_bytes()
+            expected = (fixture / ("golden-" + field + ".bin")).read_bytes()
+            if len(actual) != len(expected):
+                evidence[field + "_size_mismatch"] += 1
+                continue
+            mismatches = 0
+            for offset in range(0, len(expected), 512):
+                got, wanted = actual[offset:offset + width], expected[offset:offset + width]
+                if got == wanted:
+                    continue
+                mismatches += 1
+                kind = "missing" if not any(got) else "unexpected" if not any(wanted) else "different"
+                evidence[field + "_" + kind] += 1
+                indices = [idx for idx, values in enumerate(zip(got, wanted)) if values[0] != values[1]]
+                difference_widths[field + "_" + str(len(indices))] += 1
+                rows = examples.setdefault(field, [])
+                if len(rows) < 8:
+                    rows.append({"rank": rank, "slot": offset // 512, "kind": kind,
+                                 "first_byte": indices[0], "last_byte": indices[-1],
+                                 "differing_bytes": len(indices)})
+            evidence[field + "_ranks_matching"] += int(mismatches == 0)
+    result["output_check"] = {"counts": dict(evidence), "status_values": dict(status_values),
+                              "difference_widths": dict(difference_widths), "examples": examples}
 print(json.dumps(result, ensure_ascii=True))
 """
 wait_seconds = 1500 if Path(__file__).stem.startswith("wait_") else 0
