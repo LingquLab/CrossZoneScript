@@ -230,9 +230,49 @@ def write_model(case, snapshot, workload, ranks):
                 lsu_level=level, clos_router_in_fm_flag=True, log_level=args.log_level)
 
 
+# V1.1.0 AddrAnalyzerV310::getDdieId uses the same address bits as V1.0.0.
+V11_DIE_DECODER_SHA256 = "bf93fd6d0749fc3c6eaae365c7cba558988e1fa25c1b9a26e139be61b60a3da3"
+
+
+def die_index(address):
+    return ((address >> 9) ^ (address >> 16) ^ (address >> 23)) & 1
+
+
+def has_die_decoder(case):
+    if verified_die_decoder(case) is not None:
+        return True
+    snapshot = json.loads((case / "environment.snapshot.json").read_text())
+    path = Path(snapshot["settings"]["library_dir"]) / "libDavinciSimulator.so"
+    record = snapshot["runtime_files"][str(path)]
+    return record["sha256"] == V11_DIE_DECODER_SHA256 and checksum(path) == V11_DIE_DECODER_SHA256
+
+
+def read_queue_output(bin_dir, rank, output_name, address, size):
+    local = address - rank * rt.GM_BYTES
+    records = {}
+    for die in (0, 1):
+        dump = (bin_dir / f"david_{rank}_die{die + 1}_{output_name}.bin").read_bytes()
+        if len(dump) % 520:
+            raise ValueError("incomplete addressed queue dump")
+        for offset in range(0, len(dump), 520):
+            addr = struct.unpack_from("<Q", dump, offset)[0]
+            if die_index(addr) != die:
+                continue
+            data = dump[offset + 8:offset + 520]
+            if addr in records and records[addr] != data:
+                raise ValueError("conflicting queue dump records")
+            records[addr] = data
+    try:
+        return b"".join(records[addr] for addr in range(local, local + size, 512))
+    except KeyError as error:
+        raise ValueError(f"missing queue block at {error.args[0]:#x}") from error
+
+
 def read_output(bin_dir, rank, output_name, address, size, use_die_decoder):
     paths = [bin_dir / f"david_{rank}_die{die}_{output_name}.bin" for die in (1, 2)]
     local = address - rank * rt.GM_BYTES
+    if use_die_decoder and output_name in ("sqTrace", "cqTrace"):
+        return read_queue_output(bin_dir, rank, output_name, address, size)
     if use_die_decoder:
         return extract_die_output(paths, output_name, local, size)
     return bytes(extract_ranges(paths, {output_name: (local, size)})[output_name])
@@ -241,7 +281,7 @@ def read_output(bin_dir, rank, output_name, address, size, use_die_decoder):
 def queue_state(case, workload, ranks):
     item = workload["workload_config"]["chip0"]["output_param"]["queueState"]
     data = read_output(case / "bin", 0, "queueState", item["addr"], item["size"],
-                       verified_die_decoder(case) is not None)
+                       has_die_decoder(case))
     return [
         [struct.unpack_from("<I", data, rt.queue_addresses(0, ranks, peer, peer)[field] - item["addr"])[0]
          for field in ("sq_head", "sq_tail", "count", "cq_tail")]
@@ -252,7 +292,7 @@ def queue_state(case, workload, ranks):
 def diagnose_send(case, workload, specs, prepared):
     chip = workload["workload_config"]["chip2"]
     outputs = chip["output_param"]
-    verified = verified_die_decoder(case) is not None
+    verified = has_die_decoder(case)
     sq = read_output(case / "bin", 2, "sqTrace", outputs["sqTrace"]["addr"],
                      outputs["sqTrace"]["size"], verified)
     cq = read_output(case / "bin", 2, "cqTrace", outputs["cqTrace"]["addr"], 512, verified)
@@ -306,7 +346,7 @@ def diagnose_send(case, workload, specs, prepared):
 
 
 def validate(case, workload, prepared, mode):
-    verified = verified_die_decoder(case) is not None
+    verified = has_die_decoder(case)
     retained = {}
     for rank, (_, golden_send, golden_reduce) in enumerate(prepared):
         outputs = workload["workload_config"][f"chip{rank}"]["output_param"]

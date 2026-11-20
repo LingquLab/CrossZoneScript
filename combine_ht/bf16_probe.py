@@ -52,9 +52,10 @@ def run(args):
     if proc.returncode:
         return dict(ok=False, report=str(case), returncode=proc.returncode, wall_s=elapsed)
     all_results = []
+    die_decoder = sst.has_die_decoder(case)
     for rank, chip in enumerate(chips.values()):
         output = chip["output_param"]["probe"]
-        raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], True)
+        raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], die_decoder)
         samples = dict(copy=raw[:512], cast=raw[512:1024], fp32=raw[1024:])
         golden = dict(copy=expected_copy, cast=expected_bf16, fp32=expected_fp32)
         result = dict(rank=rank, mismatched_bytes={name: sum(a != b for a, b in zip(data, golden[name]))
