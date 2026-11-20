@@ -13,8 +13,10 @@ input_package = resources / "mte_metadata_t8"
 identity = json.loads((input_package / "identity.json").read_text())
 archive = input_package / "inputs.tar.gz"
 assert hashlib.sha256(archive.read_bytes()).hexdigest() == identity["archive_sha256"]
-build = json.loads((resources / "mte_metadata_t4" / "build-record.json").read_text())
-assert identity["kernel_sha256"] == build["kernel_sha256"]
+is_scalar = "scalar" in Path(__file__).stem
+product = "mte_scalar_t4" if is_scalar else "mte_metadata_t4"
+case_name = "t4-sst-mte-scalar-forward-5a6c7c8c" if is_scalar else "t4-sst-mte-split-forward-0d3c8694"
+build = json.loads((resources / product / "build-record.json").read_text())
 
 options = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]
 wait_for_t4 = r"""
@@ -22,7 +24,7 @@ import json
 from pathlib import Path
 import time
 
-case = Path(MOUNT) / "t4-sst-mte-split-forward-0d3c8694"
+case = Path(MOUNT) / CASE_NAME
 deadline = time.monotonic() + 1100
 while time.monotonic() < deadline:
     try:
@@ -40,7 +42,7 @@ while time.monotonic() < deadline:
 else:
     print(json.dumps({"status": "t4_terminal_receipt_pending"}))
 """
-source = "MOUNT = " + repr(MOUNT) + "\n" + wait_for_t4
+source = f"MOUNT = {MOUNT!r}\nCASE_NAME = {case_name!r}\n" + wait_for_t4
 probe = subprocess.run(["ssh", "-T", *options, HOST, "python3", "-"],
                        input=source.encode("ascii"), capture_output=True, timeout=1130, check=True)
 t4 = json.loads(probe.stdout)

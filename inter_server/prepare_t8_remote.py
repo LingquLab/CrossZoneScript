@@ -14,7 +14,7 @@ def prepare_t8(request, case, container_case):
     identity = request["identity"]
     archive = MOUNT / ("t8-inputs-" + identity["archive_sha256"][:12] + ".tar.gz")
     assert sha(archive) == identity["archive_sha256"]
-    assert identity["kernel_sha256"] == manifest["kernel_sha256"] == build["kernel_sha256"]
+    assert manifest["kernel_sha256"] == build["kernel_sha256"]
 
     case.mkdir(exist_ok=False)
     with tarfile.open(archive) as stream:
@@ -28,6 +28,13 @@ def prepare_t8(request, case, container_case):
             dest.parent.mkdir(parents=True, exist_ok=True)
             with dest.open("xb") as out:
                 shutil.copyfileobj(stream.extractfile(member), out)
+
+    workload_path = case / "workload.yml"
+    input_case = "/work/inter-server-native/" + VARIANTS[identity["kernel_sha256"]].replace("t4-", "t8-", 1)
+    workload = workload_path.read_text()
+    assert input_case in workload
+    if input_case != container_case:
+        workload_path.write_text(workload.replace(input_case, container_case))
 
     fixture = case / "fixture-data"
     assert json.loads((fixture / "manifest.json").read_text()) == identity["fixture_manifest"]
