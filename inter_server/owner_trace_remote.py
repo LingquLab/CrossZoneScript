@@ -85,12 +85,38 @@ def expected_requests(host):
     return expected, sum(payload.values())
 
 
+def drain_order(expected, requests):
+    by_owner = collections.defaultdict(list)
+    results = collections.Counter()
+    examples = []
+    for (peer, owner, lane), wanted in expected.items():
+        by_owner[owner].append((lane, peer, requests[peer, owner, lane] - wanted))
+    for owner, rows in by_owner.items():
+        ordered = sorted(rows)
+        deltas = [delta for _, _, delta in ordered]
+        if not any(deltas):
+            results['owners_with_all_expected_requests'] += 1
+            continue
+        missing = next(i for i, delta in enumerate(deltas) if delta)
+        if missing and all(delta == -1 for delta in deltas[missing:]):
+            results['owners_with_contiguous_one_request_deficit_suffix'] += 1
+            examples.append({'owner': owner, 'last_fully_observed_lane_peer': ordered[missing - 1][:2],
+                             'first_below_expected_lane_peer': ordered[missing][:2], 'remaining_qps': len(rows) - missing})
+        elif missing == 0 and all(delta == -1 for delta in deltas):
+            results['owners_with_one_request_deficit_on_all_qps'] += 1
+        else:
+            results['owners_with_other_patterns'] += 1
+    return results, examples
+
+
 def inspect():
     counts = collections.Counter()
     patterns = collections.Counter()
     samples = {}
     request_counts = collections.Counter()
     missing_samples = []
+    drain_counts = collections.Counter()
+    drain_examples = []
     for host in range(64):
         path = CASE / 'OUTPUT/stat_trace' / f'Host{host}_ba_layer_trace.json'
         if not path.is_file():
@@ -106,6 +132,9 @@ def inspect():
         request_counts['expected_qps'] += len(expected)
         request_counts['observed_expected_qps'] += len(expected.keys() & requests.keys())
         request_counts['unexpected_qps'] += len(requests.keys() - expected.keys())
+        order_counts, order_examples = drain_order(expected, requests)
+        drain_counts.update(order_counts)
+        drain_examples.extend(dict(rank=host, **example) for example in order_examples[:max(0, 8-len(drain_examples))])
         for key, wanted in expected.items():
             got = requests[key]
             request_counts['qps_below_expected'] += int(got < wanted)
@@ -126,6 +155,7 @@ def inspect():
         if host in (0, 63):
             samples[host] = {'owners': dict(key), 'event_types': dict(names.most_common(8))}
     result = {'counts': dict(counts), 'sq_doorbell_counts': dict(request_counts), 'below_expected_examples': missing_samples,
+              'drain_order_counts': dict(drain_counts), 'drain_order_examples': drain_examples,
               'samples': samples, 'distinct_observed_mappings': len(patterns),
               'dominant_mappings': [{'hosts': n, 'owners': dict(key)} for key, n in patterns.most_common(3)]}
     for name in ('run.json', 'task-result.json'):
