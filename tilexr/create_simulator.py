@@ -15,13 +15,24 @@ expected = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19
 assert platform.machine() == 'aarch64'
 assert command('docker', 'image', 'inspect', '--format', '{{.Id}}', image) == expected
 work = Path('/root/crosszone-tilexr-acc8c509')
-work.mkdir(exist_ok=False)
 name = 'tilexr-matrix-acc8c509-lr8-1'
-container_id = command('docker', 'run', '--pull=never', '-dt', '--name', name,
+exists = subprocess.run(['docker', 'container', 'inspect', name], capture_output=True, timeout=20)
+assert exists.returncode != 0, 'Container already exists; inspect its state before any continuation'
+if work.exists():
+    assert work.is_dir() and not any(work.iterdir()), 'Reserved work directory is no longer empty'
+else:
+    work.mkdir()
+# Docker 18.09 lacks --pull. An already verified immutable local image ID
+# selects these exact bytes and does not require registry access.
+try:
+    container_id = command('docker', 'run', '-dt', '--name', name,
     '--label', 'crosszone.session=acc8c509-fe01-41af-a64b-ce7d45ad695e',
     '--network=none', '--runtime=ascend', '--ipc=shareable', '--shm-size=64m',
     '--ulimit', 'nofile=524288:524288', '--mount', f'type=bind,src={work},dst=/work',
-    image, '/bin/bash', '-l', timeout=75)
+        expected, '/bin/bash', '-l', timeout=75)
+except subprocess.CalledProcessError as error:
+    (work / 'docker-create.stderr.log').write_bytes(error.stderr or b'')
+    raise
 record = {'cluster': 'tilexr-repro', 'host': 'host-94-26', 'hostname': platform.node().split('.')[0],
           'container': name, 'container_id': container_id, 'image_id': expected,
           'host_work': str(work)}

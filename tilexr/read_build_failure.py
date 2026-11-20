@@ -8,6 +8,8 @@ import subprocess
 
 root = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr'
 report = root / 'reports/lr8-1'
+if (root / 'reports/lr8-2').is_dir():
+    report = root / 'reports/lr8-2'
 result = {'report': str(report), 'report_exists': report.is_dir()}
 for name in ['progress.json', 'container.json', 'summary.json']:
     path = report / name
