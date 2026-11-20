@@ -1,0 +1,17 @@
+{
+  "candidate_commit": "639f2fb3d71fd14197b82fb86db2e51eccd49d00",
+  "entry": "tilexr_ep_ht_inter_server_send_kernel",
+  "kernel_sha256": "9fa520e775c4586cfe529174bef00975b49342f3ef541bcb658ecaff8273f1c2",
+  "compiled_in": "blue",
+  "build_report": "docs/reports/2026-11-20-ht-send-blue-build.md",
+  "build_report_sha256": "7f5895abfef36b82eece865612648c554901055a1f6b82e23cc60611ed0eb25a",
+  "source_sha256": {
+    "src/ep/combine_ht/inter_server_send_kernel.cpp": "f06e121bfb27be08cc830ac0a79b62f07c4c60827a03620ffcfbfad170f03ec2",
+    "src/ep/combine_ht/send_schedule.h": "5a13fa9126f6dd921d4404285d829ec902aed04380fa2c2078b6f2a5954fe02d",
+    "include/tilexr/ep/inter_server_send_types.h": "26901f3743e5eb94d534c3010244035b067b342ab314fb84260fdea38938482a",
+    "include/tilexr/comm/udma/device/api.h": "900d6f2680cf92023b5b2ed5b4f674534bdf6a879cdad6ff88422b836726fcf3"
+  },
+  "compiler_version": "2026-07-30T20:53:21+08:00 clang version 15.0.5 (clang-5c68a1cb1231 flang-5c68a1cb1231)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /home/hapi-dhp/Ascend/cann-9.1.0/tools/bisheng_compiler/bin\n",
+  "flags": "native production object; queue-state ld_dev/st_dev; no compatibility recompile",
+  "qualification": "blue build supplied by implementation owner; SST not yet run"
+}

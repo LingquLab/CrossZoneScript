@@ -1,0 +1,13 @@
+{
+  "schema": "tilexr.inter_server.sst.artifact.v1",
+  "candidate_commit": "639f2fb3d71fd14197b82fb86db2e51eccd49d00",
+  "entry": "tilexr_ep_ht_inter_server_send_kernel",
+  "binary_file": "inter_server_send.o",
+  "compressed_file": "inter_server_send.o.gz",
+  "binary_bytes": 10485760,
+  "binary_sha256": "9fa520e775c4586cfe529174bef00975b49342f3ef541bcb658ecaff8273f1c2",
+  "compressed_bytes": 22372,
+  "compressed_sha256": "85abc503d19e8354fb45414e499bc139716a2e2f17ef8a82b7df856a2e6be0cf",
+  "build_record_sha256": "15687ba2dbd997cd6a0eaf734c759e0d02000ec2aef800b5625c9643930ba863",
+  "qualification": "blue object packaged; not SST validated"
+}
