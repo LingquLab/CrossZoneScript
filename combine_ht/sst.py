@@ -1,6 +1,7 @@
 # Copyright (c) 2026 TileXR Project.
 """Compile the exact HT entry, run each phase of an SST case, and check its dumps."""
 
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -251,8 +252,9 @@ def validate(case, workload, prepared, mode):
 
 def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None):
     work = create_workload(case, spec, prepared, mode, send_state)
-    with (case / "sim.log").open("wb") as log:
+    with (case / "model.log").open("w") as log, redirect_stdout(log):
         model = write_model(case, config, work, args["ranks"])
+    with (case / "sim.log").open("wb") as log:
         env = config["settings"]
         command = shell_command(env, "sst", [env["sst_bin"], "-n", str(args["threads"]),
                                            case / "test_UBusSim.py"])
