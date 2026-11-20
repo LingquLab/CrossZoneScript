@@ -9,7 +9,7 @@ def main():
     parser.add_argument("--args-file", type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text())
     step = args.get("step", "prepare")
-    if step not in {"prepare", "run"}:
+    if step not in {"prepare", "run", "verify"}:
         raise ValueError("unknown Dispatch simulation step")
     implementation = Path(__file__).with_name(step + ".py")
     command = [
@@ -21,7 +21,7 @@ def main():
     ]
     result = subprocess.run(
         command, input=implementation.read_bytes(), capture_output=True,
-        timeout=285 if step == "prepare" else 2670,
+        timeout={"prepare": 285, "run": 2670, "verify": 2630}[step],
     )
     if result.returncode:
         print(json.dumps({"phase": "transport", "ssh_exit": result.returncode}))
