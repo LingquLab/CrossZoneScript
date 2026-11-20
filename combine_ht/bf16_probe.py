@@ -23,19 +23,35 @@ def build_castloc_barriers(env, case, kernel):
     if original.count(cast + barrier) != 1:
         raise ValueError("could not identify the CAST_RINT and its original barrier")
     source.write_text(original.replace(cast, barrier * 16 + cast + barrier * 16))
-    assembly = case / "castloc_probe.s"
     with (case / "build.log").open("wb") as log:
-        sst.build_kernel(env, log, source=source, binary=kernel, assembly=assembly)
+        sst.build_kernel(env, log, source=source, binary=kernel)
 
-    instructions = assembly.read_text().lower().splitlines()
-    casts = [index for index, line in enumerate(instructions) if re.match(r"\s*vconv\b", line)]
-    barriers = [index for index, line in enumerate(instructions)
-                if re.match(r"\s*pipe_barrier\b.*\bpipe_v\b", line)]
-    counts = [{"before": sum(0 < index - row <= 40 for row in barriers),
-               "after": sum(0 < row - index <= 40 for row in barriers)} for index in casts]
-    return {"ok": True, "file": str(kernel.relative_to(sst.WORK)), "size": kernel.stat().st_size,
-            "sha256": sst.checksum(kernel), "assembly": str(assembly.relative_to(sst.WORK)),
-            "vector_barriers_in_assembly": len(barriers), "vector_barriers_near_each_vconv": counts}
+    result = {"ok": True, "file": str(kernel.relative_to(sst.WORK)), "size": kernel.stat().st_size,
+              "sha256": sst.checksum(kernel), "source_barriers_before_after": [16, 17]}
+    tools = Path(env["compiler"]).parent
+    for objdump in sorted(tools.glob("*objdump*")):
+        try:
+            decoded = subprocess.run(sst.shell_command(env, "cann", [objdump, "-d", kernel]),
+                                     capture_output=True, timeout=12)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if decoded.returncode:
+            continue
+        assembly = case / "castloc_probe.disasm"
+        assembly.write_bytes(decoded.stdout)
+        instructions = decoded.stdout.decode(errors="replace").lower().splitlines()
+        casts = [index for index, line in enumerate(instructions) if re.search(r"\bvconv\b", line)]
+        if not casts:
+            continue
+        barriers = [index for index, line in enumerate(instructions)
+                    if re.search(r"\bpipe_barrier\b.*\bpipe_v\b", line)]
+        result["vector_barriers_in_elf"] = len(barriers)
+        result["vector_barriers_near_each_vconv"] = [
+            [sum(0 < index - row <= 40 for row in barriers),
+             sum(0 < row - index <= 40 for row in barriers)] for index in casts
+        ]
+        break
+    return result
 
 
 def run(args):

@@ -72,7 +72,7 @@ def select_environment():
     return snapshot
 
 
-def build_kernel(env, log, source=None, binary=KERNEL, assembly=None):
+def build_kernel(env, log, source=None, binary=KERNEL):
     src = WORK / "candidate"
     cann = Path(env["cann_root"])
     arch = cann / "aarch64-linux"
@@ -102,10 +102,6 @@ def build_kernel(env, log, source=None, binary=KERNEL, assembly=None):
     subprocess.run(["readelf", "-sW", binary], check=True, timeout=15, stdout=log, stderr=subprocess.STDOUT)
     if not binary.read_bytes().startswith(b"\x7fELF"):
         raise ValueError("invalid AICore ELF")
-    if assembly is not None:
-        assembly_command = [*compile_command[:-4], "-S", source, "-o", assembly]
-        subprocess.run(shell_command(env, "cann", assembly_command), check=True, timeout=60,
-                       stdout=log, stderr=subprocess.STDOUT)
 
 
 def setup():
