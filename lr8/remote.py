@@ -160,7 +160,8 @@ def run():
         source_lock_sha256=LOCK['source_lock_sha256'], cann_root='/opt/sim/Ascend/cann-9.1.0',
         driver_root='/usr/local/Ascend/driver', cann_env=cann_env, cann_env_sha256=hashes[0].split()[0],
         ubus_library=ubus, ubus_sha256=hashes[1].split()[0], kernel_name='urma_lr8',
-        sim_variant='sim-split1', stage_profiling=int(ARGS.get('profiling', False)),
+        sim_variant=ARGS.get('sim_variant', 'sim-split1'),
+        stage_profiling=int(ARGS.get('profiling', False)),
         suite_adapter_sha256=hashlib.sha256(suite.encode()).hexdigest())
 
     def phase(mode, options, timeout, log_name):
@@ -176,7 +177,7 @@ def run():
     phase('build', {}, 360, 'build')
     phase('abi', {}, 150, 'abi')
     phase('inspect', dict(library_dir='/opt/sim/plugins', inspection_output='/work/environment'), 150, 'inspect')
-    manifest = json.loads((ROOT / 'kernel/sim-split1/build_manifest.json').read_text())
+    manifest = json.loads((ROOT / 'kernel' / config['sim_variant'] / 'build_manifest.json').read_text())
     print(json.dumps(dict(runtime_commit=LOCK['runtime_commit'], generator_commit=LOCK['tooling_commit'],
                           binary_sha256=manifest['binary_sha256'], transport=manifest['features'])), flush=True)
     for ranks, elements in ARGS['cases']:
