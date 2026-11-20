@@ -23,6 +23,9 @@ elif operation == 'run':
 elif operation == 'report':
     resources = {}
     seconds = 225
+elif operation == 'status':
+    resources = {}
+    seconds = 60
 else:
     raise ValueError('unknown operation')
 remote = ''.join(f'{name} = {value!r}\n' for name,value in resources.items()).encode()
