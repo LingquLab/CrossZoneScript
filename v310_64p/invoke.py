@@ -17,6 +17,7 @@ def main():
         'run_clean': 'run',
         'status_clean': 'status',
         'report_clean': 'report',
+        'report_tune': 'report',
         'run_softsync': 'run',
         'status_softsync': 'status',
         'report_softsync': 'report',
@@ -31,7 +32,9 @@ def main():
                                       '_remote.py').read_bytes()
     if operation in scripts:
         single = operation.endswith('_single')
-        if operation.endswith('_clean'):
+        if operation == 'report_tune':
+            name = b'20261120_sst_tune01_full'
+        elif operation.endswith('_clean'):
             name = b'20261120_native_clean01'
         else:
             name = b'20261119_run13_single_round' if single else b'20261119_run09_softsync'
@@ -89,10 +92,10 @@ def main():
                                           'topology_check': 490, 'tune': 6750}
         process = subprocess.run(command, input=source, capture_output=True,
                                  timeout=timeout if isinstance(timeout, int) else timeout[scripts.get(operation, operation)])
-        if operation == 'tune':
+        if operation in ('tune', 'report_tune'):
             work = Path.cwd()
-            (work / 'tune-ssh.stdout.log').write_bytes(process.stdout)
-            (work / 'tune-ssh.stderr.log').write_bytes(process.stderr)
+            (work / (operation + '-ssh.stdout.log')).write_bytes(process.stdout)
+            (work / (operation + '-ssh.stderr.log')).write_bytes(process.stderr)
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {
                 'status': 'SSH_OR_REMOTE_FAILURE', 'sst_start_verified': False,

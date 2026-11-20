@@ -143,7 +143,7 @@ def report(case, entry):
             ['python3', '-B', 'output_generator.py', 'v310_config'],
             cwd=case, stdout=log, stderr=subprocess.STDOUT, timeout=300)
     entry['output_generator_wall_seconds'] = round(time.monotonic() - start, 3)
-    entry['output_generator_exit_code'] = result.returncode
+    entry['output-generator_exit_code'] = result.returncode
     save(state)
     assert result.returncode == 0, 'OUTPUT_GENERATOR_FAILED'
     launch_receipt = dict(entry, status='SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION')

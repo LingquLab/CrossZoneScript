@@ -52,7 +52,8 @@ created = False
 try:
     receipt = json.loads((case / 'bridge-run-receipt.json').read_text())
     assert receipt['status'] == 'SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
-    assert receipt['run_exit_code'] == 0 and receipt['output-generator_exit_code'] == 0
+    generator_exit = receipt.get('output-generator_exit_code', receipt.get('output_generator_exit_code'))
+    assert receipt['run_exit_code'] == 0 and generator_exit == 0
     manifest = json.loads((case / 'manifest.json').read_text())
     regions = [(row['rank'], Path(row['path']).stem, row['gm_address'], row['size_bytes'])
                for row in manifest['files'] if row['role'] == 'expected']
