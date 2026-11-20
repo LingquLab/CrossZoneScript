@@ -89,12 +89,13 @@ print(json.dumps(result, ensure_ascii=True))
 """
 entry = Path(__file__).stem
 wait_seconds = 1500 if entry.startswith("wait_") else 0
-is_split = "metadata" in entry
-if is_split:
-    token_count = "t8" if entry.endswith("t8") else "t4"
-    case_name = token_count + "-sst-mte-split-forward-0d3c8694"
-else:
-    case_name = "t4-sst-mte-state-8720cf34"
+token_count = "t8" if entry.endswith("t8") else "t4"
+suffix = "sst-mte-state-8720cf34"
+if "metadata" in entry:
+    suffix = "sst-mte-split-forward-0d3c8694"
+elif "scalar" in entry:
+    suffix = "sst-mte-scalar-forward-5a6c7c8c"
+case_name = token_count + "-" + suffix
 source = f"WAIT_SECONDS = {wait_seconds}\nCASE_NAME = {case_name!r}\n" + source
 compile(source, "<remote_status>", "exec")
 try:
