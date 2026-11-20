@@ -14,6 +14,9 @@ def main():
     target = str(ipaddress.IPv4Address(args['target']))
     operation = args['operation']
     scripts = {
+        'run_clean': 'run',
+        'status_clean': 'status',
+        'report_clean': 'report',
         'run_softsync': 'run',
         'status_softsync': 'status',
         'report_softsync': 'report',
@@ -28,8 +31,16 @@ def main():
                                       '_remote.py').read_bytes()
     if operation in scripts:
         single = operation.endswith('_single')
-        name = b'20261119_run13_single_round' if single else b'20261119_run09_softsync'
+        if operation.endswith('_clean'):
+            name = b'20261120_native_clean01'
+        else:
+            name = b'20261119_run13_single_round' if single else b'20261119_run09_softsync'
         source = source.replace(b'20261119_run07_corecount', name)
+        if operation == 'run_clean':
+            launcher = Path(__file__).with_name('topology_audited_launcher.py').read_bytes()
+            source = (f'audited_launcher_source = {launcher!r}\n').encode() + source
+            source = source.replace(b'1800s sst', b'3600s sst').replace(b'],1840)', b'],3640)')
+            source = source.replace(b'./test_UBusSim.py\'', b'./audited_launcher.py\'')
         if operation == 'build_single':
             source = b'single_round_probe = True\n' + source
         if operation == 'run_single':
@@ -70,7 +81,7 @@ def main():
                remote]
     start = time.monotonic()
     try:
-        timeout = 4260 if operation == 'run_single' else {'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
+        timeout = 4260 if operation in ('run_single', 'run_clean') else {'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
                                           'debug': 2200, 'probe': 600, 'build_softsync': 210, 'p2_profile': 620,
                                           'topology_check': 490}
         process = subprocess.run(command, input=source, capture_output=True,

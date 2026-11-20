@@ -98,6 +98,28 @@ try:
     state['per_chip_aicore_num']={'before':1152,'after':36,'source':'stock perf'}
     state['perf_config_sha256_before']=digest(original_perf)
     state['perf_config_sha256_after']=digest(corrected_perf)
+    if 'audited_launcher_source' in globals():
+        import yaml
+
+        config_dir=case/'v310_config'
+        stale=config_dir/'pv_simulator_config.yml'
+        stale_cfg=yaml.safe_load(stale.read_text())
+        assert stale_cfg['architecture_config']['aicore_num']==1152,'CASE_CORE_COUNT_CHANGED'
+        stale.rename(case/'pv_simulator_config.original.yml')
+        owners=[]
+        for path in sorted(config_dir.glob('*.y*ml')):
+            config=yaml.safe_load(path.read_text())
+            if isinstance(config,dict) and 'architecture_config' in config:
+                owners.append(path.name)
+        assert owners==[perf_name],'AMBIGUOUS_V310_ARCHITECTURE_CONFIG'
+        orig['perf_config_files'].pop(stale.name,None)
+        (case/'manifest.json').write_text(json.dumps(orig,indent=2)+'\n')
+        (case/'audited_launcher.py').write_bytes(audited_launcher_source)
+        (case/'expected-v310-runtime.json').write_text(json.dumps({
+            'architecture':{'chip_num':64,'aicore_num':36,'aicore_num_per_die':18,'subcore_num':3},
+            'stars':{'aicore_num':36,'subcore_num':3},
+        }))
+        state['removed_conflicting_config']=stale.name
     assert (case/'UBusSim_config/UBusSim_simulator_config_topo.yml').is_file()
     assert stage('preflight',['python3','-B',str(package/'generator/preflight_64p.py'),'--testcase',str(case)],120)==0,'PREFLIGHT_FAILED'
     check=json.loads((case/'preflight.log').read_text())
@@ -123,6 +145,12 @@ try:
     start=time.monotonic()
     rc=stage('run',['bash','-lc',command,'launch',str(state['sst_threads'])],1840)
     state['sst_wall_seconds']=round(time.monotonic()-start,3)
+    audit_path=case/'config-load.jsonl'
+    if audit_path.is_file():
+        for line in audit_path.read_text().splitlines():
+            audit=json.loads(line)
+            if Path(audit['directory']).name=='v310_config':
+                state['runtime_v310_config']=audit
     finish=[]
     interesting=[]
     with (case/'run.log').open(errors='replace') as log:
@@ -136,7 +164,16 @@ try:
     state['log_error_kinds']=sorted(set(interesting))
     assert rc==0 and len(finish)==1 and not interesting,'SST_INCOMPLETE'
     if 'stage_sync_probe' not in globals():
-        assert stage('output-generator',['python3','-B','output_generator.py','v310_config'],300)==0,'OUTPUT_GENERATOR_FAILED'
+        if 'audited_launcher_source' in globals():
+            expected_paths=[case/'bin'/f'david_{row["rank"]}_{Path(row["path"]).stem}.bin'
+                            for row in orig['files'] if row['role']=='expected']
+            expected_paths.extend(case/'bin'/f'david_{rank["rank"]}_{name}.bin'
+                                  for rank in orig['rank_layouts'] for name in rank['profile_outputs'])
+            if all(path.is_file() for path in expected_paths):
+                state['merged_outputs_direct']=len(expected_paths)
+                state['output-generator_exit_code']=0
+        if 'output-generator_exit_code' not in state:
+            assert stage('output-generator',['python3','-B','output_generator.py','v310_config'],300)==0,'OUTPUT_GENERATOR_FAILED'
     output=[]
     for folder in ('bin','OUTPUT','output'):
         path=case/folder
@@ -147,7 +184,7 @@ try:
     state['status']='SYNC_PROBE_COMPLETE' if 'stage_sync_probe' in globals() else 'SST_COMPLETE_PENDING_BUSINESS_AND_PROFILE_VALIDATION'
 except (AssertionError,OSError,KeyError,ValueError,subprocess.TimeoutExpired) as error:
     state['status']='STOPPED'
-    reasons={'PERF_CONFIG_IDENTITY_CHANGED','STOCK_CORE_COUNT_CHANGED','CASE_CORE_COUNT_CHANGED','UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED','SOURCE_PACKAGE_SHA','SYNC_PROBE_BUILD_FAILED'}
+    reasons={'PERF_CONFIG_IDENTITY_CHANGED','STOCK_CORE_COUNT_CHANGED','CASE_CORE_COUNT_CHANGED','AMBIGUOUS_V310_ARCHITECTURE_CONFIG','UBUS_TRACE_CONFIG_NOT_IDENTIFIED','SOURCE_RUN_LOG_PRESENT','PREFLIGHT_FAILED','SST_ALREADY_ACTIVE','SST_INCOMPLETE','OUTPUT_GENERATOR_FAILED','SOURCE_PACKAGE_SHA','SYNC_PROBE_BUILD_FAILED'}
     state['reason']=str(error) if str(error) in reasons else type(error).__name__
     if state['reason']=='PREFLIGHT_FAILED':
         text=(case/'preflight.log').read_text(errors='replace')
