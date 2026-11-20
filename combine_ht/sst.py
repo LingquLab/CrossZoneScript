@@ -151,7 +151,7 @@ def param_table(addresses, spec, mode):
     return params
 
 
-def create_workload(case, specs, prepared, mode, send_state=None):
+def create_workload(case, specs, prepared, mode, send_state=None, trace_send=False):
     case.mkdir()
     output = {"workload_config": {}}
     records = []
@@ -195,9 +195,14 @@ def create_workload(case, specs, prepared, mode, send_state=None):
         outputs = dict(workspace=dict(addr=addresses["workspace"], size=spec.layout()[8]))
         if mode == 1:
             outputs["status"] = dict(addr=addresses["status"], size=512)
-            if rank == 0:
+            if rank == (2 if trace_send else 0):
                 outputs["queueState"] = dict(addr=addresses["queue_state"],
                                              size=fixtures.align(len(images["queue_state"])))
+            if trace_send and rank == 2:
+                queue = rt.queue_addresses(rank, len(specs), 0, 0)
+                entries = sum(len(items) + bool(items) for items in spec.backward[0])
+                outputs["sqTrace"] = dict(addr=queue["sq"], size=fixtures.align(entries * 64))
+                outputs["cqTrace"] = dict(addr=queue["cq"], size=512)
         output["workload_config"][f"chip{rank}"] = dict(gm_size=rt.GM_BYTES, sys_va_base_addr=base,
             ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
             block_dim=64, subblock_dim=1, kernel_file=str(KERNEL), vec_func=ENTRY, kernel_param=params,
@@ -244,6 +249,62 @@ def queue_state(case, workload, ranks):
     ]
 
 
+def diagnose_send(case, workload, specs, prepared):
+    chip = workload["workload_config"]["chip2"]
+    outputs = chip["output_param"]
+    verified = verified_die_decoder(case) is not None
+    sq = read_output(case / "bin", 2, "sqTrace", outputs["sqTrace"]["addr"],
+                     outputs["sqTrace"]["size"], verified)
+    cq = read_output(case / "bin", 2, "cqTrace", outputs["cqTrace"]["addr"], 512, verified)
+    state = outputs["queueState"]
+    data = read_output(case / "bin", 2, "queueState", state["addr"], state["size"], verified)
+    queue = rt.queue_addresses(2, len(specs), 0, 0)
+    frontier = {field: struct.unpack_from("<I", data, queue[field] - state["addr"])[0]
+                for field in ("sq_head", "sq_tail", "count", "cq_tail")}
+    src = chip["kernel_param"]
+    dst = workload["workload_config"]["chip0"]
+    target = dst["kernel_param"]
+    target_mem = dst["output_param"]["workspace"]
+    workspace = read_output(case / "bin", 0, "workspace", target_mem["addr"], target_mem["size"], verified)
+    expected_gather = prepared[0][1]
+    index = 0
+    entries = []
+    for chunk, batch in enumerate(specs[2].backward[0]):
+        rows = [(s, r, p & 0xFFFFFFFF) for s, r, p in batch]
+        if not rows:
+            continue
+        rows.append((-1, -1, -1))
+        for pos, (source, row, gather) in enumerate(rows):
+            word0, word1 = struct.unpack_from("<II", sq, index * 64)
+            remote, size, local = struct.unpack_from("<QI4xQ", sq, index * 64 + 40)
+            so = source < 0
+            if so:
+                expected_src = src["workspace"]["value"] + 3 * 64 * 512
+                offset = (3 * 64 + 96 + chunk * 8 + 2) * 512
+                size_expected, expected_flag = 8, 0x22
+            else:
+                expected_src = src["input"]["value"] + row * 512
+                offset = specs[0].layout()[6] + gather * 512
+                size_expected = 512
+                expected_flag = 0x20 if pos == len(rows) - 2 else 0
+            expected_dest = target["workspace"]["value"] + offset
+            observed_flag = (word0 >> 16) & 0xFF
+            descriptor_ok = (remote, local, size, word0 & 0xFFFF, observed_flag) == (
+                expected_dest, expected_src, size_expected, index, expected_flag)
+            received = workspace[offset:offset + size_expected] == expected_gather[offset:offset + size_expected]
+            entries.append(dict(entry=index, chunk=chunk, source=source, input_row=row, gather_row=gather,
+                descriptor_ok=descriptor_ok, received=received, opcode=(word1 >> 8) & 0xFF,
+                length=size, flag=observed_flag, local=hex(local), remote=hex(remote)))
+            index += 1
+    completions = []
+    for index in range(len(cq) // 64):
+        word0, word1 = struct.unpack_from("<II", cq, index * 64)
+        if word0 or word1:
+            completions.append(dict(owner=(word0 >> 2) & 1, entry=word1 & 0xFFFF,
+                                    status=word0 >> 24, substatus=(word0 >> 16) & 0xFF))
+    return dict(direction="rank2->rank0", frontier=frontier, descriptors=entries, completions=completions)
+
+
 def validate(case, workload, prepared, mode):
     verified = verified_die_decoder(case) is not None
     retained = {}
@@ -268,7 +329,8 @@ def validate(case, workload, prepared, mode):
 
 
 def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None):
-    work = create_workload(case, spec, prepared, mode, send_state)
+    trace_send = args["stage"] == "send-diag"
+    work = create_workload(case, spec, prepared, mode, send_state, trace_send)
     with (case / "model.log").open("w") as log, redirect_stdout(log):
         model = write_model(case, config, work, args["ranks"])
     with (case / "sim.log").open("wb") as log:
@@ -301,12 +363,14 @@ def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None)
     try:
         if code or fatal or not finish or finish[-1] <= 0:
             raise ValueError("SST did not complete successfully")
+        if trace_send:
+            result["send_trace"] = diagnose_send(case, work, spec, prepared)
         state = validate(case, work, prepared, mode)
         result["verified_ranks"] = len(spec)
         return state
     except (OSError, ValueError) as error:
         result["validation_error"] = str(error)
-        if mode == 1 and code == 0 and finish:
+        if mode == 1 and code == 0 and finish and not trace_send:
             try:
                 result["rank0_queue_head_tail_count_cqtail"] = queue_state(case, work, len(spec))
             except (OSError, ValueError) as queue_error:
@@ -343,6 +407,8 @@ def run(args, stages):
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"], stages=stages)
     write_json(case / "case.json", record)
     phases = (("reduce-only", 2),) if args["stage"] == "reduce-fixture" else (("send-only", 1), ("reduce-only", 2))
+    if args["stage"] == "send-diag":
+        phases = (("send-only", 1),)
     send_state = None
     for phase, mode in phases:
         write_json(WORK / "progress.json", {**progress, "state": phase, "stages": stages})
@@ -350,7 +416,7 @@ def run(args, stages):
             try:
                 send_state = run_phase(case / phase, mode, spec, prepared, config, args, stages)
             except (OSError, ValueError):
-                if args["stage"] != "pair" or not stages or stages[-1]["returncode"] == 124:
+                if args["stage"] not in ("pair", "send-diag") or not stages or stages[-1]["returncode"] == 124:
                     raise
         else:
             try:
@@ -362,7 +428,8 @@ def run(args, stages):
     measured = all(stage["returncode"] == 0 and stage.get("simulated_us", 0) > 0 for stage in stages)
     verification = all(stage.get("verified_ranks") == ranks for stage in stages)
     state = "complete" if measured else "incomplete"
-    record.update(all_outputs_verified=verification, ok=measured)
+    record.update(all_outputs_verified=verification,
+                  ok=measured and (args["stage"] != "send-diag" or "send_trace" in stages[0]))
     write_json(case / "case.json", record)
     write_json(WORK / "progress.json", {**progress, "state": state, "stages": stages})
     return record
@@ -375,7 +442,7 @@ def main(args):
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "stage": args["stage"], "error": type(exc).__name__,
                   "detail": str(exc)[:2200], "stages": stages}
-        if args["stage"] in ("run", "reduce-fixture", "pair") and (WORK / "progress.json").is_file():
+        if args["stage"] in ("run", "reduce-fixture", "pair", "send-diag") and (WORK / "progress.json").is_file():
             previous = json.loads((WORK / "progress.json").read_text())
             write_json(WORK / "progress.json", {**previous, "state": "failed", "result": result})
     print(json.dumps(result, ensure_ascii=True))

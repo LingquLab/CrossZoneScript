@@ -73,11 +73,11 @@ def main(args):
                 archive = root / (name + ".tar")
                 run(["git", "-C", repo, "archive", "--format=tar", "-o", archive, revision, *paths], 45)
                 upload(archive, archive.name)
-        if stage in ("setup", "run", "reduce-fixture", "pair", "bf16-probe", "status", "stop"):
+        if stage in ("setup", "run", "reduce-fixture", "pair", "bf16-probe", "send-diag", "status", "stop"):
             if stage != "status":
                 scripts()
             timeout = 240 if stage == "setup" else 120
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe"):
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "send-diag"):
                 timeout = 2 * args["stage_timeout"] + 180
             response = remote(["timeout", "--kill-after=25", str(timeout), "python3", WORK + "/host.py",
                                json.dumps(args, separators=(",", ":"))], timeout + 45)

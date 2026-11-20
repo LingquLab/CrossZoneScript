@@ -74,7 +74,7 @@ def main(args):
             result = setup()
         else:
             identity = container()
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe"):
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "send-diag"):
                 entry = "/work/sst.py"
                 if stage == "bf16-probe":
                     entry = "/work/bf16_probe.py"
