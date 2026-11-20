@@ -9,6 +9,7 @@ from ssh_transport import run
 REPORT=Path('D:/project/tilexr-sim-reports/b4f4660a-6144-453c-99f7-339b40f56c54')
 TOOL=Path('D:/project/tileXR-worktrees/sst-b4f4660a-tool')
 request=json.loads((REPORT/'unitest-129/run/request.json').read_text(encoding='utf-8'))
+request['inventory']=str(REPORT/'inventory.json')
 flags=('inventory','cluster','host','hostname','container','container_id','image_id','sources','output',
        'runtime_commit','source_lock_sha256','cann_root','driver_root','cann_env','cann_env_sha256',
        'ubus_library','ubus_sha256','sim_variant','environment_report','suite_output','rank_size','elements_per_peer')
@@ -33,7 +34,10 @@ for row in doc['ranks']:
           'status_nonzero_words':[[[i,x] for i,x in enumerate(s['words']) if x] for s in row['status']],
           'peers':[]}
     for peer in row['peers']:
-        rank['peers'].append({k:v for k,v in peer.items() if k in ('source_rank','output','received','received_vs_output','input_offset_mod512','received_address_mod512','output_address_mod512')})
+        item={k:v for k,v in peer.items() if k in ('source_rank','input_offset_mod512','received_address_mod512','output_address_mod512')}
+        for field in ('output','received','received_vs_output'):
+            if field in peer: item[field]={k:v for k,v in peer[field].items() if k in ('mismatch_bytes','first_byte','ranges','ranges_truncated')}
+        rank['peers'].append(item)
     summary['ranks'].append(rank)
 print(json.dumps(summary,ensure_ascii=True))
 '''
