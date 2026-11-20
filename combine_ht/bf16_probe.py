@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import shlex
 import struct
 import subprocess
 import time
@@ -15,6 +16,39 @@ import lane_results
 import sst
 
 
+def decode_castloc(env, case, kernel, log):
+    compiler = Path(env["compiler"])
+    candidates = [[compiler.with_name("llvm-objdump"), "-d", kernel],
+                  [Path(env["cann_root"]) / "aarch64-linux/bin/llvm-objdump", "-d", kernel]]
+    compile_argv = json.loads((case / "build.json").read_text())[0]
+    driver = subprocess.run(sst.shell_command(env, "cann", [*compile_argv, "-###"]),
+                            capture_output=True, timeout=20)
+    for line in driver.stderr.decode(errors="replace").splitlines():
+        if '"-cc1"' not in line or '"-emit-obj"' not in line:
+            continue
+        argv = shlex.split(line)
+        argv[argv.index("-emit-obj")] = "-S"
+        argv[argv.index("-o") + 1] = "-"
+        candidates.append(argv)
+    for argv in candidates:
+        decoded = subprocess.run(sst.shell_command(env, "cann", argv), capture_output=True, timeout=30)
+        log.write(decoded.stderr)
+        if decoded.returncode:
+            continue
+        instructions = decoded.stdout.decode(errors="replace").lower().splitlines()
+        casts = [index for index, line in enumerate(instructions) if re.search(r"\b(vconv\w*|vcvt\w*)\b", line)]
+        if not casts:
+            continue
+        (case / "castloc_probe.disasm").write_bytes(decoded.stdout)
+        barrier_pattern = r"\b(?:pipe_barrier|barrier)\b.*\bpipe_(v|all)\b"
+        barriers = [(index, re.search(barrier_pattern, line)) for index, line in enumerate(instructions)]
+        return {pipe: [sum(match is not None and match[1] == pipe and 0 < index - row <= 40
+                           for row, match in barriers),
+                       sum(match is not None and match[1] == pipe and 0 < row - index <= 40
+                           for row, match in barriers)] for index in casts for pipe in ("v", "all")}
+    return {}
+
+
 def build_castloc_barriers(env, case, kernel):
     source = case / "castloc_probe.cpp"
     original = (sst.WORK / source.name).read_text()
@@ -22,36 +56,31 @@ def build_castloc_barriers(env, case, kernel):
     barrier = "    PipeBarrier<PIPE_V>();\n"
     if original.count(cast + barrier) != 1:
         raise ValueError("could not identify the CAST_RINT and its original barrier")
-    source.write_text(original.replace(cast, barrier * 16 + cast + barrier * 16))
-    with (case / "build.log").open("wb") as log:
-        sst.build_kernel(env, log, source=source, binary=kernel)
-
-    result = {"ok": True, "file": str(kernel.relative_to(sst.WORK)), "size": kernel.stat().st_size,
-              "sha256": sst.checksum(kernel), "source_barriers_before_after": [16, 17]}
-    tools = Path(env["compiler"]).parent
-    for objdump in sorted(tools.glob("*objdump*")):
+    baseline = (sst.WORK / "diagnostics/castloc-20261120T090125383217/tilexr_castloc_probe.o")
+    baseline_hash = sst.checksum(baseline)
+    experiments = []
+    for pipe in ("PIPE_V", "PIPE_ALL"):
+        variant = case / pipe.lower()
+        variant.mkdir()
+        variant_source = variant / source.name
+        variant_kernel = variant / kernel.name
+        intrinsic = f"    pipe_barrier({pipe});\n"
+        variant_source.write_text(original.replace(cast, intrinsic * 16 + cast + intrinsic * 16))
+        record = {"pipe": pipe}
         try:
-            decoded = subprocess.run(sst.shell_command(env, "cann", [objdump, "-d", kernel]),
-                                     capture_output=True, timeout=12)
-        except (OSError, subprocess.TimeoutExpired):
+            with (variant / "build.log").open("wb") as log:
+                sst.build_kernel(env, log, source=variant_source, binary=variant_kernel)
+                record["sha256"] = sst.checksum(variant_kernel)
+                record["barriers_near_cast"] = decode_castloc(env, variant, variant_kernel, log)
+        except (OSError, subprocess.SubprocessError) as exc:
+            record["error"] = type(exc).__name__
+        experiments.append(record)
+        if record.get("sha256") in (None, baseline_hash):
             continue
-        if decoded.returncode:
-            continue
-        assembly = case / "castloc_probe.disasm"
-        assembly.write_bytes(decoded.stdout)
-        instructions = decoded.stdout.decode(errors="replace").lower().splitlines()
-        casts = [index for index, line in enumerate(instructions) if re.search(r"\bvconv\b", line)]
-        if not casts:
-            continue
-        barriers = [index for index, line in enumerate(instructions)
-                    if re.search(r"\bpipe_barrier\b.*\bpipe_v\b", line)]
-        result["vector_barriers_in_elf"] = len(barriers)
-        result["vector_barriers_near_each_vconv"] = [
-            [sum(0 < index - row <= 40 for row in barriers),
-             sum(0 < row - index <= 40 for row in barriers)] for index in casts
-        ]
-        break
-    return result
+        return {"ok": True, "file": str(variant_kernel.relative_to(sst.WORK)), "size": variant_kernel.stat().st_size,
+                "sha256": record["sha256"], "source_barriers_before_after": [16, 16],
+                "pipe": pipe, "experiments": experiments}
+    return {"ok": False, "report": str(case), "experiments": experiments}
 
 
 def run(args):
