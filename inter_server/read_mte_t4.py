@@ -2,14 +2,12 @@
 
 import json
 from pathlib import Path
-import sys
+import re
+import subprocess
 
 root = Path(__file__).resolve().parent
-sys.path.insert(0, str(root.parent / "alltoall"))
-from ssh_transport import run
-
 source = (root / "owner_trace_remote.py").read_text(encoding="utf-8")
-source = source.removesuffix('\n' if source.endswith('\n') else '').rsplit('if __name__ == ', 1)[0]
+source = source.rsplit('if __name__ == ', 1)[0]
 source += """
 CASE = CASE.with_name("t4-sst-mte-state-8720cf34")
 result = {"case": CASE.name, "exists": CASE.is_dir()}
@@ -41,4 +39,21 @@ if status in {"timed_out", "failed", "sst_and_checker_passed"}:
     ) if key in evidence})
 print(json.dumps(result, ensure_ascii=True))
 """
-print(json.dumps(run(source, timeout=110), ensure_ascii=True))
+compile(source, "<remote_status>", "exec")
+try:
+    proc = subprocess.run(
+        ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+         "-o", "ConnectTimeout=10", "root@141.61.94.58", "python3", "-"],
+        input=source.encode("utf-8"), capture_output=True, timeout=110,
+    )
+    if proc.returncode == 0:
+        payload = json.loads(proc.stdout)
+    else:
+        diagnostic = proc.stderr.decode("utf-8", "replace")
+        classes = re.findall(r"^([A-Za-z]+(?:Error|Exception)):", diagnostic, re.MULTILINE)
+        lines = re.findall(r'File "<stdin>", line (\d+)', diagnostic)
+        payload = {"observation": "status_command_failed", "ssh_exit_code": proc.returncode,
+                   "error_classes": classes[-3:], "remote_source_lines": lines[-4:]}
+except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+    payload = {"observation": "transport_failed", "error_type": type(error).__name__}
+print(json.dumps(payload, ensure_ascii=True))
