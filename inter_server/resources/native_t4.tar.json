@@ -1,0 +1,7 @@
+{
+  "candidate_commit": "639f2fb3d71fd14197b82fb86db2e51eccd49d00",
+  "archive_sha256": "3f2e58b7d2a76b57fac7a327d82c8b2ceb3c2d66926d55b9112a696ef65d6fbd",
+  "archive_bytes": 10733661,
+  "case_relative": "inter-server-native/t4-native-639f2fb3",
+  "scope": "native T4 prepared in blue; not run"
+}
