@@ -1,6 +1,7 @@
 """Read the aligned-forward run receipts without starting a new simulation."""
 
 import json
+from pathlib import Path
 import subprocess
 
 source = r"""
@@ -38,6 +39,14 @@ for tokens in (4, 8):
     result[f"t{tokens}"] = row
 print(json.dumps(result, ensure_ascii=True))
 """
+if "profile" in Path(__file__).stem:
+    source = source.replace('for tokens in (4, 8):', 'for tokens in (4,):')
+    source = source.replace('f"t{tokens}-sst-mte-bulk-forward-979923e6"', '"t4-sst-profile-94e104f0"')
+    source = source.replace('"runner_exception_type")','"runner_exception_type", "profile")')
+    source = source.replace('    result[f"t{tokens}"] = row',
+        '    row["profile_raw_dump_count"] = len(list((case / "bin").glob("*_profile.bin")))\n'
+        '    row["perfetto_exists"] = (case / "profile-report/perfetto_trace.json").is_file()\n'
+        '    result[f"t{tokens}"] = row')
 command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
            "-o", "ConnectTimeout=10", "root@141.61.94.58", "python3", "-"]
 proc = subprocess.run(command, input=source.encode("ascii"), capture_output=True, timeout=35)
