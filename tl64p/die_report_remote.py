@@ -55,17 +55,21 @@ def read_output(rank, name, size, allow_short=False):
         merged=bytearray(read_size)
         merged[:128]=dies[0][:128]
         for core in range(64):
-            die=selected[rank,core]
-            for ofs,stride in zip(offsets,(256,128,64,64,64)):
+            for ofs,stride,word in zip(offsets,(1024,512,512,512,512),(8,4,4,4,4)):
                 lo=ofs+stride*core
                 hi=min(lo+stride,read_size)
-                if lo<hi: merged[lo:hi]=dies[die][lo:hi]
+                for index in range(lo,hi,word):
+                    until=index+word
+                    left,right=(data[index:until] for data in dies)
+                    if left!=right and any(left) and any(right):
+                        raise ValueError(f'DIE_PROFILE_CONFLICT rank {rank}, core {core}, offset {index}')
+                    merged[index:until]=left if any(left) else right
         return merged
     return read_original(rank,name,size,allow_short)
 
 namespace['read_output']=read_output
 state={'case':str(CASE),'phase':'analysis','status':'FAIL'}
-out=CASE/'analysis-die-02'
+out=CASE/'analysis-die-merged'
 try:
     out.mkdir()
     namespace['report'](out,state)

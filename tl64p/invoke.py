@@ -106,8 +106,7 @@ elif operation == 'profile_status':
     remote += profile_source('status')
 elif operation == 'profile_report':
     remote += (here/'die_report_remote.py').read_bytes().replace(
-        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile03').replace(
-        b'(256,128,64,64,64)',b'(1024,512,512,512,512)').replace(b'analysis-die-02',b'analysis-01')
+        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile03').replace(b'analysis-die-merged',b'analysis-02')
 elif operation == 'report_aligned':
     remote += (here/'report_remote.py').read_bytes().replace(
         b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
