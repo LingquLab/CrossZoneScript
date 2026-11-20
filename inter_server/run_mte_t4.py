@@ -11,7 +11,8 @@ root = Path(__file__).resolve().parent
 sys.path.insert(0, str(root.parent / "alltoall"))
 from ssh_transport import run
 
-resources = root / "resources" / "mte_t4"
+resource_name = "mte_metadata_t4" if "metadata" in Path(__file__).stem else "mte_t4"
+resources = root / "resources" / resource_name
 build = json.loads((resources / "build-record.json").read_text(encoding="utf-8"))
 packed = (resources / "inter_server_send.o.gz").read_bytes()
 assert hashlib.sha256(gzip.decompress(packed)).hexdigest() == build["kernel_sha256"]

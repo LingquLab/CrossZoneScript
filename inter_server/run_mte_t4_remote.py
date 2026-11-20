@@ -12,11 +12,12 @@ import shutil
 NAME = "tilexr-cpu-b4f4660a-lr8"
 ID = "1f98e70b00ed8b171fea3b06152a7fe9507a2270e9dee05c72015af5b995c2f4"
 BASELINE = "t4-native-639f2fb3"
-VARIANT = "t4-sst-mte-state-8720cf34"
+VARIANTS = {
+    "8720cf344d4bcbb4b6eea2e4f1c3d01579180d8d4e483341d7f32a73707f2b98": "t4-sst-mte-state-8720cf34",
+    "0d3c8694fe8919d1270c97dd6e3c4b39dc521ef9c06266ad91fe0cd8aec7d4ee": "t4-sst-mte-split-forward-0d3c8694",
+}
 MOUNT = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native")
 old = MOUNT / BASELINE
-case = MOUNT / VARIANT
-container_case = "/work/inter-server-native/" + VARIANT
 
 
 def sha(path):
@@ -31,7 +32,7 @@ def docker(*args, timeout=30):
     return subprocess.run(["docker", *args], capture_output=True, check=True, timeout=timeout)
 
 
-def prepare(request):
+def prepare(request, case, container_case):
     build = request["build"]
     binary = gzip.decompress(base64.b64decode(request["object"], validate=True))
     manifest = json.loads((old / "case-manifest.json").read_text())
@@ -75,7 +76,11 @@ def main():
     assert info["Id"] == ID
     assert not info["State"]["Running"]
     assert info["HostConfig"]["Runtime"] == "runc" and not info["HostConfig"]["Devices"]
-    build = prepare(json.load(sys.stdin))
+    request = json.load(sys.stdin)
+    variant = VARIANTS[request["build"]["kernel_sha256"]]
+    case = MOUNT / variant
+    container_case = "/work/inter-server-native/" + variant
+    build = prepare(request, case, container_case)
     result = {
         "case": container_case,
         "variant": build["variant"],
