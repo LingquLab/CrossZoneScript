@@ -19,6 +19,7 @@ VARIANTS = {
     "0d3c8694fe8919d1270c97dd6e3c4b39dc521ef9c06266ad91fe0cd8aec7d4ee": "t4-sst-mte-split-forward-0d3c8694",
     "5a6c7c8cac0b13c99d824725df3e73d91bacbeff576693b4823e2705ab50ffbd": "t4-sst-mte-scalar-forward-5a6c7c8c",
     "979923e6c58792ebeb9705e9f61cccbde12a99807f7a9aa21bfcb1896a38a752": "t4-sst-mte-bulk-forward-979923e6",
+    "94e104f05ca0e15e9d909808bf9cb71b7188669c615ea7e87bfef1f0ab8948ab": "t4-sst-profile-94e104f0",
 }
 MOUNT = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native")
 old = MOUNT / BASELINE
@@ -124,6 +125,8 @@ def main(request):
             )
         result["runner_wall_seconds"] = round(time.monotonic() - started, 3)
         result["runner_exit_code"] = proc.returncode
+        if proc.returncode == 0 and "profile" in request:
+            result["profile"] = export_profile(case, container_case)
     except Exception as error:
         result["runner_exception_type"] = type(error).__name__
     finally:

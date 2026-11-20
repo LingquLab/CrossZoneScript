@@ -43,6 +43,8 @@ def prepare_bulk(request, case, container_case):
         elif name != "blue-build-record.json":
             shutil.copyfile(source, target)
     assert len(changed_forward) == 64
+    if "profile" in request:
+        stage_profile(request, case, container_case)
     write_json(case / "blue-build-record.json", build)
     manifest.update(
         variant=build["variant"],
@@ -70,7 +72,7 @@ def run_bulk(request):
     assert len(images) == 128 and images.keys() == layout["files"].keys()
     request["forward_images"] = images
     result = {}
-    for tokens in (4, 8):
+    for tokens in ((4,) if "profile" in request else (4, 8)):
         row = main(dict(request, tokens=tokens))
         result[f"t{tokens}"] = row
         if row.get("run", {}).get("status") != "sst_and_checker_passed":
