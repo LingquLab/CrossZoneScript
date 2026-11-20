@@ -74,8 +74,11 @@ def main(args):
             result = setup()
         else:
             identity = container()
-            if stage in ("run", "reduce-fixture", "pair"):
-                result = json.loads(command("docker", "exec", NAME, "python3", "/work/sst.py",
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe"):
+                entry = "/work/sst.py"
+                if stage == "bf16-probe":
+                    entry = "/work/bf16_probe.py"
+                result = json.loads(command("docker", "exec", NAME, "python3", entry,
                                             json.dumps(args), timeout=2 * args["stage_timeout"] + 120))
             elif stage == "status":
                 result = {"ok": True, "running": identity["State"]["Running"],

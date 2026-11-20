@@ -72,7 +72,7 @@ def select_environment():
     return snapshot
 
 
-def build_kernel(env, log):
+def build_kernel(env, log, source=None, binary=KERNEL):
     src = WORK / "candidate"
     cann = Path(env["cann_root"])
     arch = cann / "aarch64-linux"
@@ -83,22 +83,23 @@ def build_kernel(env, log):
                 cann / "compiler/tikcpp/tikcfw/impl", cann / "compiler/tikcpp/tikcfw/interface",
                 arch / "ascendc/include", arch / "asc/include", arch / "include",
                 arch / "pkg_inc", arch / "pkg_inc/runtime"]
-    obj = KERNEL.with_name(KERNEL.stem + "_rel.o")
+    source = source or src / "src/moonep/combine_ht/kernels/combine_ht.cpp"
+    obj = binary.with_name(binary.stem + "_rel.o")
     options = ["-xcce", "-O2", "-DCATLASS_ARCH=3510", "--cce-auto-sync", "-Wno-deprecated-declarations",
                "--cce-aicore-arch=dav-c310-vec", "--cce-aicore-only", "-std=gnu++17",
                "-mllvm", "-cce-aicore-stack-size=0x8000", "-mllvm", "-cce-aicore-function-stack-size=0x8000",
                "-mllvm", "-cce-aicore-record-overflow=true", "-mllvm", "-cce-aicore-addr-transform",
                "-mllvm", "-cce-aicore-dcci-insert-for-scalar=false"]
     compile_command = [compiler, *options, *["-I" + str(p) for p in includes], "-c",
-                       src / "src/moonep/combine_ht/kernels/combine_ht.cpp", "-o", obj]
+                       source, "-o", obj]
     link_command = [linker, "-m", "aicorelinux", "-Ttext=0", obj, "--static",
-                    "--allow-multiple-definition", "-o", KERNEL]
-    write_json(WORK / "build.json", [list(map(str, argv)) for argv in (compile_command, link_command)])
+                    "--allow-multiple-definition", "-o", binary]
+    write_json(binary.parent / "build.json", [list(map(str, argv)) for argv in (compile_command, link_command)])
     for argv in (compile_command, link_command):
         subprocess.run(shell_command(env, "cann", argv), check=True, timeout=60, stdout=log,
                        stderr=subprocess.STDOUT)
-    subprocess.run(["readelf", "-sW", KERNEL], check=True, timeout=15, stdout=log, stderr=subprocess.STDOUT)
-    if not KERNEL.read_bytes().startswith(b"\x7fELF"):
+    subprocess.run(["readelf", "-sW", binary], check=True, timeout=15, stdout=log, stderr=subprocess.STDOUT)
+    if not binary.read_bytes().startswith(b"\x7fELF"):
         raise ValueError("invalid AICore ELF")
 
 

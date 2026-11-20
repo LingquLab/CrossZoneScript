@@ -1,0 +1,75 @@
+# Copyright (c) 2026 TileXR Project.
+"""Run a minimal Cast/Add/MTE3 probe in the retained perf environment."""
+
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import struct
+import subprocess
+import time
+
+import sst
+
+
+def run(args):
+    config = json.loads((sst.WORK / "environment.snapshot.json").read_text())
+    env = sst.verify_environment(config)
+    case = sst.WORK / "diagnostics" / ("bf16-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"))
+    case.mkdir(parents=True)
+    kernel = case / "tilexr_bf16_probe.o"
+    with (case / "build.log").open("wb") as log:
+        sst.build_kernel(env, log, source=sst.WORK / "bf16_probe.cpp", binary=kernel)
+    values_a = [(16 + i % 16) / 16 for i in range(256)]
+    values_b = [(16 + (i // 16) % 16) / 16 for i in range(256)]
+    expected_copy = struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_a))
+    expected_fp32 = struct.pack("<256f", *(a + b for a, b in zip(values_a, values_b)))
+    expected_bf16 = struct.pack("<256H", *(sst.fixtures.bf16(a + b) for a, b in zip(values_a, values_b)))
+    inputs = case / "input.bin"
+    inputs.write_bytes(expected_copy + struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_b)))
+    zero = case / "zero.bin"
+    zero.write_bytes(bytes(2048))
+    ranks = 8
+    chips = {}
+    for rank in range(ranks):
+        base = rank * sst.rt.GM_BYTES
+        input_addr, output_addr = base + 0x200000000, base + 0x200100000
+        chips[f"chip{rank}"] = dict(gm_size=sst.rt.GM_BYTES, sys_va_base_addr=base,
+            ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
+            block_dim=1, subblock_dim=1, kernel_file=str(kernel), vec_func="tilexr_bf16_probe",
+            kernel_param=dict(input=dict(value=input_addr, param_offset="0", param_type="11", input_bin=str(inputs)),
+                              output=dict(value=output_addr, param_offset="8", param_type="11", input_bin=str(zero))),
+            bin_param=dict(addr=base + 0x40000000, size=max(0x26C40, sst.fixtures.align(kernel.stat().st_size))),
+            output_param=dict(probe=dict(addr=output_addr, size=2048)))
+    with (case / "model.log").open("w") as log, redirect_stdout(log):
+        model = sst.write_model(case, config, {"workload_config": chips}, ranks)
+    command = sst.shell_command(env, "sst", [env["sst_bin"], "-n", "8", case / "test_UBusSim.py"])
+    begin = time.monotonic()
+    with (case / "sim.log").open("wb") as log:
+        proc = subprocess.run(command, cwd=case, stdout=log, stderr=subprocess.STDOUT,
+                              timeout=args.get("stage_timeout", 150))
+    elapsed = time.monotonic() - begin
+    if proc.returncode:
+        return dict(ok=False, report=str(case), returncode=proc.returncode, wall_s=elapsed)
+    all_results = []
+    for rank, chip in enumerate(chips.values()):
+        output = chip["output_param"]["probe"]
+        raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], True)
+        samples = dict(copy=raw[:512], cast=raw[512:1024], fp32=raw[1024:])
+        golden = dict(copy=expected_copy, cast=expected_bf16, fp32=expected_fp32)
+        result = dict(rank=rank, mismatched_bytes={name: sum(a != b for a, b in zip(data, golden[name]))
+                                                   for name, data in samples.items()})
+        result["cast16_first8"] = struct.unpack_from("<8H", samples["cast"])
+        all_results.append(result)
+    result = dict(ok=True, report=str(case), returncode=proc.returncode, wall_s=elapsed,
+                  model=model, expected_cast16_first8=struct.unpack_from("<8H", expected_bf16), ranks=all_results)
+    sst.write_json(case / "report.json", result)
+    return result
+
+
+if __name__ == "__main__":
+    import sys
+    try:
+        print(json.dumps(run(json.loads(sys.argv[1])), ensure_ascii=True))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(json.dumps(dict(ok=False, error=type(error).__name__, detail=str(error))))
