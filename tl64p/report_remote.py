@@ -114,8 +114,14 @@ def report(out,state):
             ticks=struct.unpack_from(f'<{count}Q',profile,ticks_o+256*core)
             ids=struct.unpack_from(f'<{count}I',profile,ids_o+128*core)
             views.append(dict(core=core,timestamps=ticks,event_ids=ids))
-            checked=summarize_lanes([views[-1]])
             marks=dict(zip(ids,ticks))
+            try:
+                checked=summarize_lanes([views[-1]])
+            except ValueError as error:
+                invalid_pairs = [[name,marks[start],marks[end]] for start,(name,end) in STAGES.items()
+                                 if start in marks and end in marks and marks[end]<marks[start]]
+                profile_issues.append([rank,core,str(error),invalid_pairs])
+                continue
             if not marks[1] or marks[2]<=marks[1]:
                 profile_issues.append([rank,core,'invalid whole timestamps'])
                 continue
@@ -153,14 +159,16 @@ def report(out,state):
         'metadata':{'clock_alignment':'NOT_VERIFIED','axis':'raw ticks displayed at one tick per ns',
                     'origin':'independent kernel begin marker per core'}},separators=(',',':')))
     state['trace_sha256']=digest((out/'dispatch.raw-ticks.perfetto.json').read_bytes())
-    state['status']='PASS' if (not golden_fail and not diagnostic_errors and not profile_issues and
-                               lane_count==4096 and set(issued)==set(received)=={768}) else 'FAIL'
+    state['business_status']='PASS' if (not golden_fail and not diagnostic_errors and
+                                       len(compare_hashes)==256 and set(issued)==set(received)=={768}) else 'FAIL'
+    state['profile_status']='PASS' if not profile_issues and not missing_completion and lane_count==4096 else 'INCOMPLETE'
+    state['status']='PASS' if state['business_status']==state['profile_status']=='PASS' and not truncated_gates else 'INCOMPLETE'
     state['profile_coverage']='PARTIAL_COMPLETION_WORDS' if missing_completion else 'COMPLETE'
     state['sender_gate_coverage']='PARTIAL_RANGE' if truncated_gates else 'COMPLETE'
 
 
 result={'case':str(CASE),'phase':'analysis','status':'FAIL'}
-out=CASE/'analysis-02'
+out=CASE/'analysis-03'
 try:
     out.mkdir()
     report(out,result)
