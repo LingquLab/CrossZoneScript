@@ -65,14 +65,18 @@ for row in layout['ranks']:
                 examples.append({'rank': rank, 'field': key, 'slot': offset // 512,
                                  'kind': kind, 'other_die_matches': other_slot == expected_slot,
                                  'first_byte': diff[0], 'last_byte': diff[-1]})
-source_rank, target_rank, slot, row_size = 38, 30, 28, 512
+if 'split-forward' in case.name:
+    source_rank, target_rank, slot, source_offset, target_offset = 18, 10, 26, 0x800, 0x4a400
+else:
+    source_rank, target_rank, slot, source_offset, target_offset = 38, 30, 28, 0xc00, 0x4a800
+row_size = 512
 workspace, rank_span = 0x200000000, 0x2000000000
-src = source_rank * rank_span + workspace + 0xc00
-dst = target_rank * rank_span + workspace + 0x4a800
-actual = (case / 'actual' / 'rank30' / 'returned.bin').read_bytes()[slot * row_size:(slot + 1) * row_size]
-golden = (case / 'fixture-data' / 'rank30' / 'golden-returned.bin').read_bytes()[slot * row_size:(slot + 1) * row_size]
-source_workspace = (case / 'input_bin' / 'rank38' / 'workspace.bin').read_bytes()
-source_row = source_workspace[0xc00:0xe00]
+src = source_rank * rank_span + workspace + source_offset
+dst = target_rank * rank_span + workspace + target_offset
+actual = (case / 'actual' / f'rank{target_rank:02d}' / 'returned.bin').read_bytes()[slot * row_size:(slot + 1) * row_size]
+golden = (case / 'fixture-data' / f'rank{target_rank:02d}' / 'golden-returned.bin').read_bytes()[slot * row_size:(slot + 1) * row_size]
+source_workspace = (case / 'input_bin' / f'rank{source_rank:02d}' / 'workspace.bin').read_bytes()
+source_row = source_workspace[source_offset:source_offset + row_size]
 candidates = []
 for name in ('input', 'partial'):
     for rank in range(64):
@@ -101,7 +105,8 @@ for rank in (source_rank, target_rank):
                     trace[f'{rank}/{layer}/{which}/{event}/{field}'] += 1
                     if field == 'oriAddr_' and len(event_order) < 20:
                         event_order.append([rank, layer, which, event, value - address])
-route = {'source_image_matches_golden': source_row == golden,
+route = {'source_rank': source_rank, 'target_rank': target_rank, 'slot': slot,
+         'source_image_matches_golden': source_row == golden,
          'actual_has_one_repeated_bf16_word': len({actual[i:i + 2] for i in range(0, len(actual), 2)}) == 1,
          'actual_source_candidate_total': len(candidates),
          'actual_source_candidates': candidates[:8], 'trace': dict(trace), 'event_order': event_order}
