@@ -14,6 +14,9 @@ if operation == 'build':
     resources = {'manifest': manifest, 'archive': (here/'sources.tar.gz').read_bytes(),
                  'compile_source': (here/'compile.sh').read_bytes()}
     seconds = 440
+elif operation == 'stage':
+    resources = {}
+    seconds = 145
 else:
     raise ValueError('unknown operation')
 remote = ''.join(f'{name} = {value!r}\n' for name,value in resources.items()).encode()
