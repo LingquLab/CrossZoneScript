@@ -68,6 +68,24 @@ def read_output(rank, name, size, allow_short=False):
     return read_original(rank,name,size,allow_short)
 
 namespace['read_output']=read_output
+valid_pairs=Counter()
+partial_points={}
+original_summarize=namespace['summarize_lanes']
+def summarize_with_pair_audit(lanes):
+    lane,=lanes
+    ids,ticks=lane['event_ids'],lane['timestamps']
+    rank=len(selected)//64-1
+    core=lane['core']
+    if len(set(ids))==len(ids):
+        marks=dict(zip(ids,ticks))
+        if marks.get(1,0)>0 and marks.get(2,0)>marks[1]:
+            for begin,(name,end) in namespace['STAGES'].items():
+                if begin in marks and end in marks and marks[1]<=marks[begin]<=marks[end]<=marks[2]:
+                    valid_pairs[name]+=1
+                    partial_points.setdefault(name,[]).append((rank,core,marks[end]-marks[begin]))
+    return original_summarize(lanes)
+
+namespace['summarize_lanes']=summarize_with_pair_audit
 state={'case':str(CASE),'phase':'analysis','status':'FAIL'}
 out=CASE/'analysis-die-merged'
 try:
@@ -78,5 +96,12 @@ except Exception as error:
     if out.is_dir(): (out/'error.log').write_text(traceback.format_exc())
     state.update(reason=type(error).__name__+': '+str(error)[:200])
 state['diagnostic_die_ownership']=dict(ownership)
+if 'profile_failure_count' in state:
+    independently_valid={name:namespace['agg'](values) for name,values in partial_points.items()}
+    (out/'valid-stage-pairs.json').write_text(json.dumps(independently_valid,indent=2)+'\n')
+    state['individually_valid']={name:summary for name,summary in independently_valid.items()
+                               if name in ('F8.payload_loop','F9.payload_clear','F4.pack_send','module.whole')}
+    state['valid_pair_counts']=dict(valid_pairs)
+    state['report_files']={p.name:namespace['digest'](p.read_bytes()) for p in out.iterdir() if p.is_file()}
 if out.is_dir(): (out/'summary.json').write_text(json.dumps(state,indent=2)+'\n')
 print(json.dumps(state,separators=(',',':')))

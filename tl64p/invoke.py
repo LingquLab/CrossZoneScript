@@ -107,7 +107,7 @@ elif operation == 'profile_status':
 elif operation in ('profile_report','profile_audit'):
     report_script='die_report_remote.py' if operation=='profile_report' else 'die_audit_remote.py'
     remote += (here/report_script).read_bytes().replace(
-        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile03').replace(b'analysis-die-merged',b'analysis-02')
+        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile03').replace(b'analysis-die-merged',b'analysis-03')
 elif operation == 'report_aligned':
     remote += (here/'report_remote.py').read_bytes().replace(
         b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
