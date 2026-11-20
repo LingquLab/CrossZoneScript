@@ -467,7 +467,7 @@ def run(args, stages):
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"], stages=stages)
     write_json(case / "case.json", record)
     phases = (("reduce-only", 2),) if args["stage"] == "reduce-fixture" else (("send-only", 1), ("reduce-only", 2))
-    if args["stage"] == "send-diag":
+    if args["stage"] in ("send-diag", "send-only"):
         phases = (("send-only", 1),)
     send_state = None
     for phase, mode in phases:
@@ -502,7 +502,7 @@ def main(args):
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "stage": args["stage"], "error": type(exc).__name__,
                   "detail": str(exc)[:2200], "stages": stages}
-        if args["stage"] in ("run", "reduce-fixture", "pair", "send-diag") and (WORK / "progress.json").is_file():
+        if args["stage"] in ("run", "reduce-fixture", "pair", "send-diag", "send-only") and (WORK / "progress.json").is_file():
             previous = json.loads((WORK / "progress.json").read_text())
             write_json(WORK / "progress.json", {**previous, "state": "failed", "result": result})
     print(json.dumps(result, ensure_ascii=True))

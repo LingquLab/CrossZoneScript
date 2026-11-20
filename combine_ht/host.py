@@ -116,7 +116,7 @@ def main(args):
             result = setup()
         else:
             identity = container()
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "send-diag"):
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "send-diag", "send-only"):
                 procs = command("docker", "top", NAME, "-eo", "pid,comm,stat").splitlines()[1:]
                 if any(row.split()[1] in ("sst", "sstsim.x") and not row.split()[2].startswith("Z") for row in procs):
                     raise RuntimeError("SST is already active in the selected container")
