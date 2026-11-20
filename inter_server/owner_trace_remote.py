@@ -150,7 +150,7 @@ def cq_evidence(data, examples, expected):
 def ring_coverage(data, host, expected, drain_examples):
     ring_bytes = 16384 * 64
     region = {'RD_REQ': 0x1900000000, 'WR_REQ': 0x1A00000000}
-    observed = {'RD_REQ': set(), 'WR_REQ': set()}
+    observed = {event: collections.defaultdict(set) for event in region}
     for match in ADDRESS_RECORD.finditer(data):
         try:
             args = json.loads(match.group())
@@ -162,15 +162,27 @@ def ring_coverage(data, host, expected, drain_examples):
         except (KeyError, TypeError, ValueError):
             continue
         chip, local = divmod(value, GM_BYTES)
-        ring = (local - region[event]) // ring_bytes
+        ring, offset = divmod(local - region[event], ring_bytes)
         if chip == host and 0 <= ring < 64 * 40:
-            observed[event].add(ring)
-    expected_rings = {peer * 40 + lane * 20 + owner for peer, owner, lane in expected}
-    sq, cq = observed['RD_REQ'], observed['WR_REQ']
+            observed[event][ring].add(offset // 64)
+    expected_slots = {peer * 40 + lane * 20 + owner: requests - 1
+                      for (peer, owner, lane), requests in expected.items()}
+    expected_rings = set(expected_slots)
+    sq_slots, cq_slots = observed['RD_REQ'], observed['WR_REQ']
+    sq, cq = set(sq_slots), set(cq_slots)
     result = collections.Counter(expected_rings=len(expected_rings),
         expected_with_sq_fetch=len(expected_rings & sq), expected_with_cq_write=len(expected_rings & cq),
         sq_without_cq=len(expected_rings & (sq - cq)), cq_without_sq=len(expected_rings & (cq - sq)),
         expected_with_neither=len(expected_rings - sq - cq), unexpected_ring_indices=len((sq | cq) - expected_rings))
+    for ring, count in expected_slots.items():
+        for label, slots in (('sq', sq_slots[ring]), ('cq', cq_slots[ring])):
+            result[f'{label}_expected_slots'] += count
+            result[f'{label}_observed_expected_slots'] += sum(slot < count for slot in slots)
+            result[f'{label}_observed_beyond_expected_slots'] += sum(slot >= count for slot in slots)
+            if count > 1:
+                result[f'{label}_multiple_wqe_qps'] += 1
+                result[f'{label}_multiple_wqe_qps_with_only_slot_zero'] += int(slots == {0})
+                result[f'{label}_multiple_wqe_qps_with_no_slots'] += int(not slots)
     for item in drain_examples:
         lane, peer = item['last_fully_observed_lane_peer']
         ring = peer * 40 + lane * 20 + item['owner']
