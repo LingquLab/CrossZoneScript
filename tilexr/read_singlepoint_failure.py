@@ -8,7 +8,8 @@ import subprocess
 
 report = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr/reports/lr8-2'
 result = {'report': str(report)}
-for name in ['unitest-progress.json', 'singlepoint-results.json']:
+for name in ['unitest-progress.json', 'singlepoint-results.json', 'unitest-512b-progress.json',
+             'singlepoint-512b-results.json', 'diagnosis-516b-summary.json']:
     path = report / name
     if path.is_file():
         result[name] = json.loads(path.read_text(encoding='utf-8'))
