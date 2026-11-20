@@ -23,7 +23,7 @@ TOOLS = WORK / "tooling/tools/unitest/simulator"
 EXPERIMENT = TOOLS / "experiments/alltoall_udma"
 sys.path[:0] = [str(TOOLS), str(EXPERIMENT)]
 from case_tools import extract_die_output, extract_ranges, verified_die_decoder
-from configuration import configure, V310_CONFIG
+from configuration import configure, UBUS_CONFIG, V310_CONFIG
 from kernel_build import find_linker
 import runtime as rt
 from sim_environment import RESOURCE_GROUPS, checksum, file_record, load_environment, runtime_fingerprint, shell_command, verify_environment
@@ -204,8 +204,9 @@ def create_workload(case, specs, prepared, mode, send_state=None):
 
 def write_model(case, snapshot, workload, ranks):
     sources = {name: Path(record["path"]) for name, record in snapshot["resources"].items()}
-    args = SimpleNamespace(rank_size=ranks, log_level=4, instruction_dump_chips=[])
+    args = SimpleNamespace(rank_size=ranks, log_level=1, instruction_dump_chips=[])
     configs, level = configure(sources, args)
+    configs[UBUS_CONFIG]["simulator_info"]["clos_router_in_fm_flag"] = True
     for name, config in configs.items():
         path = case / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,7 +217,8 @@ def write_model(case, snapshot, workload, ranks):
     shutil.copyfile(sources["installed_model.py"], case / "installed_model.py")
     shutil.copyfile(EXPERIMENT / "model_entry.py", case / "test_UBusSim.py")
     write_json(case / "environment.snapshot.json", snapshot)
-    return dict(su=configs[V310_CONFIG]["simulator_config"]["su"]["component"], lsu_level=level)
+    return dict(su=configs[V310_CONFIG]["simulator_config"]["su"]["component"],
+                lsu_level=level, clos_router_in_fm_flag=True, log_level=args.log_level)
 
 
 def read_output(bin_dir, rank, output_name, address, size, use_die_decoder):
@@ -270,8 +272,9 @@ def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None)
     stages.append(result)
     finish = []
     fatal = False
-    with (case / "sim.log").open(errors="replace") as log:
-        for line in log:
+    with (case / "sim.log").open("rb") as log:
+        log.seek(max(0, (case / "sim.log").stat().st_size - 2**20))
+        for line in log.read(2**20).decode(errors="replace").splitlines():
             match = SIM_TIME.search(line)
             if match:
                 finish.append(float(match[1]) * TIME_FACTORS[match[2]])
@@ -294,7 +297,7 @@ def run(args, stages):
         raise ValueError("invalid fixture shape")
     case = WORK / "cases" / (f"{ranks}p-bs{tokens}-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"))
     case.mkdir(parents=True)
-    progress = dict(state="preparing", case=str(case), ranks=ranks, bs=tokens)
+    progress = dict(state="preparing", case=str(case), ranks=ranks, bs=tokens, hidden=hidden)
     write_json(WORK / "progress.json", progress)
     config = json.loads((WORK / "environment.snapshot.json").read_text())
     verify_environment(config)
