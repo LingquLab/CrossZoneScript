@@ -25,7 +25,7 @@ def main():
         'status_single': 'status',
         'report_single': 'report',
     }
-    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'probe', 'build_softsync', 'p2_profile',
+    assert operation in ('run', 'status', 'report', 'inspect', 'debug', 'probe', 'build_softsync', 'p2_profile', 'tune',
                          'topology_check', *scripts)
     source = Path(__file__).with_name(scripts.get(operation, 'debug' if operation == 'probe' else operation) +
                                       '_remote.py').read_bytes()
@@ -55,6 +55,9 @@ def main():
             stage = Path(__file__).with_name('stage_softsync.py').read_bytes()
             source = ('softsync_binary_sha256 = ' + repr(checksum) + '\n').encode() + stage + b'\n' + source
     remote = 'docker exec -i simbox python3 -B -'
+    if operation == 'tune':
+        report = Path(__file__).with_name('report_remote.py').read_bytes()
+        source = f'report_source = {report!r}\n'.encode() + source
     if operation == 'p2_profile':
         source = Path(__file__).with_name('p2_profile_decode.py').read_bytes() + b'\n' + source
     if operation == 'topology_check':
@@ -83,9 +86,13 @@ def main():
     try:
         timeout = 4260 if operation in ('run_single', 'run_clean') else {'run': 2400, 'status': 25, 'report': 650, 'inspect': 25,
                                           'debug': 2200, 'probe': 600, 'build_softsync': 210, 'p2_profile': 620,
-                                          'topology_check': 490}
+                                          'topology_check': 490, 'tune': 6750}
         process = subprocess.run(command, input=source, capture_output=True,
                                  timeout=timeout if isinstance(timeout, int) else timeout[scripts.get(operation, operation)])
+        if operation == 'tune':
+            work = Path.cwd()
+            (work / 'tune-ssh.stdout.log').write_bytes(process.stdout)
+            (work / 'tune-ssh.stderr.log').write_bytes(process.stderr)
         try:
             result = json.loads(process.stdout) if process.returncode == 0 else {
                 'status': 'SSH_OR_REMOTE_FAILURE', 'sst_start_verified': False,
