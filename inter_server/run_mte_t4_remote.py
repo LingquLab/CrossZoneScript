@@ -71,23 +71,31 @@ def prepare(request, case, container_case):
     return build
 
 
-def main():
+def main(request):
     info, = json.loads(docker("inspect", NAME, timeout=15).stdout)
     assert info["Id"] == ID
     assert not info["State"]["Running"]
     assert info["HostConfig"]["Runtime"] == "runc" and not info["HostConfig"]["Devices"]
-    request = json.load(sys.stdin)
     variant = VARIANTS[request["build"]["kernel_sha256"]]
+    tokens = request.get("tokens", 4)
+    if tokens == 8:
+        variant = variant.replace("t4-", "t8-", 1)
+    else:
+        assert tokens == 4
     case = MOUNT / variant
     container_case = "/work/inter-server-native/" + variant
-    build = prepare(request, case, container_case)
+    build = (
+        prepare_t8(request, case, container_case)
+        if tokens == 8
+        else prepare(request, case, container_case)
+    )
     result = {
         "case": container_case,
         "variant": build["variant"],
         "candidate_commit": build["candidate_commit"],
         "kernel_sha256": build["kernel_sha256"],
         "world": 64,
-        "tokens": 4,
+        "tokens": tokens,
         "hidden": 256,
         "compiled_in_green": False,
     }
@@ -126,4 +134,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(json.load(sys.stdin))
