@@ -15,15 +15,21 @@ selected={}
 ownership=Counter()
 
 def die_region(rank, die, name, size):
-    output=next(iter(plan['plans'][rank]['profile_outputs'][name].values()))
+    rank_plan=plan['plans'][rank]
+    output=rank_plan['profile_outputs'][name]['addr']
+    candidates={output,output-rank_plan['gm_base']}
     base=bytearray(size)
     raw=(CASE/'bin'/f'david_{rank}_die{die}_{name}.bin').read_bytes()
     assert len(raw)%520==0
+    first,=struct.unpack_from('<Q',raw)
+    bases=[addr for addr in candidates if 0<=first-addr<size and (first-addr)%512==0]
+    assert len(bases)==1,(rank,die,name,first,sorted(candidates))
+    output=bases[0]
     covered=set()
     for pos in range(0,len(raw),520):
         address,=struct.unpack_from('<Q',raw,pos)
         start=address-output
-        assert start%512==0 and 0<=start and start+512<=size and start not in covered
+        assert start%512==0 and 0<=start and start+512<=size and start not in covered,(rank,die,name,address,output,size)
         covered.add(start)
         base[start:start+512]=raw[pos+8:pos+520]
     assert len(covered)==size//512,(rank,die,name,len(covered),size//512)
@@ -59,7 +65,7 @@ def read_output(rank, name, size, allow_short=False):
 
 namespace['read_output']=read_output
 state={'case':str(CASE),'phase':'analysis','status':'FAIL'}
-out=CASE/'analysis-die-01'
+out=CASE/'analysis-die-02'
 try:
     out.mkdir()
     namespace['report'](out,state)
