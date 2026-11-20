@@ -23,14 +23,12 @@ def read(path):
 
 
 result = {'observed_utc': datetime.now(timezone.utc).isoformat(), 'campaigns': [], 'verified_point_count': 0}
-for name in ['profiled-8p-small-1', 'profiled-8p-512k-1', 'profiled-16p-32p-small-1',
-             'profiled-8p-4m-1', 'profiled-16p-32p-512k-1']:
-    directory = root / name
+for directory in sorted(path for path in root.glob('profiled-*') if path.is_dir()):
     rows = read(directory / 'results.json')
     completed = [{k: entry[k] for k in ['kernel', 'ranks', 'elements_per_peer', 'status', 'simulated_us',
                                        'reference_us', 'difference_us']} for entry in rows] if isinstance(rows, list) else []
     result['verified_point_count'] += sum(row['status'] == 'passed' for row in completed)
-    result['campaigns'].append({'campaign': name, 'progress': read(directory / 'progress.json'), 'completed_points': completed})
+    result['campaigns'].append({'campaign': directory.name, 'progress': read(directory / 'progress.json'), 'completed_points': completed})
 p = subprocess.run(['ssh', '-T', '-i', 'C:/Users/z00813871/.ssh/id_ed25519',
     '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes',
     '-o', 'ConnectTimeout=12', 'root@141.61.94.26',
