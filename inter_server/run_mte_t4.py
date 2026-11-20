@@ -11,7 +11,11 @@ root = Path(__file__).resolve().parent
 sys.path.insert(0, str(root.parent / "alltoall"))
 from ssh_transport import run
 
-resource_name = "mte_metadata_t4" if "metadata" in Path(__file__).stem else "mte_t4"
+entry = Path(__file__).stem
+resource_name = {
+    "run_mte_metadata_t4": "mte_metadata_t4",
+    "run_mte_scalar_t4": "mte_scalar_t4",
+}.get(entry, "mte_t4")
 resources = root / "resources" / resource_name
 build = json.loads((resources / "build-record.json").read_text(encoding="utf-8"))
 packed = (resources / "inter_server_send.o.gz").read_bytes()

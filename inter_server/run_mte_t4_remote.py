@@ -15,6 +15,7 @@ BASELINE = "t4-native-639f2fb3"
 VARIANTS = {
     "8720cf344d4bcbb4b6eea2e4f1c3d01579180d8d4e483341d7f32a73707f2b98": "t4-sst-mte-state-8720cf34",
     "0d3c8694fe8919d1270c97dd6e3c4b39dc521ef9c06266ad91fe0cd8aec7d4ee": "t4-sst-mte-split-forward-0d3c8694",
+    "5a6c7c8cac0b13c99d824725df3e73d91bacbeff576693b4823e2705ab50ffbd": "t4-sst-mte-scalar-forward-5a6c7c8c",
 }
 MOUNT = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native")
 old = MOUNT / BASELINE
