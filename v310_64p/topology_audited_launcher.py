@@ -40,6 +40,13 @@ def observed_load(model, directory):
                     'stars': {name: stars[name] for name in v310_fields if name in stars}}
         with Path('config-load.jsonl').open('a', encoding='utf-8') as stream:
             stream.write(json.dumps(evidence, separators=(',', ':'))+'\n')
+        expected = Path('expected-v310-runtime.json')
+        if Path(directory).name == 'v310_config' and expected.is_file():
+            fields = json.loads(expected.read_text())
+            for category, values in fields.items():
+                for name, value in values.items():
+                    if evidence[category].get(name) != value:
+                        raise ValueError(f'Loaded {category}.{name} = {evidence[category].get(name)!r}, expected {value!r}')
 
 
 class ObserveConfigurationCalls(ast.NodeTransformer):

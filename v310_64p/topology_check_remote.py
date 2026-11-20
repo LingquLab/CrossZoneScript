@@ -13,6 +13,8 @@ NAMES = {
     'smoke8': ('urma_dispatch_8p_prefilled_smoke', 'urma_dispatch_8p_bridge_20261120_run01'),
     'init64': ('dispatch_memory_64p_top6_profile_bridge_20261119_run11_sync_ports',
                'dispatch_memory_64p_top6_profile_bridge_20261120_init01'),
+    'sync64_clean': ('dispatch_memory_64p_top6_profile_bridge_20261119_run11_sync_ports',
+                     'dispatch_memory_64p_top6_profile_bridge_20261120_sync_clean01'),
 }
 source_name, target_name = NAMES[MODE]
 source, target = ROOT/source_name, ROOT/target_name
@@ -57,6 +59,30 @@ def copy_case():
     for path in [*target.rglob('*.yml'), *target.rglob('*.yaml')]:
         data = path.read_bytes()
         path.write_bytes(data.replace(os.fsencode(source), os.fsencode(target)))
+    if MODE == 'sync64_clean':
+        import yaml
+
+        perf = target/'v310_config/davidV100_simulator_config.yml'
+        stale = target/'v310_config/pv_simulator_config.yml'
+        for path, cores in ((perf, 36), (stale, 1152)):
+            cfg = yaml.safe_load(path.read_text())
+            assert cfg['architecture_config']['aicore_num'] == cores, 'CONFIG_VALUES_CHANGED'
+            assert cfg['architecture_config']['chip_num'] == 64, 'CONFIG_CHIP_COUNT_CHANGED'
+        stale.rename(target/'pv_simulator_config.original.yml')
+        owners = []
+        for path in sorted((target/'v310_config').glob('*.y*ml')):
+            cfg = yaml.safe_load(path.read_text())
+            if isinstance(cfg, dict) and 'architecture_config' in cfg:
+                owners.append(path.name)
+        assert owners == [perf.name], 'AMBIGUOUS_V310_ARCHITECTURE_CONFIG'
+        result['perf_config_sha256'] = hash_file(perf)
+        result['old_config_sha256'] = hash_file(target/'pv_simulator_config.original.yml')
+        result['kernel_sha256'] = hash_file(target/'tilexr_ep_dispatch_memory_kernel.o')
+        assert result['kernel_sha256'] == '773c3a2bed8b9bede50c3208cc32f267021d6a6c8b254b8fe87e915a9da59ecd'
+        (target/'expected-v310-runtime.json').write_text(json.dumps({
+            'architecture': {'chip_num': 64, 'aicore_num': 36, 'aicore_num_per_die': 18, 'subcore_num': 3},
+            'stars': {'aicore_num': 36, 'subcore_num': 3},
+        }))
     (target/'audited_launcher.py').write_bytes(launcher_source)
 
 
@@ -78,8 +104,9 @@ try:
               for folder in ('UBusSim_config', 'v310_config')
               for path in sorted((target/folder).glob('*.y*ml'))}
     assert not active_sst(), 'OTHER_ACTIVE_SST'
-    options = ['-n', '8'] if MODE == 'smoke8' else ['-n', '20', '--run-mode=init',
-                                                     '--output-json=graph.json']
+    options = ['-n', '8'] if MODE == 'smoke8' else ['-n', '20', '--output-json=graph.json']
+    if MODE == 'init64':
+        options.append('--run-mode=init')
     environment = ('source /opt/sim/sst-env.sh && '
                    'export SST_PATH=/opt/sim/local/sstcore '
                    'SST_CONFIG_FILE_PATH=/opt/sim/simulator/config/sst-plugins.conf '
@@ -99,6 +126,11 @@ try:
         graph = target/'graph.json'
         result['graph_bytes'] = graph.stat().st_size if graph.is_file() else 0
         result['status'] = 'GRAPH_SAVED' if result['sst_exit'] == 0 and result['graph_bytes'] else 'INIT_FAILED'
+    elif MODE == 'sync64_clean':
+        graph = target/'graph.json'
+        result['graph_bytes'] = graph.stat().st_size if graph.is_file() else 0
+        result['status'] = ('SYNC_PROBE_COMPLETE' if result['sst_exit'] == 0 and len(result['completion']) == 1
+                            else 'SYNC_PROBE_INCOMPLETE')
     elif result['sst_exit'] == 0 and len(result['completion']) == 1:
         result['phase'] = 'output'
         exit_code, wall, out_log = run_stage('output', ['python3','-B','output_generator.py','v310_config'], 100)

@@ -48,7 +48,7 @@ def main():
         source = Path(__file__).with_name('p2_profile_decode.py').read_bytes() + b'\n' + source
     if operation == 'topology_check':
         mode = args['mode']
-        assert mode in ('smoke8', 'init64')
+        assert mode in ('smoke8', 'init64', 'sync64_clean')
         launcher = Path(__file__).with_name('topology_audited_launcher.py').read_bytes()
         source = (f'topology_mode = {mode!r}\nlauncher_source = {launcher!r}\n').encode() + source
     if operation in ('debug', 'probe'):
