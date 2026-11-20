@@ -7,6 +7,8 @@ import subprocess
 
 
 root = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr/reports/matrix-build-1'
+if root.with_name('matrix-build-2').is_dir():
+    root = root.with_name('matrix-build-2')
 result = {'report': str(root), 'report_exists': root.is_dir()}
 for name in ['progress.json', 'summary.json', 'asset-discovery.json']:
     path = root / name
