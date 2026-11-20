@@ -116,7 +116,17 @@ def main(args):
             result = setup()
         else:
             identity = container()
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "castloc-probe", "send-diag", "send-only"):
+            if stage == "castloc-barrier-build":
+                was_running = identity["State"]["Running"]
+                if not was_running:
+                    command("docker", "start", NAME)
+                try:
+                    result = json.loads(command("docker", "exec", NAME, "python3", "/work/bf16_probe.py",
+                                                json.dumps(args), timeout=220))
+                finally:
+                    if not was_running:
+                        command("docker", "stop", NAME)
+            elif stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "castloc-probe", "send-diag", "send-only"):
                 if stage in ("lane-probe", "castloc-probe") and not identity["State"]["Running"]:
                     command("docker", "start", NAME)
                 procs = command("docker", "top", NAME, "-eo", "pid,comm,stat").splitlines()[1:]

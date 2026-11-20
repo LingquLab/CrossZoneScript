@@ -5,6 +5,7 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import struct
 import subprocess
 import time
@@ -14,14 +15,41 @@ import lane_results
 import sst
 
 
+def build_castloc_barriers(env, case, kernel):
+    source = case / "castloc_probe.cpp"
+    original = (sst.WORK / source.name).read_text()
+    cast = "    Cast(bf16, fp32, RoundMode::CAST_RINT, kElements);\n"
+    barrier = "    PipeBarrier<PIPE_V>();\n"
+    if original.count(cast + barrier) != 1:
+        raise ValueError("could not identify the CAST_RINT and its original barrier")
+    source.write_text(original.replace(cast, barrier * 16 + cast + barrier * 16))
+    assembly = case / "castloc_probe.s"
+    with (case / "build.log").open("wb") as log:
+        sst.build_kernel(env, log, source=source, binary=kernel, assembly=assembly)
+
+    instructions = assembly.read_text().lower().splitlines()
+    casts = [index for index, line in enumerate(instructions) if re.match(r"\s*vconv\b", line)]
+    barriers = [index for index, line in enumerate(instructions)
+                if re.match(r"\s*pipe_barrier\b.*\bpipe_v\b", line)]
+    counts = [{"before": sum(0 < index - row <= 40 for row in barriers),
+               "after": sum(0 < row - index <= 40 for row in barriers)} for index in casts]
+    return {"ok": True, "file": str(kernel.relative_to(sst.WORK)), "size": kernel.stat().st_size,
+            "sha256": sst.checksum(kernel), "assembly": str(assembly.relative_to(sst.WORK)),
+            "vector_barriers_in_assembly": len(barriers), "vector_barriers_near_each_vconv": counts}
+
+
 def run(args):
     config = json.loads((sst.WORK / "environment.snapshot.json").read_text())
     env = sst.verify_environment(config)
     kind = args["stage"].split("-")[0]
     entry = "tilexr_" + kind + "_probe"
-    case = sst.WORK / "diagnostics" / (kind + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"))
+    compile_only = args["stage"] == "castloc-barrier-build"
+    label = "castloc-pipebarrier16" if compile_only else kind
+    case = sst.WORK / "diagnostics" / (label + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"))
     case.mkdir(parents=True)
     kernel = case / (entry + ".o")
+    if compile_only:
+        return build_castloc_barriers(env, case, kernel)
     with (case / "build.log").open("wb") as log:
         sst.build_kernel(env, log, source=sst.WORK / (kind + "_probe.cpp"), binary=kernel)
     inputs = case / "input.bin"

@@ -2,6 +2,7 @@
 """Stage pinned inputs from Windows, then run commands on the green SST host."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -55,6 +56,32 @@ def main(args):
                     package.add(target, arcname=filename)
             upload(archive, "scripts.tar")
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
+
+        if stage == "castloc-barrier-build":
+            scripts()
+            response = remote(["timeout", "--kill-after=25", "290", "python3", WORK + "/host.py",
+                               json.dumps(args, separators=(",", ":"))], 320)
+            result = json.loads(response)
+            if result["ok"]:
+                source = WORK + "/" + result["file"]
+                folder = Path(os.environ["USERPROFILE"]) / "Downloads" / "combine-ht-objects"
+                folder.mkdir(parents=True, exist_ok=True)
+                destination = folder / "tilexr_castloc_probe-pipebarrier16.o"
+                temporary = destination.with_suffix(".o.part")
+                scp = ["scp", *ssh[2:-1], ssh[-1] + ":" + source, temporary]
+                try:
+                    run(scp, 45)
+                    artifact = temporary.read_bytes()
+                    if (not artifact.startswith(b"\x7fELF") or len(artifact) != result["size"] or
+                            hashlib.sha256(artifact).hexdigest() != result["sha256"]):
+                        raise ValueError("downloaded ELF failed the size or checksum check")
+                    temporary.replace(destination)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                result.update(source=source, download=r"%USERPROFILE%\Downloads\combine-ht-objects" + "\\" + destination.name)
+            receipt.write_text(json.dumps(result, indent=2), encoding="utf-8")
+            print(json.dumps(result, ensure_ascii=True))
+            return 0
 
         if stage == "setup" and args.get("image_variant") != "v11":
             remote(bootstrap, 25)
