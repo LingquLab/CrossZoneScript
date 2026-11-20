@@ -1,10 +1,17 @@
 import json
 from pathlib import Path
 import subprocess
+import argparse
 
 
 def main():
-    implementation = Path(__file__).with_name("prepare.py")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--args-file", type=Path, required=True)
+    args = json.loads(parser.parse_args().args_file.read_text())
+    step = args.get("step", "prepare")
+    if step not in {"prepare", "run"}:
+        raise ValueError("unknown Dispatch simulation step")
+    implementation = Path(__file__).with_name(step + ".py")
     command = [
         "ssh", "-T", "-i", str(Path.home() / ".ssh/deploy_ed25519"),
         "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
@@ -13,7 +20,8 @@ def main():
         "docker exec -i simbox python3 -B -",
     ]
     result = subprocess.run(
-        command, input=implementation.read_bytes(), capture_output=True, timeout=285,
+        command, input=implementation.read_bytes(), capture_output=True,
+        timeout=285 if step == "prepare" else 2670,
     )
     if result.returncode:
         print(json.dumps({"phase": "transport", "ssh_exit": result.returncode}))
