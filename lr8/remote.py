@@ -101,6 +101,11 @@ def run():
         stream.extractall(sources, filter='data')
     assert digest(sources / 'SOURCE_LOCK.json') == LOCK['source_lock_sha256']
     worker = base64.b64decode(DATA[1], validate=True)
+    optimization = ARGS.get('optimization', 'O2')
+    if optimization == 'O1':
+        anchor = b'options = ["-xcce", "-O2",'
+        assert worker.count(anchor) == 1
+        worker = worker.replace(anchor, b'options = ["-xcce", "-O1",')
     if ARGS.get('cq_gm_doorbell'):
         anchor = b'SPLIT_UDMA_WRITES=splitting, CQ_GM_DOORBELL=0)'
         assert worker.count(anchor) == 1
@@ -179,7 +184,8 @@ def run():
     phase('inspect', dict(library_dir='/opt/sim/plugins', inspection_output='/work/environment'), 150, 'inspect')
     manifest = json.loads((ROOT / 'kernel' / config['sim_variant'] / 'build_manifest.json').read_text())
     print(json.dumps(dict(runtime_commit=LOCK['runtime_commit'], generator_commit=LOCK['tooling_commit'],
-                          binary_sha256=manifest['binary_sha256'], transport=manifest['features'])), flush=True)
+                          binary_sha256=manifest['binary_sha256'], transport=manifest['features'],
+                          optimization=optimization)), flush=True)
     for ranks, elements in ARGS['cases']:
         def measure(setting, sample):
             label = f'{ranks}p-{elements}i32-{setting}-{sample}'
