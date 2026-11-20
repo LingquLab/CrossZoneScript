@@ -117,8 +117,8 @@ def main(args):
         else:
             identity = container()
             if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "send-diag"):
-                procs = command("docker", "top", NAME, "-eo", "comm,stat").splitlines()[1:]
-                if any(row.split()[0] in ("sst", "sstsim.x") and not row.split()[1].startswith("Z") for row in procs):
+                procs = command("docker", "top", NAME, "-eo", "pid,comm,stat").splitlines()[1:]
+                if any(row.split()[1] in ("sst", "sstsim.x") and not row.split()[2].startswith("Z") for row in procs):
                     raise RuntimeError("SST is already active in the selected container")
                 entry = "/work/sst.py"
                 if stage == "bf16-probe":
@@ -131,8 +131,8 @@ def main(args):
                                       if (WORK / "progress.json").is_file() else None}
             elif stage == "stop":
                 if identity["State"]["Running"]:
-                    processes = command("docker", "top", NAME, "-eo", "comm").splitlines()
-                    if any(name.strip() in ("sst", "sstsim.x") for name in processes):
+                    processes = command("docker", "top", NAME, "-eo", "pid,comm,stat").splitlines()[1:]
+                    if any(row.split()[1] in ("sst", "sstsim.x") and not row.split()[2].startswith("Z") for row in processes):
                         raise RuntimeError("SST process is still running")
                     command("docker", "stop", NAME)
                 result = {"ok": not container()["State"]["Running"], "host_work": str(WORK)}
