@@ -26,12 +26,17 @@ status = result.get("run.json", {}).get("status")
 log = CASE / "sim.log"
 if log.is_file():
     import time
+    with log.open("rb") as stream:
+        stream.seek(max(0, log.stat().st_size - 65536))
+        tail = stream.read().decode("utf-8", "replace")
+    logged_cycles = [int(value) for value in re.findall(r"Sim: ([0-9]+)", tail)]
     log_info = log.stat()
     result["sim_log"] = {
         "bytes": log_info.st_size,
         "seconds_since_update": round(time.time() - log_info.st_mtime),
+        "last_sample_max_cycle": max(logged_cycles, default=None),
     }
-if status in {"timed_out", "failed", "sst_and_checker_passed"}:
+if status in {"running", "timed_out", "failed", "sst_and_checker_passed"}:
     evidence = inspect()
     result.update({key: evidence[key] for key in (
         "counts", "sq_doorbell_counts", "drain_order_counts",
