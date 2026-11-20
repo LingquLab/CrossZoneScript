@@ -5,13 +5,18 @@ import json
 from pathlib import Path
 import re
 import struct
+import sys
 from tempfile import mkdtemp
 import time
 
 
-CASE = Path("/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_direct01")
+CASE = Path("/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_ub01"
+            if sys.argv[1:] == ["ub"]
+            else "/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_direct01")
 BASELINE = CASE.with_name("dispatch_tilelang_64p_top6_68d32608_profile03")
-ELF_SHA = "6d3107745c9f0997abc107c1eab5f36cfc278ce1fd228a09a151137eb1e69a37"
+ELF_SHA = ("8c5fcf1de1c333d3294aeb6475348e340cd88e8694d2f2e80dd25566ad2a9ee0"
+           if sys.argv[1:] == ["ub"]
+           else "6d3107745c9f0997abc107c1eab5f36cfc278ce1fd228a09a151137eb1e69a37")
 RANKS = 64
 CORES = 64
 OUTPUT_NAMES = {"output", "expert_nums", "counts", "assist"}

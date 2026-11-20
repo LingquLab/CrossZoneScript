@@ -4,12 +4,19 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 
 
-CASE = Path("/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_direct01")
-ELF_SHA = "6d3107745c9f0997abc107c1eab5f36cfc278ce1fd228a09a151137eb1e69a37"
-WORKLOAD_SHA = "db0c166a1391e1cfd457605fef4a8aa2b288a9df72e248638427a77a4119bcbb"
+CASE = Path("/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_ub01"
+            if sys.argv[1:] == ["ub"]
+            else "/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_direct01")
+ELF_SHA, WORKLOAD_SHA = {
+    "ub": ("8c5fcf1de1c333d3294aeb6475348e340cd88e8694d2f2e80dd25566ad2a9ee0",
+           "8c941cc540166293cfc0305c8e4429bb42c5fff58d48a2384a9f21fc075211a0"),
+    "direct": ("6d3107745c9f0997abc107c1eab5f36cfc278ce1fd228a09a151137eb1e69a37",
+               "db0c166a1391e1cfd457605fef4a8aa2b288a9df72e248638427a77a4119bcbb"),
+}["ub" if sys.argv[1:] == ["ub"] else "direct"]
 AIV_AFFINITY = ",".join(str(cpu) for cpu in range(0, 80, 2))
 RECEIPT = CASE / "direct-run-receipt.json"
 COMMAND = (
@@ -93,7 +100,7 @@ def run():
         completion, errors = completion_values()
         state.update(sst_rc=code, sst_wall_seconds=wall, completion_times=completion,
                      key_errors=errors, sst_finished_utc=utc())
-        if code or not completion or len(set(completion)) != 1 or errors:
+        if code or not completion or len(set(completion)) != 1 or not float(completion[0][0]) or errors:
             raise ValueError("SST did not finish with an unambiguous completion record")
         state["phase"] = "readback"
         append_receipt(state)
