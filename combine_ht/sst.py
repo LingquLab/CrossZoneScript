@@ -178,11 +178,11 @@ def create_workload(case, specs, prepared, mode, send_state=None):
             images["registry"] = registry
             addresses["registry"] = base + rt.BASES["profile_registry"]
             addresses["fullmesh_info"] = addresses["udma_info"]
-            images["status"] = b"\xff" * 32 + bytes(480)
+            images["status"] = b"\x5a" * 32 + bytes(480)
             addresses["status"] = record["addresses"]["status"]
         else:
-            reused = send_state[rank]
-            images["workspace"] = reused.read_bytes()
+            images["workspace"] = (send_state[rank].read_bytes() if send_state is not None
+                                   else prepared[rank][1])
         params = param_table(addresses, spec, mode)
         offset = 240
         for name, payload in images.items():
@@ -269,6 +269,8 @@ def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None)
             code = 124
         elapsed = time.monotonic() - started
     result = dict(stage=case.name, wall_s=elapsed, returncode=code, model=model, report=str(case))
+    if mode == 2:
+        result["input_origin"] = "verified_send_dump" if send_state is not None else "host_fixture"
     stages.append(result)
     finish = []
     fatal = False
@@ -317,7 +319,9 @@ def run(args, stages):
                   route_sha256=hashlib.sha256(routes_bytes).hexdigest(),
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"], stages=stages)
     write_json(case / "case.json", record)
-    for phase, mode in (("send-only", 1), ("reduce-only", 2)):
+    phases = (("send-only", 1), ("reduce-only", 2)) if args["stage"] == "run" else (("reduce-only", 2),)
+    send_state = None
+    for phase, mode in phases:
         write_json(WORK / "progress.json", {**progress, "state": phase, "stages": stages})
         if mode == 1:
             send_state = run_phase(case / phase, mode, spec, prepared, config, args, stages)
@@ -335,7 +339,7 @@ def main(args):
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "stage": args["stage"], "error": type(exc).__name__,
                   "detail": str(exc)[:2200], "stages": stages}
-        if args["stage"] == "run" and (WORK / "progress.json").is_file():
+        if args["stage"] in ("run", "reduce-fixture") and (WORK / "progress.json").is_file():
             previous = json.loads((WORK / "progress.json").read_text())
             write_json(WORK / "progress.json", {**previous, "state": "failed", "result": result})
     print(json.dumps(result, ensure_ascii=True))
