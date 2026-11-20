@@ -66,12 +66,19 @@ def local_report():
                 misses["wrong_die_only" if alt == expected else "neither_die_matches"] += 1
                 misses["all_guard_on_expected_die"] += int(actual == b"\x88\xc1" * 256)
                 misses["output_at_guard_row"] += int(origin is None)
+                if mode == 2:
+                    expected_words = struct.unpack("<256H", expected)
+                    actual_words = struct.unpack("<256H", actual)
+                    matches = sum(a == (((b & 255) * 257 + 256) & 65535)
+                                  for a, b in zip(actual_words, expected_words))
+                    misses["observed_byte_pattern_words"] += matches
+                    misses["observed_byte_pattern_full_rows"] += int(matches == 256)
                 if mode == 1 and origin:
                     _, _, _, _, position, batch_len = origin
                     misses["first_in_batch"] += int(position == 0)
                     misses["last_in_batch"] += int(position + 1 == batch_len)
                     misses["middle_in_batch"] += int(0 < position < batch_len - 1)
-                if len(examples) < 6:
+                if len(examples) < 2:
                     example = dict(rank=rank, row=row, die=die + 1, origin=origin,
                                    expected_bf16=struct.unpack_from("<8H", expected),
                                    actual_bf16=struct.unpack_from("<8H", actual),
@@ -84,7 +91,10 @@ def local_report():
                     examples.append(example)
             by_rank.append(rank_bad)
         result.update(case=relative, counts=dict(misses), mismatches_by_rank=by_rank, first_examples=examples)
-    print(json.dumps(dict(send=send, reduce=reduce), ensure_ascii=True))
+    active = [(p / "cmdline").read_bytes().split(b"\0")[:1] for p in Path("/proc").iterdir()
+              if p.name.isdecimal() and (p / "cmdline").is_file()]
+    sst_alive = any(raw and raw[0].split(b"/")[-1] in (b"sst", b"sstsim.x") for raw in active)
+    print(json.dumps(dict(send=send, reduce=reduce, sst_alive=sst_alive), ensure_ascii=True))
 
 
 def main():
