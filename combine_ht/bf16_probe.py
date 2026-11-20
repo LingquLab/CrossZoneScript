@@ -32,6 +32,13 @@ def run(args):
         expected_bf16 = struct.pack("<256H", *(sst.fixtures.bf16(a + b) for a, b in zip(values_a, values_b)))
         inputs.write_bytes(expected_copy + struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_b)))
         zero.write_bytes(bytes(2048))
+    elif kind == "wqe":
+        local_rows = (3, 4, 15, 18, 27, 28, 45)
+        gather_rows = (0, 1, 4, 9, 12, 13, 23)
+        records = b"".join(struct.pack("<3q", row, local, gather)
+                           for row, (local, gather) in enumerate(zip(local_rows, gather_rows)))
+        inputs.write_bytes(records.ljust(512, b"\0"))
+        zero.write_bytes(bytes(2048))
     else:
         pattern = bytes(1 + (i + i // 64) % 253 for i in range(448))
         inputs.write_bytes(pattern.ljust(512, b"\0"))
@@ -43,7 +50,7 @@ def run(args):
     for rank in range(ranks):
         base = rank * sst.rt.GM_BYTES
         input_addr = base + 0x200000000
-        output_addr = base + (0x200100000 if kind == "bf16" else 0x1900000000)
+        output_addr = base + (0x1900000000 if kind == "mte3" else 0x200100000)
         chips[f"chip{rank}"] = dict(gm_size=sst.rt.GM_BYTES, sys_va_base_addr=base,
             ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
             block_dim=1, subblock_dim=1, kernel_file=str(kernel), vec_func=entry,
@@ -66,6 +73,21 @@ def run(args):
     for rank, chip in enumerate(chips.values()):
         output = chip["output_param"]["probe"]
         raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], die_decoder)
+        if kind == "wqe":
+            conditions = []
+            for trial in range(2):
+                check = []
+                for row, (local, gather) in enumerate(zip(local_rows, gather_rows)):
+                    offset = trial * 512 + row * 64
+                    word0, word1 = struct.unpack_from("<2I", raw, offset)
+                    dst, length, src = struct.unpack_from("<QI4xQ", raw, offset + 40)
+                    check.append((word0 & 0xffff, (word0 >> 16) & 0xff,
+                                  (word1 >> 8) & 0xff, dst, length, src) == (
+                                      6 + trial * 8 + row, 0x20 if row == 6 else 0, 3,
+                                      0x210000000 + gather * 512, 512, 0x200000000 + local * 512))
+                conditions.append(check)
+            all_results.append(dict(rank=rank, production_v_mte3=conditions[0], v_s_and_v_mte3=conditions[1]))
+            continue
         if kind == "bf16":
             samples = dict(copy=raw[:512], cast=raw[512:1024], fp32=raw[1024:])
             golden = dict(copy=expected_copy, cast=expected_bf16, fp32=expected_fp32)

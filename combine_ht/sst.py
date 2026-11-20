@@ -79,6 +79,7 @@ def build_kernel(env, log, source=None, binary=KERNEL):
     compiler = Path(env["compiler"])
     linker = find_linker(cann, compiler)
     includes = [src / "include", src / "src/moonep/combine_ht/common",
+                src / "src/moonep/combine_ht/kernels",
                 cann / "compiler/tikcpp", cann / "compiler/tikcpp/tikcfw",
                 cann / "compiler/tikcpp/tikcfw/impl", cann / "compiler/tikcpp/tikcfw/interface",
                 arch / "ascendc/include", arch / "asc/include", arch / "include",
