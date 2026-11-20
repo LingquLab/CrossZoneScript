@@ -9,8 +9,8 @@ def main():
     parser.add_argument("--args-file", type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text())
     step = args.get("step", "prepare")
-    if step == "ab_prepare":
-        return campaign_prepare()
+    if step in {"ab_prepare", "ab_run", "ab_status"}:
+        return campaign_step(step)
     if step not in {"prepare", "prepare_ub", "run", "verify", "run_ub", "verify_ub", "run_verify_ub"}:
         raise ValueError("unknown Dispatch simulation step")
     operation = step.removesuffix("_ub")
@@ -51,8 +51,8 @@ def main():
     print(json.dumps(json.loads(result.stdout)))
 
 
-def campaign_prepare():
-    script = Path(__file__).with_name("ab_prepare.py")
+def campaign_step(step):
+    directory = Path(__file__).parent
     ssh = [
         "ssh", "-T", "-i", str(Path.home() / ".ssh/deploy_ed25519"),
         "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
@@ -70,14 +70,41 @@ def campaign_prepare():
     if identity.returncode or identity.stdout.strip() != expected:
         print(json.dumps({"status": "BLOCKED", "reason": "verified simbox container identity changed"}))
         return
+    if step == "ab_run":
+        modules = {name: (directory / (name + ".py")).read_text(encoding="utf-8")
+                   for name in ("run", "verify", "ab_run")}
+        payload = (
+            "RUNNER = {'__name__': 'dispatch_run'}\n"
+            f"exec({modules['run']!r}, RUNNER)\n"
+            "VERIFY = {'__name__': 'dispatch_verify'}\n"
+            f"exec({modules['verify']!r}, VERIFY)\n"
+            f"exec({modules['ab_run']!r})\n"
+        ).encode()
+    elif step == "ab_status":
+        payload = (
+            "from pathlib import Path\n"
+            "p = Path('/opt/sim/simulator/Testcases/dispatch_64p_top6_profile_ab_20261120_01/campaign-status.json')\n"
+            "print(p.read_text() if p.exists() else '{\"status\": \"NO_CAMPAIGN_RECEIPT\"}')\n"
+        ).encode()
+    else:
+        payload = (directory / "ab_prepare.py").read_bytes()
+    container = expected.split(maxsplit=1)[0]
     result = subprocess.run(
-        ssh + ["docker exec -i simbox python3 -B -"],
-        input=script.read_bytes(), capture_output=True, timeout=580,
+        ssh + [f"docker exec -i {container} python3 -B -"],
+        input=payload, capture_output=True,
+        timeout={"ab_prepare": 580, "ab_run": 8000, "ab_status": 40}[step],
     )
     if result.returncode:
         print(json.dumps({"phase": "transport", "ssh_exit": result.returncode}))
         raise SystemExit(result.returncode)
-    print(json.dumps(json.loads(result.stdout)))
+    summary = json.loads(result.stdout)
+    for row in summary.get("rounds", []):
+        modules = row.get("module_stats", {})
+        for values in modules if isinstance(modules, list) else modules.values():
+            if "slowest" in values:
+                values.setdefault("slowest_count", len(values["slowest"]))
+                values["slowest"] = values["slowest"][:8]
+    print(json.dumps(summary))
 
 
 if __name__ == "__main__":
