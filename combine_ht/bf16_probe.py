@@ -9,6 +9,7 @@ import struct
 import subprocess
 import time
 
+import lane_results
 import sst
 
 
@@ -24,7 +25,11 @@ def run(args):
         sst.build_kernel(env, log, source=sst.WORK / (kind + "_probe.cpp"), binary=kernel)
     inputs = case / "input.bin"
     zero = case / "zero.bin"
-    if kind == "bf16":
+    output_bytes = lane_results.OUTPUT_BYTES if kind == "lane" else 2048
+    if kind == "lane":
+        inputs.write_bytes(bytes(512))
+        zero.write_bytes(bytes(output_bytes))
+    elif kind == "bf16":
         values_a = [(16 + i % 16) / 16 for i in range(256)]
         values_b = [(16 + (i // 16) % 16) / 16 for i in range(256)]
         expected_copy = struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_a))
@@ -57,7 +62,7 @@ def run(args):
             kernel_param=dict(input=dict(value=input_addr, param_offset="0", param_type="11", input_bin=str(inputs)),
                               output=dict(value=output_addr, param_offset="8", param_type="11", input_bin=str(zero))),
             bin_param=dict(addr=base + 0x40000000, size=max(0x26C40, sst.fixtures.align(kernel.stat().st_size))),
-            output_param=dict(probe=dict(addr=output_addr, size=2048)))
+            output_param=dict(probe=dict(addr=output_addr, size=output_bytes)))
     with (case / "model.log").open("w") as log, redirect_stdout(log):
         model = sst.write_model(case, config, {"workload_config": chips}, ranks)
     command = sst.shell_command(env, "sst", [env["sst_bin"], "-n", "8", case / "test_UBusSim.py"])
@@ -73,6 +78,9 @@ def run(args):
     for rank, chip in enumerate(chips.values()):
         output = chip["output_param"]["probe"]
         raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], die_decoder)
+        if kind == "lane":
+            all_results.append(dict(rank=rank, trials=lane_results.decode(raw)))
+            continue
         if kind == "wqe":
             conditions = []
             for trial in range(2):
