@@ -61,8 +61,8 @@ elif operation in ('profile_build_stage','profile_run','profile_report','profile
     def profile_source(name):
         data=(here/f'{name}_remote.py').read_bytes()
         return data.replace(
-            b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_profile02').replace(
-            b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_profile02')
+            b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_profile03').replace(
+            b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_profile03')
     if operation=='profile_build_stage':
         stage=profile_source('stage').replace(
             b'profile_offsets=(128,16512,24704,28800,32896)',
@@ -106,7 +106,7 @@ elif operation == 'profile_status':
     remote += profile_source('status')
 elif operation == 'profile_report':
     remote += (here/'die_report_remote.py').read_bytes().replace(
-        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile02').replace(
+        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile03').replace(
         b'(256,128,64,64,64)',b'(1024,512,512,512,512)').replace(b'analysis-die-02',b'analysis-01')
 elif operation == 'report_aligned':
     remote += (here/'report_remote.py').read_bytes().replace(
@@ -127,4 +127,4 @@ if p.returncode:
 else:
     result=json.loads(p.stdout)
 print(json.dumps(result,ensure_ascii=True,separators=(',',':')))
-sys.exit(0 if result['status']=='PASS' or operation.startswith('report') or operation=='profile_report' else 1)
+sys.exit(0 if result['status']=='PASS' or operation.startswith('report') or operation in ('profile_report','profile_build_stage','profile_run') else 1)

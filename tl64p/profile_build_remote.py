@@ -6,24 +6,28 @@ import subprocess
 
 
 SOURCE = Path('/work/src/dispatch_tilelang_64p_68d32608_f1scalar01')
-BUILD = Path('/work/src/dispatch_tilelang_64p_68d32608_profile02')
+BUILD = Path('/work/src/dispatch_tilelang_64p_68d32608_profile03')
 SOURCE_SHA = 'b6d119082811193f155f0da3a11bae432131afec23cc5331f40065d90860bee2'
+CLEAN_FUNCTION = '''
+#if TILEXR_PROFILE_ACTIVE
+TILEXR_PROFILE_DEVICE void CleanSimulationProfile(__gm__ uint8_t *address, uint32_t bytes)
+{
+    AscendC::GlobalTensor<uint8_t> global;
+    global.SetGlobalBuffer(address, bytes);
+    for (uint32_t offset = 0; offset < bytes; offset += 64U) {
+        AscendC::DataCacheCleanAndInvalid<uint8_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
+            AscendC::DcciDst::CACHELINE_OUT>(global[offset]);
+    }
+}
+#endif
+'''
 RECORD_CLEAN = '''        // Each lane owns its cache lines in this V310 fixture.
-        // Push the record to GM before marking it ready for offline retrieval.
-        auto clean = [](__gm__ uint8_t *address, uint32_t bytes) {
-            AscendC::GlobalTensor<uint8_t> global;
-            global.SetGlobalBuffer(address, bytes);
-            for (uint32_t offset = 0; offset < bytes; offset += 64U) {
-                AscendC::DataCacheCleanAndInvalid<uint8_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
-                    AscendC::DcciDst::CACHELINE_OUT>(global[offset]);
-            }
-        };
-        clean(reinterpret_cast<__gm__ uint8_t *>(lane.timestamps), count * sizeof(uint64_t));
-        clean(reinterpret_cast<__gm__ uint8_t *>(lane.eventIds), count * sizeof(uint32_t));
+        CleanSimulationProfile(reinterpret_cast<__gm__ uint8_t *>(lane.timestamps), count * sizeof(uint64_t));
+        CleanSimulationProfile(reinterpret_cast<__gm__ uint8_t *>(lane.eventIds), count * sizeof(uint32_t));
         lane.Commit(count, dropped);
-        clean(reinterpret_cast<__gm__ uint8_t *>(lane.count), sizeof(uint32_t));
-        clean(reinterpret_cast<__gm__ uint8_t *>(lane.dropped), sizeof(uint32_t));
-        clean(reinterpret_cast<__gm__ uint8_t *>(lane.state), sizeof(uint32_t));'''
+        CleanSimulationProfile(reinterpret_cast<__gm__ uint8_t *>(lane.count), sizeof(uint32_t));
+        CleanSimulationProfile(reinterpret_cast<__gm__ uint8_t *>(lane.dropped), sizeof(uint32_t));
+        CleanSimulationProfile(reinterpret_cast<__gm__ uint8_t *>(lane.state), sizeof(uint32_t));'''
 
 
 def build():
@@ -39,7 +43,9 @@ def build():
     before=header.read_text()
     commit='        lane.Commit(count, dropped);'
     assert before.count(commit)==1
-    header.write_text(before.replace(commit,RECORD_CLEAN))
+    scope='namespace TileXR { namespace Profiling {\n'
+    assert before.count(scope)==1
+    header.write_text(before.replace(scope,scope+CLEAN_FUNCTION).replace(commit,RECORD_CLEAN))
     with (BUILD/'build.log').open('xb') as stream:
         exit_code=subprocess.run(['bash',str(BUILD/'compile.sh')],cwd=BUILD,
                                  stdout=stream,stderr=subprocess.STDOUT,timeout=160).returncode
