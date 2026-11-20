@@ -86,7 +86,11 @@ def run(args):
                                       6 + trial * 8 + row, 0x20 if row == 6 else 0, 3,
                                       0x210000000 + gather * 512, 512, 0x200000000 + local * 512))
                 conditions.append(check)
-            all_results.append(dict(rank=rank, production_v_mte3=conditions[0], v_s_and_v_mte3=conditions[1]))
+            lane_values = struct.unpack_from("<56Q", raw, 1024)
+            lane_check = [lane_values[i:i + 8] == tuple(0x5a50616101000000 + j for j in range(i, i + 8))
+                          for i in range(0, 56, 8)]
+            all_results.append(dict(rank=rank, production_v_mte3=conditions[0],
+                                    v_s_and_v_mte3=conditions[1], plain_simt_lane_writes=lane_check))
             continue
         if kind == "bf16":
             samples = dict(copy=raw[:512], cast=raw[512:1024], fp32=raw[1024:])

@@ -1,8 +1,17 @@
 /* Copyright (c) 2026 TileXR Project. */
-/* Calls the pinned SIMD/SIMT WQE builder with the production event and a V-to-S control. */
+/* Calls the pinned SIMT WQE builder with the production event and a V-to-S control. */
 #include "combine_ht_kernel.h"
 
 using namespace AscendC;
+
+__simt_vf__ __aicore__ LAUNCH_BOUND(128) inline void WriteLaneValues(__ubuf__ uint64_t *output)
+{
+    const uint32_t lane = threadIdx.x;
+    if (lane >= 7) return;
+    for (uint32_t word = 0; word < 8; ++word) {
+        output[lane * 8 + word] = 0x5a50616101000000ULL + lane * 8 + word;
+    }
+}
 
 extern "C" __global__ __aicore__ void tilexr_wqe_probe(GM_ADDR input, GM_ADDR output)
 {
@@ -48,4 +57,15 @@ extern "C" __global__ __aicore__ void tilexr_wqe_probe(GM_ADDR input, GM_ADDR ou
         SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
         WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
     }
+    SetFlag<HardEvent::S_V>(EVENT_ID0);
+    WaitFlag<HardEvent::S_V>(EVENT_ID0);
+    Simt::VF_CALL<WriteLaneValues>(Simt::Dim3{128, 1, 1},
+        reinterpret_cast<__ubuf__ uint64_t *>(wqes.GetPhyAddr()));
+    SetFlag<HardEvent::V_MTE3>(EVENT_ID0);
+    WaitFlag<HardEvent::V_MTE3>(EVENT_ID0);
+    SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
+    WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
+    DataCopyPad(dest[1024], wqes, DataCopyExtParams(1, rows * descriptorBytes, 0, 0, 0));
+    SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
+    WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
 }
