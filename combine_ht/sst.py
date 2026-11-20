@@ -352,10 +352,19 @@ def run(args, stages):
                 if args["stage"] != "pair" or not stages or stages[-1]["returncode"] == 124:
                     raise
         else:
-            run_phase(case / phase, mode, spec, prepared, config, args, stages, send_state)
+            try:
+                run_phase(case / phase, mode, spec, prepared, config, args, stages, send_state)
+            except (OSError, ValueError):
+                if args["stage"] != "pair" or not stages or stages[-1]["stage"] != phase:
+                    raise
         write_json(case / "case.json", record)
-    write_json(WORK / "progress.json", {**progress, "state": "complete", "stages": stages})
-    return {**record, "ok": True}
+    measured = all(stage["returncode"] == 0 and stage.get("simulated_us", 0) > 0 for stage in stages)
+    verification = all(stage.get("verified_ranks") == ranks for stage in stages)
+    state = "complete" if measured else "incomplete"
+    record.update(all_outputs_verified=verification, ok=measured)
+    write_json(case / "case.json", record)
+    write_json(WORK / "progress.json", {**progress, "state": state, "stages": stages})
+    return record
 
 
 def main(args):
