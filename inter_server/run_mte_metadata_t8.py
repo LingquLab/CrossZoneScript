@@ -58,7 +58,7 @@ subprocess.run(["scp", "-q", *options, str(archive), HOST + ":" + remote_archive
 runner = (root / "run_mte_t4_remote.py").read_text().rsplit("if __name__ == ", 1)[0]
 stage = (root / "prepare_t8_remote.py").read_text()
 request = {"tokens": 8, "build": build, "identity": identity}
-source = runner + "\n" + stage + "\nmain(" + repr(request) + ")\n"
+source = runner + "\n" + stage + "\nprint(json.dumps(main(" + repr(request) + "), ensure_ascii=True))\n"
 compile(source, "<t8_runner>", "exec")
 proc = subprocess.run(["ssh", "-T", *options, HOST, "python3", "-"],
                       input=source.encode("utf-8"), capture_output=True, timeout=2090)

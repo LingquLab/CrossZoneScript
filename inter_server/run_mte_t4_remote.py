@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 import shutil
+import time
+import re
 
 NAME = "tilexr-cpu-b4f4660a-lr8"
 ID = "1f98e70b00ed8b171fea3b06152a7fe9507a2270e9dee05c72015af5b995c2f4"
@@ -16,6 +18,7 @@ VARIANTS = {
     "8720cf344d4bcbb4b6eea2e4f1c3d01579180d8d4e483341d7f32a73707f2b98": "t4-sst-mte-state-8720cf34",
     "0d3c8694fe8919d1270c97dd6e3c4b39dc521ef9c06266ad91fe0cd8aec7d4ee": "t4-sst-mte-split-forward-0d3c8694",
     "5a6c7c8cac0b13c99d824725df3e73d91bacbeff576693b4823e2705ab50ffbd": "t4-sst-mte-scalar-forward-5a6c7c8c",
+    "979923e6c58792ebeb9705e9f61cccbde12a99807f7a9aa21bfcb1896a38a752": "t4-sst-mte-bulk-forward-979923e6",
 }
 MOUNT = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native")
 old = MOUNT / BASELINE
@@ -85,11 +88,12 @@ def main(request):
         assert tokens == 4
     case = MOUNT / variant
     container_case = "/work/inter-server-native/" + variant
-    build = (
-        prepare_t8(request, case, container_case)
-        if tokens == 8
-        else prepare(request, case, container_case)
-    )
+    if "forward_images" in request:
+        build = prepare_bulk(request, case, container_case)
+    elif tokens == 8:
+        build = prepare_t8(request, case, container_case)
+    else:
+        build = prepare(request, case, container_case)
     result = {
         "case": container_case,
         "variant": build["variant"],
@@ -112,11 +116,13 @@ def main(request):
             "--environment", container_case + "/sst-environment.json",
             "--threads", "8", "--timeout", "1800",
         ]
+        started = time.monotonic()
         with (case / "native-runner.log").open("wb") as log:
             proc = subprocess.run(
                 ["docker", "exec", NAME, "bash", "-c", 'set -e; source /opt/sim/cann-env.sh; exec "$@"', "bash", *command],
                 stdout=log, stderr=subprocess.STDOUT, timeout=1950,
             )
+        result["runner_wall_seconds"] = round(time.monotonic() - started, 3)
         result["runner_exit_code"] = proc.returncode
     except Exception as error:
         result["runner_exception_type"] = type(error).__name__
@@ -127,12 +133,21 @@ def main(request):
                 result["run"] = {key: record[key] for key in ("status", "returncode", "guards") if key in record}
             result["checker_log_present"] = (case / "check.log").is_file()
             result["exported_rank_count"] = len(list((case / "actual").glob("rank*")))
+            log = case / "sim.log"
+            if log.is_file():
+                with log.open("rb") as stream:
+                    stream.seek(max(0, log.stat().st_size - 65536))
+                    tail = stream.read().decode(errors="replace")
+                match = re.search(r"Simulation is complete, simulated time: ([0-9.]+) (ns|us|ms|s)", tail)
+                if match:
+                    unit = {"ns": 0.001, "us": 1, "ms": 1000, "s": 1000000}
+                    result["sst_simulated_microseconds"] = float(match[1]) * unit[match[2]]
         finally:
             docker("stop", "--time", "10", NAME, timeout=25)
             result["container_stopped"] = True
             write_json(case / "task-result.json", result)
-    print(json.dumps(result, ensure_ascii=True))
+    return result
 
 
 if __name__ == "__main__":
-    main(json.load(sys.stdin))
+    print(json.dumps(main(json.load(sys.stdin)), ensure_ascii=True))
