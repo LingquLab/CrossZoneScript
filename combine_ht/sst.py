@@ -194,6 +194,9 @@ def create_workload(case, specs, prepared, mode, send_state=None):
         outputs = dict(workspace=dict(addr=addresses["workspace"], size=spec.layout()[8]))
         if mode == 1:
             outputs["status"] = dict(addr=addresses["status"], size=512)
+            if rank == 0:
+                outputs["queueState"] = dict(addr=addresses["queue_state"],
+                                             size=fixtures.align(len(images["queue_state"])))
         output["workload_config"][f"chip{rank}"] = dict(gm_size=rt.GM_BYTES, sys_va_base_addr=base,
             ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
             block_dim=64, subblock_dim=1, kernel_file=str(KERNEL), vec_func=ENTRY, kernel_param=params,
@@ -227,6 +230,17 @@ def read_output(bin_dir, rank, output_name, address, size, use_die_decoder):
     if use_die_decoder:
         return extract_die_output(paths, output_name, local, size)
     return bytes(extract_ranges(paths, {output_name: (local, size)})[output_name])
+
+
+def queue_state(case, workload, ranks):
+    item = workload["workload_config"]["chip0"]["output_param"]["queueState"]
+    data = read_output(case / "bin", 0, "queueState", item["addr"], item["size"],
+                       verified_die_decoder(case) is not None)
+    return [
+        [struct.unpack_from("<I", data, rt.queue_addresses(0, ranks, peer, peer)[field] - item["addr"])[0]
+         for field in ("sq_head", "sq_tail", "count", "cq_tail")]
+        for peer in range(1, 8)
+    ]
 
 
 def validate(case, workload, prepared, mode):
@@ -289,6 +303,14 @@ def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None)
         state = validate(case, work, prepared, mode)
         result["verified_ranks"] = len(spec)
         return state
+    except (OSError, ValueError) as error:
+        result["validation_error"] = str(error)
+        if mode == 1 and code == 0 and finish:
+            try:
+                result["rank0_queue_head_tail_count_cqtail"] = queue_state(case, work, len(spec))
+            except (OSError, ValueError) as queue_error:
+                result["queue_read_error"] = str(queue_error)
+        raise
     finally:
         write_json(case / "run.json", result)
 
@@ -319,12 +341,16 @@ def run(args, stages):
                   route_sha256=hashlib.sha256(routes_bytes).hexdigest(),
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"], stages=stages)
     write_json(case / "case.json", record)
-    phases = (("send-only", 1), ("reduce-only", 2)) if args["stage"] == "run" else (("reduce-only", 2),)
+    phases = (("reduce-only", 2),) if args["stage"] == "reduce-fixture" else (("send-only", 1), ("reduce-only", 2))
     send_state = None
     for phase, mode in phases:
         write_json(WORK / "progress.json", {**progress, "state": phase, "stages": stages})
         if mode == 1:
-            send_state = run_phase(case / phase, mode, spec, prepared, config, args, stages)
+            try:
+                send_state = run_phase(case / phase, mode, spec, prepared, config, args, stages)
+            except (OSError, ValueError):
+                if args["stage"] != "pair" or not stages or stages[-1]["returncode"] == 124:
+                    raise
         else:
             run_phase(case / phase, mode, spec, prepared, config, args, stages, send_state)
         write_json(case / "case.json", record)
@@ -339,7 +365,7 @@ def main(args):
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         result = {"ok": False, "stage": args["stage"], "error": type(exc).__name__,
                   "detail": str(exc)[:2200], "stages": stages}
-        if args["stage"] in ("run", "reduce-fixture") and (WORK / "progress.json").is_file():
+        if args["stage"] in ("run", "reduce-fixture", "pair") and (WORK / "progress.json").is_file():
             previous = json.loads((WORK / "progress.json").read_text())
             write_json(WORK / "progress.json", {**previous, "state": "failed", "result": result})
     print(json.dumps(result, ensure_ascii=True))
