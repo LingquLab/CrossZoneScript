@@ -2,6 +2,7 @@
 import collections
 import json
 import re
+import struct
 from pathlib import Path
 
 CASE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-native-639f2fb3')
@@ -27,6 +28,7 @@ def trace_mapping(data):
     mapping = collections.defaultdict(set)
     event_names = collections.Counter()
     lanes = set()
+    requests = collections.Counter()
     for match in RECORD.finditer(data):
         try:
             args = json.loads(match.group())
@@ -49,13 +51,46 @@ def trace_mapping(data):
         for _, owner, lane in coordinates:
             mapping[owner].add((core, subcore))
             lanes.add((owner, lane))
-    return mapping, event_names, lanes
+        if args.get('busPayloadType_') == 'WR_REQ':
+            requests.update(coordinates)
+    return mapping, event_names, lanes, requests
+
+
+def expected_requests(host):
+    folder = CASE / 'fixture-data' / f'rank{host:02d}'
+    plan = json.loads((folder / 'plan.json').read_text())
+    manifest = json.loads((folder.parent / 'manifest.json').read_text())
+    assert manifest['tokens'] == 4 and manifest['chunks'] == 4
+    ranges = (folder / 'ranges.bin').read_bytes()
+    forward = (folder / 'forward.bin').read_bytes()
+    so = {}
+    for peer, chunk, owner in plan['so']:
+        assert chunk == 3 and peer not in so
+        so[peer] = owner
+    payload = collections.Counter()
+    for peer, owner in so.items():
+        ordinal = 0
+        for chunk in range(4):
+            start, end = struct.unpack_from('<ii', ranges, (peer * 4 + chunk) * 8)
+            if start == end:
+                continue
+            next_record, = struct.unpack_from('<i', forward, (peer * 24 + start) * 24)
+            assert next_record == end, 'T4 assumes at most one token per peer/chunk'
+            payload[peer, owner, int(ordinal % 4 == 3)] += 1
+            ordinal += 1
+    # Every cross-server QP has one SO and one Drain flush. In T4 each nonempty
+    # peer/chunk adds one payload flush on one lane before the window SO.
+    expected = {(peer, owner, lane): 2 + payload[peer, owner, lane]
+                for peer, owner in so.items() for lane in range(2)}
+    return expected, sum(payload.values())
 
 
 def inspect():
     counts = collections.Counter()
     patterns = collections.Counter()
     samples = {}
+    request_counts = collections.Counter()
+    missing_samples = []
     for host in range(64):
         path = CASE / 'OUTPUT/stat_trace' / f'Host{host}_ba_layer_trace.json'
         if not path.is_file():
@@ -63,7 +98,21 @@ def inspect():
         counts['hosts_sampled'] += 1
         counts['files_prefix_truncated'] += int(path.stat().st_size > LIMIT)
         with path.open('rb') as stream:
-            mapping, names, lanes = trace_mapping(stream.read(LIMIT).decode('utf-8', 'replace'))
+            mapping, names, lanes, requests = trace_mapping(stream.read(LIMIT).decode('utf-8', 'replace'))
+        expected, payload = expected_requests(host)
+        request_counts['expected_payload_writes'] += payload
+        request_counts['expected_doorbell_requests'] += sum(expected.values())
+        request_counts['observed_doorbell_wr_req_records'] += sum(requests.values())
+        request_counts['expected_qps'] += len(expected)
+        request_counts['observed_expected_qps'] += len(expected.keys() & requests.keys())
+        request_counts['unexpected_qps'] += len(requests.keys() - expected.keys())
+        for key, wanted in expected.items():
+            got = requests[key]
+            request_counts['qps_below_expected'] += int(got < wanted)
+            request_counts['qps_above_expected'] += int(got > wanted)
+            if got < wanted and len(missing_samples) < 8:
+                missing_samples.append({'rank': host, 'peer': key[0], 'owner': key[1], 'lane': key[2],
+                                        'expected': wanted, 'observed': got})
         counts['hosts_with_all_16_owners'] += int(len(mapping) == 16)
         counts['hosts_with_all_32_owner_lane_pairs'] += int(len(lanes) == 32)
         counts['hosts_with_one_core_subcore_pair_per_owner'] += int(
@@ -76,7 +125,8 @@ def inspect():
         patterns[key] += 1
         if host in (0, 63):
             samples[host] = {'owners': dict(key), 'event_types': dict(names.most_common(8))}
-    result = {'counts': dict(counts), 'samples': samples, 'distinct_observed_mappings': len(patterns),
+    result = {'counts': dict(counts), 'sq_doorbell_counts': dict(request_counts), 'below_expected_examples': missing_samples,
+              'samples': samples, 'distinct_observed_mappings': len(patterns),
               'dominant_mappings': [{'hosts': n, 'owners': dict(key)} for key, n in patterns.most_common(3)]}
     for name in ('run.json', 'task-result.json'):
         path = CASE / name
