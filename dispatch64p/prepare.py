@@ -1,16 +1,19 @@
 import hashlib
 import json
 import os
+from collections import Counter
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 
 
 BASE_BUILD = Path("/work/src/dispatch_tilelang_64p_68d32608_profile03")
 BASE_CASE = Path("/opt/sim/simulator/Testcases/dispatch_tilelang_64p_top6_68d32608_profile03")
-BUILD = BASE_BUILD.with_name("dispatch_tilelang_64p_68d32608_direct01")
-CASE = BASE_CASE.with_name("dispatch_tilelang_64p_top6_68d32608_direct01")
+VARIANT = "ub01" if sys.argv[1:] == ["ub"] else "direct01"
+BUILD = BASE_BUILD.with_name("dispatch_tilelang_64p_68d32608_" + VARIANT)
+CASE = BASE_CASE.with_name("dispatch_tilelang_64p_top6_68d32608_" + VARIANT)
 BASE_ELF_SHA = "9305032e21919730aa9d469b211a6e365a3eb9531c50e5a66c465aa111a85dee"
 
 
@@ -90,6 +93,69 @@ def kernel_candidate(original):
     return text
 
 
+def recorder_ub_candidate(original):
+    text = replace_once(original, "TILEXR_PROFILE_DEVICE Recorder()", """TILEXR_PROFILE_DEVICE void Initialize(AscendC::LocalTensor<uint64_t> timestamps, AscendC::LocalTensor<uint32_t> eventIds)""")
+    text = replace_once(text, """        for (uint32_t i = 0U; i < RecordCapacity; ++i) {
+            eventIds_[i] = 0U;
+        }
+#endif""", """        timestamps_ = timestamps;
+        eventIds_ = eventIds;
+        for (uint32_t i = 0U; i < RecordCapacity; ++i) {
+            eventIds_.SetValue(i, 0U);
+        }
+#else
+        (void)timestamps;
+        (void)eventIds;
+#endif""")
+    text = replace_once(text, """        timestamps_[Slot] = static_cast<uint64_t>(AscendC::GetSystemCycle());
+        eventIds_[Slot] = EventId;""", """        const uint64_t timestamp = static_cast<uint64_t>(AscendC::GetSystemCycle());
+        timestamps_.SetValue(Slot, timestamp);
+        eventIds_.SetValue(Slot, EventId);""")
+    text = replace_once(text, "if (eventIds_[slot] == 0U)", """const uint32_t eventId = eventIds_.GetValue(slot);
+            if (eventId == 0U)""")
+    text = replace_once(text, "lane.timestamps[count] = timestamps_[slot];", "lane.timestamps[count] = timestamps_.GetValue(slot);")
+    text = replace_once(text, "lane.eventIds[count] = eventIds_[slot];", "lane.eventIds[count] = eventId;")
+    return replace_once(text, """    uint64_t timestamps_[RecordCapacity];
+    uint32_t eventIds_[RecordCapacity];""", """    AscendC::LocalTensor<uint64_t> timestamps_;
+    AscendC::LocalTensor<uint32_t> eventIds_;""")
+
+
+def kernel_ub_candidate(original):
+    match = re.search(r"pipe\.InitBuffer\(ascend_ub, (\d+)\);", original)
+    if match is None or original.count("recorder.RecordMarker<") != 30:
+        raise ValueError("unexpected source buffer or marker layout")
+    prior_size = int(match[1])
+    timestamp_offset = (prior_size + 31) // 32 * 32
+    event_id_offset = timestamp_offset + 32 * 8
+    new_size = event_id_offset + 32 * 4
+    if new_size > 192 * 1024:
+        raise ValueError("profiling scratch exceeds the exported 192 KiB UB budget")
+    text = replace_once(original, match[0], f"pipe.InitBuffer(ascend_ub, {new_size});")
+    return replace_once(text, "TileXR::Profiling::Recorder<32> recorder;", f"""TileXR::Profiling::Recorder<32> recorder;
+  recorder.Initialize(ascend_ub.GetWithOffset<uint64_t>(32, {timestamp_offset}),
+                      ascend_ub.GetWithOffset<uint32_t>(32, {event_id_offset}));""")
+
+
+def previous_timeout_inventory():
+    directory = BASE_CASE.with_name("dispatch_tilelang_64p_top6_68d32608_direct01")
+    receipt = json.loads((directory / "direct-run-receipt.json").read_text())
+    if receipt.get("sst_rc") != 124:
+        return {"prior_status": receipt.get("status")}
+    counts = Counter()
+    for path in (directory / "bin").glob("*.bin"):
+        role = re.sub(r"^david_\d+_(?:die[12]_)?", "", path.stem)
+        if role in {"diagnostics", "profile", "output", "assist"}:
+            category = role if path.stat().st_size else role + "_empty"
+            counts[category] += 1
+    lines = (directory / "run.log").read_text(errors="replace").splitlines()
+    shutdown = next((i for i, line in enumerate(lines) if "EMERGENCY SHUTDOWN" in line), len(lines))
+    patterns = r"simulation is complete|deadlock|timeout|mismatch|warning|error|run start|simulation start"
+    recent = [line.strip()[:160] for line in lines[max(0, shutdown - 90):shutdown]
+              if re.search(patterns, line, re.I)]
+    return {"prior_status": receipt["status"], "saved_bin_counts": dict(counts),
+            "log_lines_before_shutdown": shutdown, "near_shutdown_signals": recent[-6:]}
+
+
 def prepare_build():
     if digest(BASE_BUILD / "dispatch.o") != BASE_ELF_SHA:
         raise ValueError("wrong build baseline ELF")
@@ -98,8 +164,12 @@ def prepare_build():
     ))
     recorder = BUILD / "include/tilexr/profiling/device.h"
     source = BUILD / "dispatch.profile.cpp"
-    recorder.write_text(recorder_candidate(recorder.read_text()))
-    source.write_text(kernel_candidate(source.read_text()))
+    patch_recorder, patch_kernel = (
+        (recorder_ub_candidate, kernel_ub_candidate) if VARIANT == "ub01"
+        else (recorder_candidate, kernel_candidate)
+    )
+    recorder.write_text(patch_recorder(recorder.read_text()))
+    source.write_text(patch_kernel(source.read_text()))
     compile_script = BUILD / "compile.sh"
     compile_script.write_text(compile_script.read_text().replace(str(BASE_BUILD), str(BUILD)))
     with (BUILD / "direct-compile.log").open("wb") as log:
@@ -168,6 +238,8 @@ def main():
         result = prepare_build()
         if result["status"] == "READY":
             result.update(prepare_case(result["elf_sha256"]))
+            if VARIANT == "ub01":
+                result["direct01_timeout_evidence"] = previous_timeout_inventory()
             (CASE / "direct-preflight.json").write_text(json.dumps(result, indent=2) + "\n")
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         result = {"status": "FAILED", "error": str(error)[:260], "type": type(error).__name__}
