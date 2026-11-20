@@ -83,7 +83,17 @@ def run_points(points, campaign, simulation_timeout=600, threads=8):
         results.append(entry)
         (report / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     (report / 'progress.json').write_text(json.dumps({'state': 'passed', 'completed_cases': len(results)}), encoding='utf-8')
-    print(json.dumps({'campaign': campaign, 'results': results}, ensure_ascii=True))
+    compact = []
+    for entry in results:
+        row = {key: entry[key] for key in ['kernel', 'ranks', 'elements_per_peer', 'status',
+               'simulated_us', 'reference_us', 'difference_us', 'run_dir']}
+        row.update(kernel_sha256=entry['preflight']['kernel_sha256'],
+                   block_dim=entry['preflight']['block_dim'],
+                   profiling_contract=entry['preflight']['profiling_contract'],
+                   remaining_bytes=entry['preflight']['resource_budget']['remaining_bytes'],
+                   profiling_state=entry['profiling']['state'], stream_count=entry['profiling']['stream_count'])
+        compact.append(row)
+    print(json.dumps({'campaign': campaign, 'results': compact}, ensure_ascii=True))
 
 
 if __name__ == '__main__':
