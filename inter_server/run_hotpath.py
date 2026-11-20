@@ -12,7 +12,8 @@ import sys
 root = Path(__file__).resolve().parent
 resources = root / "resources" / "hotpath"
 build = json.loads((resources / "build-record.json").read_text(encoding="utf-8"))
-mode = sys.argv[1] if len(sys.argv) > 1 else "run"
+assert sys.argv[1:2] == ["--args-file"] and len(sys.argv) == 3
+mode = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")).get("mode", "run")
 assert mode in ("run", "status")
 request = {"build": build, "mode": mode}
 if mode == "run":
