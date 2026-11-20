@@ -10,7 +10,7 @@ source = (root / "owner_trace_remote.py").read_text(encoding="utf-8")
 source = source.rsplit('if __name__ == ', 1)[0]
 source += """
 import time
-CASE = CASE.with_name("t4-sst-mte-state-8720cf34")
+CASE = CASE.with_name(CASE_NAME)
 result = {"case": CASE.name, "exists": CASE.is_dir()}
 deadline = time.monotonic() + WAIT_SECONDS
 while (CASE / "run.json").is_file() and not (CASE / "task-result.json").is_file():
@@ -87,8 +87,11 @@ if (CASE / "actual").is_dir():
                               "difference_widths": dict(difference_widths), "examples": examples}
 print(json.dumps(result, ensure_ascii=True))
 """
-wait_seconds = 1500 if Path(__file__).stem.startswith("wait_") else 0
-source = "WAIT_SECONDS = " + repr(wait_seconds) + "\n" + source
+entry = Path(__file__).stem
+wait_seconds = 1500 if entry.startswith("wait_") else 0
+is_split = "metadata" in entry
+case_name = "t4-sst-mte-split-forward-0d3c8694" if is_split else "t4-sst-mte-state-8720cf34"
+source = f"WAIT_SECONDS = {wait_seconds}\nCASE_NAME = {case_name!r}\n" + source
 compile(source, "<remote_status>", "exec")
 try:
     proc = subprocess.run(
