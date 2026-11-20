@@ -22,6 +22,7 @@ CORES = 64
 OUTPUT_NAMES = {"output", "expert_nums", "counts", "assist"}
 CAPTURE_SIZE = 197120
 PROFILE_OFFSETS = (512, 66048, 98816, 131584, 164352)
+RANK_GM_STRIDE = 128 * 1024 ** 3
 DESCRIPTOR = struct.Struct("<8I5Q")
 EVENT_ORDER = (1, 10, 11, 100, 101, 200, 201, 300, 301, 400, 401, 500, 501,
                600, 601, 700, 704, 705, 706, 707, 708, 709, 701, 702, 703,
@@ -92,15 +93,16 @@ def read_field(buffers, fmt, offset):
     return left or right
 
 
-def capture_layout(base, buffers):
+def capture_layout(rank, base, buffers):
     fields = tuple(read_field(buffers, "<I", 4 * index) for index in range(8))
     abi, descriptor_bytes, enabled, streams, capacity, record_stride, state_stride, reserved = fields
     if ((abi, descriptor_bytes, enabled, streams, reserved) != (1, DESCRIPTOR.size, 1, CORES, 0) or
             capacity < len(EVENT_ORDER) or record_stride != 128 or state_stride != 128):
         raise ValueError(f"unexpected profiling DeviceView {fields}")
-    offsets = tuple(read_field(buffers, "<Q", 32 + 8 * index) - base for index in range(5))
+    system_base = base + rank * RANK_GM_STRIDE
+    offsets = tuple(read_field(buffers, "<Q", 32 + 8 * index) - system_base for index in range(5))
     if offsets != PROFILE_OFFSETS:
-        raise ValueError("profiling DeviceView differs from the bound 64P case")
+        raise ValueError(f"rank {rank} profiling DeviceView has offsets {offsets}")
     return capacity, record_stride, state_stride
 
 
@@ -128,8 +130,12 @@ def profile():
     failures = []
     lanes = []
     for rank in range(RANKS):
-        base, buffers = read_die_buffers(rank, "profile", CAPTURE_SIZE)
-        layout = capture_layout(base, buffers)
+        try:
+            base, buffers = read_die_buffers(rank, "profile", CAPTURE_SIZE)
+            layout = capture_layout(rank, base, buffers)
+        except (ValueError, OSError, struct.error) as error:
+            failures.extend([rank, core, str(error)] for core in range(CORES))
+            continue
         for core in range(CORES):
             try:
                 values = lane_events(buffers, layout, core)
@@ -167,20 +173,63 @@ def golden():
 def diagnostics():
     findings = []
     for rank in range(RANKS):
-        _, buffers = read_die_buffers(rank, "diagnostics", CORES * 64)
-        owned = []
-        for core in range(CORES):
-            records = {blob[64 * core:64 * (core + 1)] for blob in buffers}
-            records -= {bytes(64), b"\xa5" * 64}
-            if len(records) != 1:
-                raise ValueError(f"rank {rank} core {core} diagnostic owner mismatch")
-            owned.append(struct.unpack("<16i", records.pop()))
+        try:
+            _, buffers = read_die_buffers(rank, "diagnostics", CORES * 64)
+            owned = []
+            for core in range(CORES):
+                records = {blob[64 * core:64 * (core + 1)] for blob in buffers}
+                records -= {bytes(64), b"\xa5" * 64}
+                if len(records) != 1:
+                    raise ValueError(f"core {core} diagnostic owner mismatch")
+                owned.append(struct.unpack("<16i", records.pop()))
+        except (ValueError, OSError, struct.error) as error:
+            findings.append({"rank": rank, "sent": None, "received": None, "errors": None,
+                             "pass": False, "read_error": str(error)})
+            continue
         sent = sum(row[5] for row in owned)
         received = sum(row[7] for row in owned)
         errors = sum(row[0] != 0 for row in owned)
         findings.append({"rank": rank, "sent": sent, "received": received, "errors": errors,
                          "pass": sent == received == 768 and errors == 0})
     return findings
+
+
+def business_coverage(directory, receipt):
+    audit_path = CASE / "config-load.jsonl"
+    loads = [json.loads(line) for line in audit_path.read_text().splitlines() if line.strip()]
+    model_loads = [entry for entry in loads if "chip_num" in entry.get("architecture", {})]
+    chip_counts = sorted({entry["architecture"]["chip_num"] for entry in model_loads})
+    outputs = golden()
+    work = diagnostics()
+    coverage = {}
+    for name in sorted(OUTPUT_NAMES):
+        present = [row["rank"] for row in outputs
+                   if row["name"] == name and row["actual_sha256"] is not None]
+        passed = [row["rank"] for row in outputs if row["name"] == name and row["pass"]]
+        coverage[name] = {"rank_ids": present, "rank_count": len(present),
+                          "golden_pass_rank_ids": passed, "golden_pass_count": len(passed)}
+    result = {
+        "status": "PASS" if chip_counts == [64] and all(row["pass"] for row in outputs + work)
+        else "FAIL",
+        "loaded_chip_num": chip_counts[0] if len(chip_counts) == 1 else None,
+        "observed_chip_counts": chip_counts,
+        "output_coverage": coverage, "golden_checked": len(outputs),
+        "golden_passed": sum(row["pass"] for row in outputs),
+        "golden_failure_examples": [row for row in outputs if not row["pass"]][:5],
+        "ranks_with_valid_work": sum(row["pass"] for row in work),
+        "total_sent": sum(row["sent"] or 0 for row in work),
+        "total_received": sum(row["received"] or 0 for row in work),
+        "per_rank_diagnostics": work,
+    }
+    write_json(directory / "output-sha.json", outputs)
+    write_json(directory / "rank-work.json", work)
+    write_json(directory / "business-coverage.json", {
+        **result, "case": str(CASE), "elf_sha256": receipt["elf_sha256"],
+        "workload_sha256": receipt["workload_sha256"],
+        "config_load_audit_sha256": receipt["config_load_audit_sha256"],
+        "model_loads": model_loads,
+    })
+    return result
 
 
 def write_perfetto(directory, lanes):
@@ -225,28 +274,19 @@ def verify():
     if sha(CASE / "config-load.jsonl") != receipt["config_load_audit_sha256"]:
         raise ValueError("actual config-load audit changed")
     directory = Path(mkdtemp(prefix="analysis-direct-", dir=CASE))
+    business = business_coverage(directory, receipt)
     lanes, totals, failures = profile()
     write_json(directory / "valid-stage-pairs.json", lanes)
     write_json(directory / "profile-failures.json", failures)
-    business = golden()
-    write_json(directory / "output-sha.json", business)
-    work = diagnostics()
-    write_json(directory / "rank-work.json", work)
     trace_sha = write_perfetto(directory, lanes)
     complete = len(lanes) == RANKS * CORES and not failures
-    business_pass = all(row["pass"] for row in business)
-    diagnostic_pass = all(row["pass"] for row in work)
     result = {
-        "status": "PASS" if complete and business_pass and diagnostic_pass else "FAIL",
+        "status": "PASS" if complete and business["status"] == "PASS" else "FAIL",
         "run": receipt, "analysis_directory": str(directory),
         "validated_utc": datetime.now(timezone.utc).isoformat(),
-        "golden_checked": len(business), "golden_passed": sum(row["pass"] for row in business),
-        "golden_failure_examples": [row for row in business if not row["pass"]][:5],
+        "business": business, "business_coverage_path": str(directory / "business-coverage.json"),
         "profile_lanes": len(lanes), "profile_failures": len(failures),
         "profile_failure_examples": failures[:7], "valid_pair_counts": totals,
-        "ranks_with_valid_work": sum(row["pass"] for row in work),
-        "total_sent": sum(row["sent"] for row in work),
-        "total_received": sum(row["received"] for row in work),
         "expected_work_per_rank": 768,
         "trace_sha256": trace_sha, "clock_alignment": "NOT_VERIFIED",
         "baseline_config_audit_sha256": sha(BASELINE / "config-load.jsonl"),
