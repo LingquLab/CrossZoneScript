@@ -23,7 +23,8 @@ def read(path):
 
 
 result = {'observed_utc': datetime.now(timezone.utc).isoformat(), 'campaigns': [], 'verified_point_count': 0}
-for name in ['profiled-8p-small-1', 'profiled-8p-512k-1', 'profiled-16p-32p-small-1', 'profiled-8p-4m-1']:
+for name in ['profiled-8p-small-1', 'profiled-8p-512k-1', 'profiled-16p-32p-small-1',
+             'profiled-8p-4m-1', 'profiled-16p-32p-512k-1']:
     directory = root / name
     rows = read(directory / 'results.json')
     completed = [{k: entry[k] for k in ['kernel', 'ranks', 'elements_per_peer', 'status', 'simulated_us',
