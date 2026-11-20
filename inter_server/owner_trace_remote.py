@@ -3,6 +3,7 @@ import collections
 import json
 import re
 import struct
+import sys
 from pathlib import Path
 
 CASE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-native-639f2fb3')
@@ -146,6 +147,64 @@ def cq_evidence(data, examples, expected):
     return list(queues.values())
 
 
+def timeout_dump_evidence(drain_gaps):
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(CASE / 'adapter'))
+    from exports import V310_DECODER_SHA256, read_addressed
+
+    environment = json.loads((CASE / 'sst-environment.json').read_text())
+    if environment['decoder_library_sha256'] != V310_DECODER_SHA256:
+        raise ValueError('Unverified retained Die layout')
+    layout = json.loads((CASE / 'export-layout.json').read_text())
+    counts = collections.Counter()
+    sentinel_owners = set()
+    examples = []
+    for row in layout['ranks']:
+        rank = row['rank']
+        fixture = CASE / 'fixture-data' / f'rank{rank:02d}'
+        targets = dict(row['exports'])
+        targets.update((target['name'], target) for target in row['guards'])
+        for name, target in targets.items():
+            address = target['addr'] - row['sys_va_base_addr']
+            size = target['size']
+            assert address % 512 == size % 512 == 0
+            paths = [CASE / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
+            copies = [read_addressed(path, address, size) for path in paths]
+            data = bytearray()
+            for offset in range(0, size, 512):
+                current = address + offset
+                die = ((current >> 9) ^ (current >> 16) ^ (current >> 23)) & 1
+                data.extend(copies[die][offset:offset + 512])
+            if name == 'status':
+                for owner in range(16):
+                    code, = struct.unpack_from('<I', data, owner * 32)
+                    counts['owner_status_zero' if code == 0 else 'owner_status_sentinel'
+                           if code == 0xFFFFFFFF else 'owner_status_other'] += 1
+                    if code == 0xFFFFFFFF:
+                        sentinel_owners.add((rank, owner))
+            elif name in ('returned', 'completed'):
+                golden = (fixture / f'golden-{name}.bin').read_bytes()
+                assert len(golden) == size
+                width = 512 if name == 'returned' else 8
+                differs = 0
+                for offset in range(0, size, 512):
+                    actual, expected = data[offset:offset + width], golden[offset:offset + width]
+                    if actual == expected:
+                        continue
+                    differs += 1
+                    kind = 'missing' if not any(actual) else 'unexpected' if not any(expected) else 'different'
+                    counts[f'{name}_{kind}_slots'] += 1
+                    if len(examples) < 12:
+                        examples.append({'rank': rank, 'export': name, 'slot': offset // 512, 'kind': kind})
+                counts[f'{name}_ranks_matching'] += int(differs == 0)
+            else:
+                counts['guard_regions_matching'] += int(data == bytes([target['expected_byte']]) * size)
+    return {'counts': dict(counts), 'first_difference_examples': examples,
+            'owner_mask_comparison': {'sentinel_and_drain_gap': len(sentinel_owners & drain_gaps),
+                                      'sentinel_only': len(sentinel_owners - drain_gaps),
+                                      'drain_gap_only': len(drain_gaps - sentinel_owners)}}
+
+
 def inspect():
     counts = collections.Counter()
     patterns = collections.Counter()
@@ -155,6 +214,7 @@ def inspect():
     drain_counts = collections.Counter()
     drain_examples = []
     cq_samples = {}
+    drain_gaps = set()
     for host in range(64):
         path = CASE / 'OUTPUT/stat_trace' / f'Host{host}_ba_layer_trace.json'
         if not path.is_file():
@@ -173,6 +233,7 @@ def inspect():
         request_counts['unexpected_qps'] += len(requests.keys() - expected.keys())
         order_counts, order_examples = drain_order(expected, requests)
         drain_counts.update(order_counts)
+        drain_gaps.update((host, example['owner']) for example in order_examples)
         if host in (0, 63):
             cq_samples[host] = cq_evidence(data, order_examples, expected)
         drain_examples.extend(dict(rank=host, **example) for example in order_examples[:max(0, 8-len(drain_examples))])
@@ -208,6 +269,8 @@ def inspect():
                 result[name] = {k: row[k] for k in ('status', 'returncode', 'error', 'runner_exit_code', 'run', 'container_stopped', 'processes') if k in row}
             except ValueError:
                 result[name] = {'state': 'updating'}
+    if result.get('run.json', {}).get('status') == 'timed_out':
+        result['post_timeout_dump'] = timeout_dump_evidence(drain_gaps)
     return result
 
 
