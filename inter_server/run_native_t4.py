@@ -12,6 +12,17 @@ from ssh_transport import run
 buffer=io.StringIO()
 with contextlib.redirect_stdout(buffer):
     prepared=runpy.run_path(str(Path(__file__).with_name('prepare_native_case.py')))
+probe = '''import json
+from pathlib import Path
+rows=[]
+for p in Path('/proc').iterdir():
+ if not p.name.isdigit():continue
+ try:
+  comm=(p/'comm').read_text().strip()
+  if comm in ('sst','sst.x','sstsim.x'):rows.append({'pid':int(p.name),'comm':comm})
+ except OSError:pass
+print(json.dumps({'simulators':rows}))
+'''
 source='''import json,subprocess
 from pathlib import Path
 name='tilexr-cpu-b4f4660a-lr8'
@@ -41,8 +52,7 @@ try:
 except Exception as error:
  result['runner_exception_type']=type(error).__name__
 finally:
- probe="import json; from pathlib import Path; a=[]\\nfor p in Path('/proc').iterdir():\\n if not p.name.isdigit():continue\\n try:\\n  c=(p/'comm').read_text().strip()\\n  if c in ('sst','sst.x','sstsim.x'):a.append({'pid':int(p.name),'comm':c})\\n except OSError:pass\\nprint(json.dumps({'simulators':a}))"
- probe=probe.replace('\\n','\n')
+ probe=PROBE
  p=subprocess.run(['docker','exec',name,'python3','-c',probe],capture_output=True,timeout=20)
  if p.returncode==0:
   result['processes']=json.loads(p.stdout)
@@ -52,6 +62,7 @@ finally:
  (case/'task-result.json').write_text(json.dumps(result,indent=2))
 print(json.dumps(result))
 '''
+source='PROBE='+repr(probe)+'\n'+source
 result=run(source,timeout=2050)
 report=Path('D:/project/inter-server-sst-reports/b4f4660a-6144-453c-99f7-339b40f56c54')
 (report/'native-t4-result.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
