@@ -41,7 +41,7 @@ if log.is_file():
         "bytes": log_info.st_size,
         "last_sample_max_cycle": max(logged_cycles, default=None),
     }
-if status in {"running", "timed_out", "failed", "sst_and_checker_passed"}:
+if CASE_NAME.startswith("t4-") and status in {"running", "timed_out", "failed", "sst_and_checker_passed"}:
     evidence = inspect()
     result.update({key: evidence[key] for key in (
         "counts", "sq_doorbell_counts", "drain_order_counts",
@@ -90,7 +90,11 @@ print(json.dumps(result, ensure_ascii=True))
 entry = Path(__file__).stem
 wait_seconds = 1500 if entry.startswith("wait_") else 0
 is_split = "metadata" in entry
-case_name = "t4-sst-mte-split-forward-0d3c8694" if is_split else "t4-sst-mte-state-8720cf34"
+if is_split:
+    token_count = "t8" if entry.endswith("t8") else "t4"
+    case_name = token_count + "-sst-mte-split-forward-0d3c8694"
+else:
+    case_name = "t4-sst-mte-state-8720cf34"
 source = f"WAIT_SECONDS = {wait_seconds}\nCASE_NAME = {case_name!r}\n" + source
 compile(source, "<remote_status>", "exec")
 try:
