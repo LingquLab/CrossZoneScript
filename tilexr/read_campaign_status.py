@@ -29,6 +29,9 @@ for directory in sorted(path for path in root.glob('profiled-*') if path.is_dir(
                                        'reference_us', 'difference_us']} for entry in rows] if isinstance(rows, list) else []
     result['verified_point_count'] += sum(row['status'] == 'passed' for row in completed)
     result['campaigns'].append({'campaign': directory.name, 'progress': read(directory / 'progress.json'), 'completed_points': completed})
+prepare_64p = root / 'prepare-64p-1'
+if prepare_64p.is_dir():
+    result['prepare_64p'] = read(prepare_64p / 'progress.json')
 p = subprocess.run(['ssh', '-T', '-i', 'C:/Users/z00813871/.ssh/id_ed25519',
     '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes',
     '-o', 'ConnectTimeout=12', 'root@141.61.94.26',
