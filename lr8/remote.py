@@ -101,6 +101,18 @@ def run():
         stream.extractall(sources, filter='data')
     assert digest(sources / 'SOURCE_LOCK.json') == LOCK['source_lock_sha256']
     worker = base64.b64decode(DATA[1], validate=True)
+    if (sources / 'runtime/include/tilexr/comm/args.h').is_file():
+        worker = worker.replace(b'root / "include", root / "collectives/kernels"',
+                                b'root.parent / "include", root / "collectives/kernels"')
+        worker = worker.replace(b'str(headers / "include")', b'str(headers.parent / "include")')
+        old_probe = b'        command = [compiler, "-std=c++14",'
+        new_probe = b"""        probe_source = output / "abi_probe.cpp"
+        frozen = (tooling / "abi_probe.cpp").read_text(encoding="utf-8")
+        probe_source.write_text(frozen.replace('"tilexr_udma_types.h"', '"tilexr/comm/udma/types.h"')
+                                .replace('"tilexr_udma_reg.h"', '"tilexr/comm/udma/registry.h"'), encoding="utf-8")
+        command = [compiler, "-std=c++14","""
+        assert worker.count(old_probe) == 1
+        worker = worker.replace(old_probe, new_probe).replace(b'str(tooling / "abi_probe.cpp")', b'str(probe_source)')
     optimization = ARGS.get('optimization', 'O2')
     if optimization == 'O1':
         anchor = b'options = ["-xcce", "-O2",'

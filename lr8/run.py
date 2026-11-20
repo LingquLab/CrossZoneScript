@@ -56,10 +56,17 @@ def main():
         with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
             stream.extractall(root, filter='data')
         sys.path.insert(0, str(root / 'tools/simulator'))
+        tool_dir = root / 'tools/simulator'
+        if b'include/tilexr/comm/args.h' in git('ls-tree', '-r', '--name-only', revision, 'include').splitlines():
+            packager = tool_dir / 'sources.py'
+            source = packager.read_text(encoding='utf-8')
+            old = "['tools/profiling'] if prefix == 'runtime/'"
+            assert source.count(old) == 1
+            packager.write_text(source.replace(old, "['include', 'tools/profiling'] if prefix == 'runtime/'"),
+                                encoding='utf-8')
         from sources import package
         payload = root / 'sources.tar.gz'
         lock = package(REPO, revision, GENERATOR, payload)
-        tool_dir = root / 'tools/simulator'
         sources = (payload.read_bytes(), (tool_dir / 'kernel_worker.py').read_bytes(),
                    (tool_dir / 'suite.py').read_bytes())
         data = [base64.b64encode(source).decode('ascii') for source in sources]
