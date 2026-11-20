@@ -17,6 +17,38 @@ build = json.loads((resources / "mte_metadata_t4" / "build-record.json").read_te
 assert identity["kernel_sha256"] == build["kernel_sha256"]
 
 options = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]
+wait_for_t4 = r"""
+import json
+from pathlib import Path
+import time
+
+case = Path(MOUNT) / "t4-sst-mte-split-forward-0d3c8694"
+deadline = time.monotonic() + 1100
+while time.monotonic() < deadline:
+    try:
+        receipt = json.loads((case / "task-result.json").read_text())
+    except (FileNotFoundError, ValueError):
+        time.sleep(10)
+        continue
+    run = receipt.get("run", {})
+    print(json.dumps({"status": run.get("status", "t4_run_status_missing"),
+                      "returncode": run.get("returncode"),
+                      "guard_count": run.get("guards", {}).get("count"),
+                      "kernel_sha256": receipt.get("kernel_sha256"),
+                      "container_stopped": receipt.get("container_stopped")}))
+    break
+else:
+    print(json.dumps({"status": "t4_terminal_receipt_pending"}))
+"""
+source = "MOUNT = " + repr(MOUNT) + "\n" + wait_for_t4
+probe = subprocess.run(["ssh", "-T", *options, HOST, "python3", "-"],
+                       input=source.encode("ascii"), capture_output=True, timeout=1130, check=True)
+t4 = json.loads(probe.stdout)
+if (t4["status"] != "sst_and_checker_passed"
+        or t4.get("kernel_sha256") != build["kernel_sha256"] or not t4.get("container_stopped")):
+    print(json.dumps({"t8_started": False, "t4": t4}, ensure_ascii=True))
+    raise SystemExit(0)
+
 remote_archive = MOUNT + "/t8-inputs-" + identity["archive_sha256"][:12] + ".tar.gz"
 subprocess.run(["scp", "-q", *options, str(archive), HOST + ":" + remote_archive],
                capture_output=True, timeout=180, check=True)
@@ -30,6 +62,7 @@ proc = subprocess.run(["ssh", "-T", *options, HOST, "python3", "-"],
                       input=source.encode("utf-8"), capture_output=True, timeout=2090)
 proc.check_returncode()
 result = json.loads(proc.stdout)
+result["t4"] = t4
 print(json.dumps(result, ensure_ascii=True))
 if result.get("run", {}).get("status") != "sst_and_checker_passed":
     raise SystemExit(1)
