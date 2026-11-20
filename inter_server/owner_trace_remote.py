@@ -7,6 +7,7 @@ from pathlib import Path
 
 CASE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-native-639f2fb3')
 RECORD = re.compile(r'\{[^{}]*"(?:wrAddr_|oriAddr_)"[^{}]*\}')
+ADDRESS_RECORD = re.compile(r'\{[^{}]*"(?:wrAddr_|rdAddr_|oriAddr_)"[^{}]*\}')
 GM_BYTES = 0x2000000000
 DOORBELL_BASES = (0x1C00000000, 0x1D00000000)
 LIMIT = 8 * 1024 * 1024
@@ -109,6 +110,42 @@ def drain_order(expected, requests):
     return results, examples
 
 
+def cq_evidence(data, examples, expected):
+    queues = {}
+    for each in examples[:2]:
+        owner = each['owner']
+        for role, field in (('last_fully_observed', 'last_fully_observed_lane_peer'),
+                            ('first_below_expected', 'first_below_expected_lane_peer')):
+            lane, peer = each[field]
+            flat = peer * 40 + 20 * lane + owner
+            queues[flat] = {'role': role, 'owner': owner, 'peer': peer, 'lane': lane,
+                            'expected_wqes': expected[peer, owner, lane] - 1,
+                            'cq_buffer_trace': collections.Counter(), 'sq_buffer_trace': collections.Counter()}
+    ring_bytes = 16384 * 64
+    for match in ADDRESS_RECORD.finditer(data):
+        try:
+            args = json.loads(match.group())
+        except ValueError:
+            continue
+        hits = set()
+        for field in ('wrAddr_', 'rdAddr_', 'oriAddr_'):
+            try:
+                value = args[field]
+                address = (int(value, 0) if isinstance(value, str) else int(value)) % GM_BYTES
+            except (KeyError, TypeError, ValueError):
+                continue
+            for base, key in ((0x1900000000, 'sq_buffer_trace'), (0x1A00000000, 'cq_buffer_trace')):
+                flat, offset = divmod(address - base, ring_bytes)
+                if flat in queues and offset < 16 * 64:
+                    hits.add((flat, key, offset // 64))
+        event = str(args.get('busPayloadType_', 'unknown'))
+        if not re.fullmatch(r'[A-Za-z0-9_]{1,32}', event):
+            continue
+        for flat, key, entry in hits:
+            queues[flat][key][f'{event}@{entry}'] += 1
+    return list(queues.values())
+
+
 def inspect():
     counts = collections.Counter()
     patterns = collections.Counter()
@@ -117,6 +154,7 @@ def inspect():
     missing_samples = []
     drain_counts = collections.Counter()
     drain_examples = []
+    cq_samples = {}
     for host in range(64):
         path = CASE / 'OUTPUT/stat_trace' / f'Host{host}_ba_layer_trace.json'
         if not path.is_file():
@@ -124,7 +162,8 @@ def inspect():
         counts['hosts_sampled'] += 1
         counts['files_prefix_truncated'] += int(path.stat().st_size > LIMIT)
         with path.open('rb') as stream:
-            mapping, names, lanes, requests = trace_mapping(stream.read(LIMIT).decode('utf-8', 'replace'))
+            data = stream.read(LIMIT).decode('utf-8', 'replace')
+        mapping, names, lanes, requests = trace_mapping(data)
         expected, payload = expected_requests(host)
         request_counts['expected_payload_writes'] += payload
         request_counts['expected_doorbell_requests'] += sum(expected.values())
@@ -134,6 +173,8 @@ def inspect():
         request_counts['unexpected_qps'] += len(requests.keys() - expected.keys())
         order_counts, order_examples = drain_order(expected, requests)
         drain_counts.update(order_counts)
+        if host in (0, 63):
+            cq_samples[host] = cq_evidence(data, order_examples, expected)
         drain_examples.extend(dict(rank=host, **example) for example in order_examples[:max(0, 8-len(drain_examples))])
         for key, wanted in expected.items():
             got = requests[key]
@@ -156,6 +197,7 @@ def inspect():
             samples[host] = {'owners': dict(key), 'event_types': dict(names.most_common(8))}
     result = {'counts': dict(counts), 'sq_doorbell_counts': dict(request_counts), 'below_expected_examples': missing_samples,
               'drain_order_counts': dict(drain_counts), 'drain_order_examples': drain_examples,
+              'cq_buffer_samples': cq_samples,
               'samples': samples, 'distinct_observed_mappings': len(patterns),
               'dominant_mappings': [{'hosts': n, 'owners': dict(key)} for key, n in patterns.most_common(3)]}
     for name in ('run.json', 'task-result.json'):
