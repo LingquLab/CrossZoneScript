@@ -6,6 +6,7 @@ import subprocess
 source = r"""
 import collections
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -63,8 +64,48 @@ for row in layout['ranks']:
                 examples.append({'rank': rank, 'field': key, 'slot': offset // 512,
                                  'kind': kind, 'other_die_matches': other_slot == expected_slot,
                                  'first_byte': diff[0], 'last_byte': diff[-1]})
+source_rank, target_rank, slot, row_size = 38, 30, 28, 512
+workspace, rank_span = 0x200000000, 0x2000000000
+src = source_rank * rank_span + workspace + 0xc00
+dst = target_rank * rank_span + workspace + 0x4a800
+actual = (case / 'actual' / 'rank30' / 'returned.bin').read_bytes()[slot * row_size:(slot + 1) * row_size]
+golden = (case / 'fixture-data' / 'rank30' / 'golden-returned.bin').read_bytes()[slot * row_size:(slot + 1) * row_size]
+source_workspace = (case / 'input_bin' / 'rank38' / 'workspace.bin').read_bytes()
+source_row = source_workspace[0xc00:0xe00]
+candidates = []
+for name in ('input', 'partial'):
+    for rank in range(64):
+        rows = (case / 'fixture-data' / f'rank{rank:02d}' / (name + '.bin')).read_bytes()
+        for row in range(len(rows) // row_size):
+            if rows[row * row_size:(row + 1) * row_size] == actual:
+                candidates.append((name, rank, row))
+trace = collections.Counter()
+event_order = []
+for rank in (source_rank, target_rank):
+    for layer in ('ba', 'dl'):
+        path = case / 'OUTPUT' / 'stat_trace' / f'Host{rank}_{layer}_layer_trace.json'
+        for match in re.finditer(r'\{[^{}]*"(?:oriAddr_|rdAddr_|wrAddr_)"[^{}]*\}', path.read_text()):
+            try:
+                args = json.loads(match.group())
+            except ValueError:
+                continue
+            for field in ('oriAddr_', 'rdAddr_', 'wrAddr_'):
+                if field not in args:
+                    continue
+                value = int(str(args[field]), 0)
+                for which, address in (('source', src), ('target', dst)):
+                    if not address <= value < address + row_size:
+                        continue
+                    event = str(args.get('busPayloadType_', args.get('name', 'unknown')))[:48]
+                    trace[f'{rank}/{layer}/{which}/{event}/{field}'] += 1
+                    if field == 'oriAddr_' and len(event_order) < 20:
+                        event_order.append([rank, layer, which, event, value - address])
+route = {'source_image_matches_golden': source_row == golden,
+         'actual_has_one_repeated_bf16_word': len({actual[i:i + 2] for i in range(0, len(actual), 2)}) == 1,
+         'actual_source_candidate_total': len(candidates),
+         'actual_source_candidates': candidates[:8], 'trace': dict(trace), 'event_order': event_order}
 print(json.dumps({'checker_first_failure': failure, 'counts': dict(counts),
-                  'status_values': dict(statuses), 'examples': examples}, ensure_ascii=True))
+                  'status_values': dict(statuses), 'examples': examples, 'route': route}, ensure_ascii=True))
 """
 compile(source, "<remote_dies>", "exec")
 proc = subprocess.run(
