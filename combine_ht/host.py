@@ -4,11 +4,13 @@
 import json
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
 
-WORK = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent
+WORK = BASE
 NAME = "tilexr-combine-ht-c1d52c19"
 SESSION = "c1d52c19-f831-4174-b368-933ccbabec24"
 IMAGE = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
@@ -26,6 +28,45 @@ def command(*argv, timeout=50):
             log.write(result.stderr)
         raise RuntimeError("command exited " + str(result.returncode) + " (" + str(argv[0]) + ")")
     return result.stdout.decode().strip()
+
+
+def select_v11():
+    record = WORK / "image.json"
+    if record.is_file():
+        return json.loads(record.read_text())["image_id"]
+    archive = Path("/mnt/share/simulator/images/tilexr-sim-9.1-aarch64-v1.1.0.tar.gz")
+    if archive.stat().st_size != 4107108475:
+        raise ValueError("V1.1.0 archive size differs from the guide")
+    existing = command("docker", "images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}")
+    refs = [line.split()[0] for line in existing.splitlines()
+            if "tilexr-sim-9.1:" in line and "v1.1.0" in line]
+    if not refs:
+        output = command("docker", "load", "-i", archive, timeout=510)
+        (WORK / "docker-load.log").write_text(output + "\n")
+        refs = re.findall(r"^Loaded image(?: ID)?: (\S+)", output, flags=re.MULTILINE)
+    if len(refs) != 1:
+        raise ValueError("V1.1.0 image did not resolve to one image")
+    image, platform_name = command("docker", "image", "inspect", "--format",
+                                   "{{.Id}} {{.Os}}/{{.Architecture}}", refs[0]).split()
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", image) or platform_name != "linux/arm64":
+        raise ValueError("unexpected V1.1.0 identity or architecture")
+    record.write_text(json.dumps(dict(image_id=image, image_ref=refs[0], archive=str(archive))))
+    return image
+
+
+def use_variant(args):
+    global WORK, NAME, IMAGE
+    if args.get("image_variant") != "v11":
+        return
+    WORK = BASE / "v11"
+    WORK.mkdir(exist_ok=True)
+    NAME += "-v11"
+    for entry in ("candidate.tar", "tooling.tar", "host.py", "sst.py", "fixtures.py",
+                  "bf16_probe.py", "bf16_probe.cpp"):
+        src = BASE / entry
+        if src.is_file():
+            shutil.copyfile(src, WORK / entry)
+    IMAGE = select_v11()
 
 
 def container():
@@ -70,11 +111,15 @@ def setup():
 def main(args):
     stage = args["stage"]
     try:
+        use_variant(args)
         if stage == "setup":
             result = setup()
         else:
             identity = container()
             if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "send-diag"):
+                procs = command("docker", "top", NAME, "-eo", "comm,stat").splitlines()[1:]
+                if any(row.split()[0] in ("sst", "sstsim.x") and not row.split()[1].startswith("Z") for row in procs):
+                    raise RuntimeError("SST is already active in the selected container")
                 entry = "/work/sst.py"
                 if stage == "bf16-probe":
                     entry = "/work/bf16_probe.py"

@@ -56,7 +56,7 @@ def main(args):
             upload(archive, "scripts.tar")
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
 
-        if stage == "setup":
+        if stage == "setup" and args.get("image_variant") != "v11":
             remote(bootstrap, 25)
             repo = root / "TileXR.git"
             if not repo.exists():
@@ -77,6 +77,8 @@ def main(args):
             if stage != "status":
                 scripts()
             timeout = 240 if stage == "setup" else 120
+            if stage == "setup" and args.get("image_variant") == "v11":
+                timeout = 850
             if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "send-diag"):
                 timeout = 2 * args["stage_timeout"] + 180
             response = remote(["timeout", "--kill-after=25", str(timeout), "python3", WORK + "/host.py",
