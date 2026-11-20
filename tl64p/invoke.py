@@ -57,7 +57,7 @@ elif operation == 'report_dies':
         b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
         b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_f1scalar01')}
     seconds = 225
-elif operation in ('profile_build_stage','profile_run','profile_report','profile_status'):
+elif operation in ('profile_build_stage','profile_run','profile_report','profile_status','profile_audit'):
     def profile_source(name):
         data=(here/f'{name}_remote.py').read_bytes()
         return data.replace(
@@ -73,7 +73,7 @@ elif operation in ('profile_build_stage','profile_run','profile_report','profile
             b',64,32,32,16,0,*addresses',b',64,32,128,128,0,*addresses').replace(
             b"'readback_bytes':56*32",b"'readback_bytes':2048")
         resources = {'stage':stage}
-    elif operation=='profile_report':
+    elif operation in ('profile_report','profile_audit'):
         base=profile_source('report').replace(b"('state_sender_gate',56*32)",b"('state_sender_gate',2048)")
         for old,new in ((b'cnt_o+64*core',b'cnt_o+512*core'),(b'drop_o+64*core',b'drop_o+512*core'),
                         (b'done_o+64*core',b'done_o+512*core'),(b'ticks_o+256*core',b'ticks_o+1024*core'),
@@ -82,7 +82,7 @@ elif operation in ('profile_build_stage','profile_run','profile_report','profile
         resources = {'base_report':base}
     else:
         resources = {}
-    seconds = {'profile_build_stage':320,'profile_run':4020,'profile_report':225,'profile_status':60}[operation]
+    seconds = {'profile_build_stage':320,'profile_run':4020,'profile_report':225,'profile_audit':225,'profile_status':60}[operation]
 elif operation == 'report_aligned':
     resources = {}
     seconds = 225
@@ -104,8 +104,9 @@ elif operation == 'profile_run':
     remote += profile_source('run')
 elif operation == 'profile_status':
     remote += profile_source('status')
-elif operation == 'profile_report':
-    remote += (here/'die_report_remote.py').read_bytes().replace(
+elif operation in ('profile_report','profile_audit'):
+    report_script='die_report_remote.py' if operation=='profile_report' else 'die_audit_remote.py'
+    remote += (here/report_script).read_bytes().replace(
         b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile03').replace(b'analysis-die-merged',b'analysis-02')
 elif operation == 'report_aligned':
     remote += (here/'report_remote.py').read_bytes().replace(
@@ -126,4 +127,4 @@ if p.returncode:
 else:
     result=json.loads(p.stdout)
 print(json.dumps(result,ensure_ascii=True,separators=(',',':')))
-sys.exit(0 if result['status']=='PASS' or operation.startswith('report') or operation in ('profile_report','profile_build_stage','profile_run') else 1)
+sys.exit(0 if result['status']=='PASS' or operation.startswith('report') or operation in ('profile_report','profile_build_stage','profile_run','profile_audit') else 1)
