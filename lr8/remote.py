@@ -185,7 +185,8 @@ def run():
             label = f'{ranks}p-{elements}i32-{setting}-{sample}'
             sim_timeout = ARGS.get('simulation_timeout', 600)
             options = dict(environment_report='/work/environment', suite_output='/work/' + label,
-                           rank_size=ranks, elements_per_peer=elements, threads=min(ranks, 32),
+                           rank_size=ranks, elements_per_peer=elements,
+                           threads=ARGS.get('threads', min(ranks, 32)),
                            simulation_timeout=sim_timeout, lr8_schedule=setting)
             phase('prepare', dict(options, fullmesh_routing=ARGS.get('routing', 'installed'),
                                   instruction_dump_chips=ARGS.get('instruction_dump_chips', [])),
