@@ -62,8 +62,16 @@ def main():
             source = packager.read_text(encoding='utf-8')
             old = "['tools/profiling'] if prefix == 'runtime/'"
             assert source.count(old) == 1
-            packager.write_text(source.replace(old, "['include', 'tools/profiling'] if prefix == 'runtime/'"),
-                                encoding='utf-8')
+            source = source.replace(old, "['include', 'tools/profiling'] if prefix == 'runtime/'")
+            anchor = '    if not files or len(files) > 4096'
+            assert source.count(anchor) == 1
+            adapter = """    path = 'tooling/tools/unitest/simulator/experiments/alltoall_udma/runtime.py'
+    old_layout = b'COMM_BYTES = 530024'
+    if files[path].count(old_layout) != 1:
+        raise ValueError('Unexpected frozen CommArgs fixture')
+    files[path] = files[path].replace(old_layout, b'COMM_BYTES = 529944')
+"""
+            packager.write_text(source.replace(anchor, adapter + anchor), encoding='utf-8')
         from sources import package
         payload = root / 'sources.tar.gz'
         lock = package(REPO, revision, GENERATOR, payload)
