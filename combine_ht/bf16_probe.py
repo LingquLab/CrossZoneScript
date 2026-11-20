@@ -15,28 +15,38 @@ import sst
 def run(args):
     config = json.loads((sst.WORK / "environment.snapshot.json").read_text())
     env = sst.verify_environment(config)
-    case = sst.WORK / "diagnostics" / ("bf16-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"))
+    kind = args["stage"].split("-")[0]
+    entry = "tilexr_" + kind + "_probe"
+    case = sst.WORK / "diagnostics" / (kind + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"))
     case.mkdir(parents=True)
-    kernel = case / "tilexr_bf16_probe.o"
+    kernel = case / (entry + ".o")
     with (case / "build.log").open("wb") as log:
-        sst.build_kernel(env, log, source=sst.WORK / "bf16_probe.cpp", binary=kernel)
-    values_a = [(16 + i % 16) / 16 for i in range(256)]
-    values_b = [(16 + (i // 16) % 16) / 16 for i in range(256)]
-    expected_copy = struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_a))
-    expected_fp32 = struct.pack("<256f", *(a + b for a, b in zip(values_a, values_b)))
-    expected_bf16 = struct.pack("<256H", *(sst.fixtures.bf16(a + b) for a, b in zip(values_a, values_b)))
+        sst.build_kernel(env, log, source=sst.WORK / (kind + "_probe.cpp"), binary=kernel)
     inputs = case / "input.bin"
-    inputs.write_bytes(expected_copy + struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_b)))
     zero = case / "zero.bin"
-    zero.write_bytes(bytes(2048))
+    if kind == "bf16":
+        values_a = [(16 + i % 16) / 16 for i in range(256)]
+        values_b = [(16 + (i // 16) % 16) / 16 for i in range(256)]
+        expected_copy = struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_a))
+        expected_fp32 = struct.pack("<256f", *(a + b for a, b in zip(values_a, values_b)))
+        expected_bf16 = struct.pack("<256H", *(sst.fixtures.bf16(a + b) for a, b in zip(values_a, values_b)))
+        inputs.write_bytes(expected_copy + struct.pack("<256H", *(sst.fixtures.bf16(x) for x in values_b)))
+        zero.write_bytes(bytes(2048))
+    else:
+        pattern = bytes(1 + (i + i // 64) % 253 for i in range(448))
+        inputs.write_bytes(pattern.ljust(512, b"\0"))
+        zero.write_bytes(bytes(2048))
+        expected_single = bytes(384) + pattern + bytes(192)
+        expected_split = expected_single
     ranks = 8
     chips = {}
     for rank in range(ranks):
         base = rank * sst.rt.GM_BYTES
-        input_addr, output_addr = base + 0x200000000, base + 0x200100000
+        input_addr = base + 0x200000000
+        output_addr = base + (0x200100000 if kind == "bf16" else 0x1900000000)
         chips[f"chip{rank}"] = dict(gm_size=sst.rt.GM_BYTES, sys_va_base_addr=base,
             ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
-            block_dim=1, subblock_dim=1, kernel_file=str(kernel), vec_func="tilexr_bf16_probe",
+            block_dim=1, subblock_dim=1, kernel_file=str(kernel), vec_func=entry,
             kernel_param=dict(input=dict(value=input_addr, param_offset="0", param_type="11", input_bin=str(inputs)),
                               output=dict(value=output_addr, param_offset="8", param_type="11", input_bin=str(zero))),
             bin_param=dict(addr=base + 0x40000000, size=max(0x26C40, sst.fixtures.align(kernel.stat().st_size))),
@@ -56,14 +66,24 @@ def run(args):
     for rank, chip in enumerate(chips.values()):
         output = chip["output_param"]["probe"]
         raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], die_decoder)
-        samples = dict(copy=raw[:512], cast=raw[512:1024], fp32=raw[1024:])
-        golden = dict(copy=expected_copy, cast=expected_bf16, fp32=expected_fp32)
+        if kind == "bf16":
+            samples = dict(copy=raw[:512], cast=raw[512:1024], fp32=raw[1024:])
+            golden = dict(copy=expected_copy, cast=expected_bf16, fp32=expected_fp32)
+        else:
+            samples = dict(single=raw[:1024], split=raw[1024:])
+            golden = dict(single=expected_single, split=expected_split)
         result = dict(rank=rank, mismatched_bytes={name: sum(a != b for a, b in zip(data, golden[name]))
                                                    for name, data in samples.items()})
-        result["cast16_first8"] = struct.unpack_from("<8H", samples["cast"])
+        if kind == "bf16":
+            result["cast16_first8"] = struct.unpack_from("<8H", samples["cast"])
+        else:
+            result["single_correct_WQEs"] = [raw[384 + p:448 + p] == pattern[p:p + 64]
+                                            for p in range(0, 448, 64)]
         all_results.append(result)
     result = dict(ok=True, report=str(case), returncode=proc.returncode, wall_s=elapsed,
-                  model=model, expected_cast16_first8=struct.unpack_from("<8H", expected_bf16), ranks=all_results)
+                  model=model, ranks=all_results)
+    if kind == "bf16":
+        result["expected_cast16_first8"] = struct.unpack_from("<8H", expected_bf16)
     sst.write_json(case / "report.json", result)
     return result
 

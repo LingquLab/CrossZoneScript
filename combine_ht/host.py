@@ -62,7 +62,7 @@ def use_variant(args):
     WORK.mkdir(exist_ok=True)
     NAME += "-v11"
     for entry in ("candidate.tar", "tooling.tar", "host.py", "sst.py", "fixtures.py",
-                  "bf16_probe.py", "bf16_probe.cpp"):
+                  "bf16_probe.py", "bf16_probe.cpp", "mte3_probe.cpp"):
         src = BASE / entry
         if src.is_file():
             shutil.copyfile(src, WORK / entry)
@@ -116,12 +116,12 @@ def main(args):
             result = setup()
         else:
             identity = container()
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "send-diag"):
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "send-diag"):
                 procs = command("docker", "top", NAME, "-eo", "pid,comm,stat").splitlines()[1:]
                 if any(row.split()[1] in ("sst", "sstsim.x") and not row.split()[2].startswith("Z") for row in procs):
                     raise RuntimeError("SST is already active in the selected container")
                 entry = "/work/sst.py"
-                if stage == "bf16-probe":
+                if stage in ("bf16-probe", "mte3-probe"):
                     entry = "/work/bf16_probe.py"
                 result = json.loads(command("docker", "exec", NAME, "python3", entry,
                                             json.dumps(args), timeout=2 * args["stage_timeout"] + 120))
