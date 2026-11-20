@@ -1,6 +1,7 @@
 """Diagnose T4 data from both retained Die dumps without replay or writes."""
 
 import json
+from pathlib import Path
 import subprocess
 
 source = r"""
@@ -107,6 +108,8 @@ route = {'source_image_matches_golden': source_row == golden,
 print(json.dumps({'checker_first_failure': failure, 'counts': dict(counts),
                   'status_values': dict(statuses), 'examples': examples, 'route': route}, ensure_ascii=True))
 """
+if "metadata" in Path(__file__).stem:
+    source = source.replace("t4-sst-mte-state-8720cf34", "t4-sst-mte-split-forward-0d3c8694")
 compile(source, "<remote_dies>", "exec")
 proc = subprocess.run(
     ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
