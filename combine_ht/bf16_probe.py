@@ -9,6 +9,7 @@ import struct
 import subprocess
 import time
 
+import castloc_results
 import lane_results
 import sst
 
@@ -25,8 +26,12 @@ def run(args):
         sst.build_kernel(env, log, source=sst.WORK / (kind + "_probe.cpp"), binary=kernel)
     inputs = case / "input.bin"
     zero = case / "zero.bin"
-    output_bytes = lane_results.OUTPUT_BYTES if kind == "lane" else 2048
-    if kind == "lane":
+    output_bytes = {"lane": lane_results.OUTPUT_BYTES, "castloc": castloc_results.OUTPUT_BYTES}.get(kind, 2048)
+    if kind == "castloc":
+        input_bytes, fp32, reference = castloc_results.inputs(sst.fixtures.bf16)
+        inputs.write_bytes(input_bytes)
+        zero.write_bytes(bytes(output_bytes))
+    elif kind == "lane":
         inputs.write_bytes(bytes(512))
         zero.write_bytes(bytes(output_bytes))
     elif kind == "bf16":
@@ -78,6 +83,9 @@ def run(args):
     for rank, chip in enumerate(chips.values()):
         output = chip["output_param"]["probe"]
         raw = sst.read_output(case / "bin", rank, "probe", output["addr"], output["size"], die_decoder)
+        if kind == "castloc":
+            all_results.append({"rank": rank, **castloc_results.decode(raw, fp32, reference)})
+            continue
         if kind == "lane":
             all_results.append(dict(rank=rank, trials=lane_results.decode(raw)))
             continue

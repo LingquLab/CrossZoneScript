@@ -50,7 +50,7 @@ def main(args):
         def scripts():
             archive = root / "scripts.tar"
             with tarfile.open(archive, "w") as package:
-                for filename in ("host.py", "sst.py", "fixtures.py", "bf16_probe.cpp", "mte3_probe.cpp", "wqe_probe.cpp", "lane_probe.cpp", "lane_results.py", "bf16_probe.py"):
+                for filename in ("host.py", "sst.py", "fixtures.py", "bf16_probe.cpp", "mte3_probe.cpp", "wqe_probe.cpp", "lane_probe.cpp", "lane_results.py", "castloc_probe.cpp", "castloc_results.py", "bf16_probe.py"):
                     target = Path(__file__).with_name(filename)
                     package.add(target, arcname=filename)
             upload(archive, "scripts.tar")
@@ -73,13 +73,13 @@ def main(args):
                 archive = root / (name + ".tar")
                 run(["git", "-C", repo, "archive", "--format=tar", "-o", archive, revision, *paths], 45)
                 upload(archive, archive.name)
-        if stage in ("setup", "run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "send-diag", "send-only", "status", "stop"):
+        if stage in ("setup", "run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "castloc-probe", "send-diag", "send-only", "status", "stop"):
             if stage != "status":
                 scripts()
             timeout = 240 if stage == "setup" else 120
             if stage == "setup" and args.get("image_variant") == "v11":
                 timeout = 850
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "send-diag", "send-only"):
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "castloc-probe", "send-diag", "send-only"):
                 timeout = 2 * args["stage_timeout"] + 180
             response = remote(["timeout", "--kill-after=25", str(timeout), "python3", WORK + "/host.py",
                                json.dumps(args, separators=(",", ":"))], timeout + 45)

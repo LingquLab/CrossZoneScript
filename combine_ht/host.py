@@ -62,7 +62,7 @@ def use_variant(args):
     WORK.mkdir(exist_ok=True)
     NAME += "-v11"
     for entry in ("candidate.tar", "tooling.tar", "host.py", "sst.py", "fixtures.py",
-                  "bf16_probe.py", "bf16_probe.cpp", "mte3_probe.cpp", "wqe_probe.cpp", "lane_probe.cpp", "lane_results.py"):
+                  "bf16_probe.py", "bf16_probe.cpp", "mte3_probe.cpp", "wqe_probe.cpp", "lane_probe.cpp", "lane_results.py", "castloc_probe.cpp", "castloc_results.py"):
         src = BASE / entry
         if src.is_file():
             shutil.copyfile(src, WORK / entry)
@@ -116,14 +116,14 @@ def main(args):
             result = setup()
         else:
             identity = container()
-            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "send-diag", "send-only"):
-                if stage == "lane-probe" and not identity["State"]["Running"]:
+            if stage in ("run", "reduce-fixture", "pair", "bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "castloc-probe", "send-diag", "send-only"):
+                if stage in ("lane-probe", "castloc-probe") and not identity["State"]["Running"]:
                     command("docker", "start", NAME)
                 procs = command("docker", "top", NAME, "-eo", "pid,comm,stat").splitlines()[1:]
                 if any(row.split()[1] in ("sst", "sstsim.x") and not row.split()[2].startswith("Z") for row in procs):
                     raise RuntimeError("SST is already active in the selected container")
                 entry = "/work/sst.py"
-                if stage in ("bf16-probe", "mte3-probe", "wqe-probe", "lane-probe"):
+                if stage in ("bf16-probe", "mte3-probe", "wqe-probe", "lane-probe", "castloc-probe"):
                     entry = "/work/bf16_probe.py"
                 result = json.loads(command("docker", "exec", NAME, "python3", entry,
                                             json.dumps(args), timeout=2 * args["stage_timeout"] + 120))
