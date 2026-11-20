@@ -147,6 +147,40 @@ def cq_evidence(data, examples, expected):
     return list(queues.values())
 
 
+def ring_coverage(data, host, expected, drain_examples):
+    ring_bytes = 16384 * 64
+    region = {'RD_REQ': 0x1900000000, 'WR_REQ': 0x1A00000000}
+    observed = {'RD_REQ': set(), 'WR_REQ': set()}
+    for match in ADDRESS_RECORD.finditer(data):
+        try:
+            args = json.loads(match.group())
+            event = args['busPayloadType_']
+            if event not in region:
+                continue
+            raw = args['oriAddr_']
+            value = int(raw, 0) if isinstance(raw, str) else int(raw)
+        except (KeyError, TypeError, ValueError):
+            continue
+        chip, local = divmod(value, GM_BYTES)
+        ring = (local - region[event]) // ring_bytes
+        if chip == host and 0 <= ring < 64 * 40:
+            observed[event].add(ring)
+    expected_rings = {peer * 40 + lane * 20 + owner for peer, owner, lane in expected}
+    sq, cq = observed['RD_REQ'], observed['WR_REQ']
+    result = collections.Counter(expected_rings=len(expected_rings),
+        expected_with_sq_fetch=len(expected_rings & sq), expected_with_cq_write=len(expected_rings & cq),
+        sq_without_cq=len(expected_rings & (sq - cq)), cq_without_sq=len(expected_rings & (cq - sq)),
+        expected_with_neither=len(expected_rings - sq - cq), unexpected_ring_indices=len((sq | cq) - expected_rings))
+    for item in drain_examples:
+        lane, peer = item['last_fully_observed_lane_peer']
+        ring = peer * 40 + lane * 20 + item['owner']
+        result['last_qp_at_each_drain_gap'] += 1
+        result['last_qp_with_sq_fetch'] += int(ring in sq)
+        result['last_qp_with_cq_write'] += int(ring in cq)
+        result['last_qp_with_neither'] += int(ring not in sq and ring not in cq)
+    return result
+
+
 def timeout_dump_evidence(drain_gaps):
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(CASE / 'adapter'))
@@ -215,6 +249,7 @@ def inspect():
     drain_examples = []
     cq_samples = {}
     drain_gaps = set()
+    rings = collections.Counter()
     for host in range(64):
         path = CASE / 'OUTPUT/stat_trace' / f'Host{host}_ba_layer_trace.json'
         if not path.is_file():
@@ -234,6 +269,7 @@ def inspect():
         order_counts, order_examples = drain_order(expected, requests)
         drain_counts.update(order_counts)
         drain_gaps.update((host, example['owner']) for example in order_examples)
+        rings.update(ring_coverage(data, host, expected, order_examples))
         if host in (0, 63):
             cq_samples[host] = cq_evidence(data, order_examples, expected)
         drain_examples.extend(dict(rank=host, **example) for example in order_examples[:max(0, 8-len(drain_examples))])
@@ -258,7 +294,7 @@ def inspect():
             samples[host] = {'owners': dict(key), 'event_types': dict(names.most_common(8))}
     result = {'counts': dict(counts), 'sq_doorbell_counts': dict(request_counts), 'below_expected_examples': missing_samples,
               'drain_order_counts': dict(drain_counts), 'drain_order_examples': drain_examples,
-              'cq_buffer_samples': cq_samples,
+              'cq_buffer_samples': cq_samples, 'sq_cq_ring_coverage': dict(rings),
               'samples': samples, 'distinct_observed_mappings': len(patterns),
               'dominant_mappings': [{'hosts': n, 'owners': dict(key)} for key, n in patterns.most_common(3)]}
     for name in ('run.json', 'task-result.json'):
