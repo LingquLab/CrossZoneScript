@@ -17,6 +17,9 @@ if operation == 'build':
 elif operation == 'stage':
     resources = {}
     seconds = 145
+elif operation == 'run':
+    resources = {}
+    seconds = 4020
 else:
     raise ValueError('unknown operation')
 remote = ''.join(f'{name} = {value!r}\n' for name,value in resources.items()).encode()
