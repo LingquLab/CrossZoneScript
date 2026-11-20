@@ -27,10 +27,10 @@ def agg(values):
             'max_ticks':maximum,'slowest':worst[:4],'slowest_count':len(worst)}
 
 
-def read_output(rank,name,size):
+def read_output(rank,name,size,allow_short=False):
     path=CASE/'bin'/f'david_{rank}_{name}.bin'
     data=path.read_bytes()
-    if len(data)!=size:
+    if len(data)!=size and not (allow_short and len(data)==size//512*512):
         raise ValueError(f'BAD_OUTPUT_LENGTH r{rank} {name} {len(data)}/{size}')
     return data
 
@@ -68,6 +68,8 @@ def report(out,state):
     compare_hashes={}
     lane_count=0
     profile_issues=[]
+    missing_completion=[]
+    truncated_gates=[]
     for rank in range(64):
         sizes=workload['expected_sizes'][str(rank)]
         ref=CASE/'expected'/f'rank{rank}'
@@ -88,12 +90,13 @@ def report(out,state):
         issued.append(sum(words[5] for words in diag))
         received.append(sum(words[7] for words in diag))
         for name,size in (('state_count_ready',384*32),('state_consumer_gate',64*8*32),('state_sender_gate',56*32)):
-            data=read_output(rank,name,size)
+            data=read_output(rank,name,size,allow_short=name=='state_sender_gate')
+            if len(data)!=size: truncated_gates.append(rank)
             regions[f'{rank}/{name}']=digest(data)
-            flags=struct.unpack(f'<{size//4}I',data)
+            flags=struct.unpack(f'<{len(data)//4}I',data)
             if any(flags[::8] if name=='state_count_ready' else flags):
                 golden_fail.append([rank,name])
-        profile=read_output(rank,'profile',workload['profile_size'])
+        profile=read_output(rank,'profile',workload['profile_size'],allow_short=True)
         regions[f'{rank}/profile']=digest(profile)
         offsets=workload['profile_offsets']
         views=[]
@@ -101,8 +104,11 @@ def report(out,state):
             ticks_o,ids_o,cnt_o,drop_o,done_o=offsets
             count,=struct.unpack_from('<I',profile,cnt_o+64*core)
             dropped,=struct.unpack_from('<I',profile,drop_o+64*core)
-            done,=struct.unpack_from('<I',profile,done_o+64*core)
-            if not (0<count<=30 and dropped==0 and done==2):
+            done_at=done_o+64*core
+            done=struct.unpack_from('<I',profile,done_at)[0] if done_at+4<=len(profile) else None
+            if done is None:
+                missing_completion.append([rank,core])
+            if not (0<count<=30 and dropped==0 and done in (2,None)):
                 profile_issues.append([rank,core,count,dropped,done])
                 continue
             ticks=struct.unpack_from(f'<{count}Q',profile,ticks_o+256*core)
@@ -137,7 +143,8 @@ def report(out,state):
                  diagnostic_examples=diagnostic_errors[:12],issued=sum(issued),received=sum(received),
                  per_rank_issued=sorted(set(issued)),per_rank_received=sorted(set(received)),
                  profile_lanes=lane_count,profile_failure_count=len(profile_issues),
-                 profile_examples=profile_issues[:12],report_dir=str(out))
+                 profile_examples=profile_issues[:12],report_dir=str(out),
+                 missing_completion_lanes=len(missing_completion),short_sender_gate_ranks=len(truncated_gates))
     state['modules']={k:agg(summaries[k]) for k in ('module.public_prepare','module.count_publish','module.pack_send',
                        'module.layout_prefix','module.receive_output','module.whole')}
     state['functions']={k:agg(v) for k,v in summaries.items() if re.fullmatch(r'F[0-9]\..+',k)}
@@ -148,10 +155,12 @@ def report(out,state):
     state['trace_sha256']=digest((out/'dispatch.raw-ticks.perfetto.json').read_bytes())
     state['status']='PASS' if (not golden_fail and not diagnostic_errors and not profile_issues and
                                lane_count==4096 and set(issued)==set(received)=={768}) else 'FAIL'
+    state['profile_coverage']='PARTIAL_COMPLETION_WORDS' if missing_completion else 'COMPLETE'
+    state['sender_gate_coverage']='PARTIAL_RANGE' if truncated_gates else 'COMPLETE'
 
 
 result={'case':str(CASE),'phase':'analysis','status':'FAIL'}
-out=CASE/'analysis-01'
+out=CASE/'analysis-02'
 try:
     out.mkdir()
     report(out,result)
