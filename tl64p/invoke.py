@@ -35,10 +35,24 @@ elif operation == 'debug':
     resources['run_source'] = resources['run_source'].replace(b'3600s',b'200s').replace(b'3640)',b'235)')
     remote_command = 'python3 -B -'
     seconds = 575
+elif operation == 'compat':
+    resources = {'stage_source': (here/'stage_remote.py').read_bytes().replace(
+        b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
+        b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_f1scalar01')}
+    seconds = 300
+elif operation in ('run_compat','report_compat','status_compat'):
+    resources = {}
+    phase = operation.split('_')[0]
+    seconds = {'run':4020,'report':225,'status':60}[phase]
 else:
     raise ValueError('unknown operation')
 remote = ''.join(f'{name} = {value!r}\n' for name,value in resources.items()).encode()
-remote += (here/f'{operation}_remote.py').read_bytes()
+if operation.endswith('_compat'):
+    remote += (here/f'{phase}_remote.py').read_bytes().replace(
+        b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
+        b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_f1scalar01')
+else:
+    remote += (here/f'{operation}_remote.py').read_bytes()
 compile(remote,operation,'exec')
 argv=['ssh','-i',str(Path.home()/'.ssh/deploy_ed25519'),'-o','IdentitiesOnly=yes',
       '-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12',
