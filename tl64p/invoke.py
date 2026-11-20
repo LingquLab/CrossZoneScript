@@ -57,6 +57,32 @@ elif operation == 'report_dies':
         b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
         b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_f1scalar01')}
     seconds = 225
+elif operation in ('profile_build_stage','profile_run','profile_report','profile_status'):
+    def profile_source(name):
+        data=(here/f'{name}_remote.py').read_bytes()
+        return data.replace(
+            b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_profile02').replace(
+            b'dispatch_tilelang_64p_top6_68d32608_run01',b'dispatch_tilelang_64p_top6_68d32608_profile02')
+    if operation=='profile_build_stage':
+        stage=profile_source('stage').replace(
+            b'profile_offsets=(128,16512,24704,28800,32896)',
+            b'profile_offsets=(512,66048,98816,131584,164352)').replace(
+            b'profile_size=36992',b'profile_size=197120').replace(
+            b'assert profile_offsets==(128,128+64*32*8,128+64*32*12,128+64*32*12+64*64,128+64*32*12+2*64*64)',
+            b'assert profile_offsets==(512,512+64*1024,512+64*1536,512+64*2048,512+64*2560)').replace(
+            b',64,32,32,16,0,*addresses',b',64,32,128,128,0,*addresses').replace(
+            b"'readback_bytes':56*32",b"'readback_bytes':2048")
+        resources = {'stage':stage}
+    elif operation=='profile_report':
+        base=profile_source('report').replace(b"('state_sender_gate',56*32)",b"('state_sender_gate',2048)")
+        for old,new in ((b'cnt_o+64*core',b'cnt_o+512*core'),(b'drop_o+64*core',b'drop_o+512*core'),
+                        (b'done_o+64*core',b'done_o+512*core'),(b'ticks_o+256*core',b'ticks_o+1024*core'),
+                        (b'ids_o+128*core',b'ids_o+512*core')):
+            base=base.replace(old,new)
+        resources = {'base_report':base}
+    else:
+        resources = {}
+    seconds = {'profile_build_stage':320,'profile_run':4020,'profile_report':225,'profile_status':60}[operation]
 elif operation == 'report_aligned':
     resources = {}
     seconds = 225
@@ -71,6 +97,17 @@ elif operation == 'retry_output':
     remote += b"import contextlib,io,json\nwith contextlib.redirect_stdout(io.StringIO()) as captured: exec(compile(stage,'stage','exec'),{})\nresult=json.loads(captured.getvalue())\nif result['status']=='PASS':exec(compile(run,'run','exec'),{})\nelse:print(json.dumps(result))\n"
 elif operation == 'report_dies':
     remote += (here/'die_report_remote.py').read_bytes()
+elif operation == 'profile_build_stage':
+    remote += (here/'profile_build_remote.py').read_bytes()
+    remote += b"\nresult=build()\nif result['status']=='PASS':exec(compile(stage,'stage','exec'),{})\nelse:print(json.dumps(result))\n"
+elif operation == 'profile_run':
+    remote += profile_source('run')
+elif operation == 'profile_status':
+    remote += profile_source('status')
+elif operation == 'profile_report':
+    remote += (here/'die_report_remote.py').read_bytes().replace(
+        b'dispatch_tilelang_64p_top6_68d32608_f1scalar01',b'dispatch_tilelang_64p_top6_68d32608_profile02').replace(
+        b'(256,128,64,64,64)',b'(1024,512,512,512,512)').replace(b'analysis-die-02',b'analysis-01')
 elif operation == 'report_aligned':
     remote += (here/'report_remote.py').read_bytes().replace(
         b'dispatch_tilelang_64p_68d32608_build01',b'dispatch_tilelang_64p_68d32608_f1scalar01').replace(
@@ -90,4 +127,4 @@ if p.returncode:
 else:
     result=json.loads(p.stdout)
 print(json.dumps(result,ensure_ascii=True,separators=(',',':')))
-sys.exit(0 if result['status']=='PASS' or operation.startswith('report') else 1)
+sys.exit(0 if result['status']=='PASS' or operation.startswith('report') or operation=='profile_report' else 1)
