@@ -155,6 +155,10 @@ def raw_metrics(data, rank, calibration):
             last_ready=stamp(packet[22][-1][0]) if packet[22] else None,
             copy_done=stamp(packet[31][-1][0]) if packet[31] else None,
             cq_observed=stamp(packet[10][-1][0]) if packet[10] else None,
+            mem_first=stamp(packet[18][0][0]) if packet[18] else None,
+            mem_last=stamp(packet[18][-1][0]) if packet[18] else None,
+            mem_done=stamp(packet[30][-1][0]) if packet[30] else None,
+            forwarded=len(packet[18]),
             role_done=stamp(markers[43]) if 43 in markers else None,
         )
         cores.append(row)
