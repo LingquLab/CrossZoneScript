@@ -57,4 +57,5 @@ if __name__ == "__main__":
         if pending:
             ensure("queue", "campaign.py", ["campaign", coordinator, peer])
         if pending or not report.get("pending_report_errors"):
-            ensure("report", "report.py", [peer])
+            report_script = "tail_report.py" if (ROOT / "tail_report.py").is_file() else "report.py"
+            ensure("report", report_script, [peer])

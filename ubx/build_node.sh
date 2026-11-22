@@ -16,6 +16,9 @@ if [[ "$kind" = profile ]]; then
 elif [[ "$kind" = dispatch-baseline ]]; then
     branches=(dispatch dispatch-fixture)
     configs=(dispatch-off dispatch-on)
+elif [[ "$kind" = dispatch-tail ]]; then
+    branches=(tail-base tail-reviewed)
+    configs=(tail-base-off tail-reviewed-off tail-base-on tail-reviewed-on)
 fi
 exec >> "$PWD/build.log" 2>&1
 exec 9>"$PWD/build.lock"
@@ -62,6 +65,12 @@ for config in "${configs[@]}"; do
     branch=${config%-*}
     mode=${config##*-}
     profiling=${mode^^}
+    packet_trace=OFF
+    packet_records=0
+    if [[ "$kind" = dispatch-tail && "$mode" = on ]]; then
+        packet_trace=ON
+        packet_records=4096
+    fi
     tree="$base/trees/$branch$tree_suffix"
     build="$base/builds/$config"
     install="$base/installs/$config"
@@ -80,7 +89,7 @@ for config in "${configs[@]}"; do
         fixture_build="$build/fixture-$generator_tag"
         cmake -S "$tree" -B "$runtime" -G "$generator" -DBUILD_TESTING=OFF \
             -DTILEXR_BUILD_UNITEST=OFF -DTILEXR_BUILD_EP=ON -DTILEXR_BUILD_DIAGNOSTICS=ON \
-            -DTILEXR_EP_ENABLE_PROFILING="$profiling" -DTILEXR_EP_UBX_PACKET_TRACE=OFF \
+            -DTILEXR_EP_ENABLE_PROFILING="$profiling" -DTILEXR_EP_UBX_PACKET_TRACE="$packet_trace" \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
         cmake --build "$runtime" --parallel 8
         cmake --install "$runtime"
@@ -91,12 +100,13 @@ for config in "${configs[@]}"; do
         cmake -S "$fixture_tree/tests/ep/$fixture" -B "$fixture_build" -G "$generator" \
             -DTILEXR_HOST_PREFIX="$install" -DASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
             -DASCEND_DRIVER_PATH="$ASCEND_DRIVER_PATH" -DCMAKE_BUILD_TYPE=Release \
+            -DTILEXR_FIXTURE_PACKET_TRACE_RECORDS="$packet_records" \
             -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
         cmake --build "$fixture_build" --parallel 8
         cmake --install "$fixture_build"
         test -x "$install/bin/$fixture"
         {
-            printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode"
+            printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode" "packet_records=$packet_records"
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
             printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"
             sha256sum "$install/bin/$fixture"

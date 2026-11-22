@@ -37,7 +37,7 @@ def atomic_json(path, content):
     temporary.replace(path)
 
 
-def copy_peer_inputs(peer, source, destination):
+def copy_peer_inputs(peer, source, destination, timeout=180):
     if (destination / ".ready").is_file():
         return
     destination.mkdir(exist_ok=True)
@@ -49,7 +49,7 @@ def copy_peer_inputs(peer, source, destination):
     archive = destination / "inputs.tar"
     with archive.open("wb") as output:
         subprocess.run(process(peer, command), stdout=output, stderr=subprocess.PIPE,
-                       check=True, timeout=180)
+                       check=True, timeout=timeout)
     with tarfile.open(archive) as data:
         for member in data:
             relative = Path(member.name)

@@ -39,10 +39,10 @@ def download(root, revisions):
     git(source, "init", "--bare", "--quiet")
     modules = {}
     for label, item in revisions.items():
-        ref = "refs/heads/" + item["branch"]
         commit = item["commit"]
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise ValueError("invalid pinned commit")
+        ref = commit if item.get("fetch_commit") else "refs/heads/" + item["branch"]
         git(source, "fetch", "--quiet", "--no-tags", "--depth=1", REPO, ref + ":refs/heads/" + label)
         if git(source, "rev-parse", "refs/heads/" + label) != commit:
             raise ValueError("branch changed after pinning")

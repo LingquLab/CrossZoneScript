@@ -15,6 +15,7 @@ import time
 import uuid
 
 BASE = Path(__file__).resolve().parent
+TAIL_BRANCHES = ("tail-base", "tail-reviewed")
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
        "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
@@ -135,6 +136,9 @@ def start_rank(rank, directory, case, rendezvous, capture, route):
     if variant == "on":
         env["TILEXR_UBX_COMBINE_CAPTURE"] = "1"
         env["TILEXR_UBX_CAPTURE_ID"] = capture
+        if branch in TAIL_BRANCHES:
+            env["TILEXR_UBX_PACKET_CAPTURE"] = "1"
+            env["TILEXR_UBX_PACKET_TRACE_RECORDS"] = "4096"
     command = ["msprof", "--application=" + shlex.join(application),
                "--output=" + str(records / "msprof"), "--task-time=on"]
     setup = 'source /usr/local/Ascend/cann-9.2.T101/set_env.sh && exec "$@"'
@@ -145,7 +149,7 @@ def start_rank(rank, directory, case, rendezvous, capture, route):
 
 def rank_records(folder, case, rank):
     branch, op, _, _ = case[:4]
-    if branch == "dispatch":
+    if branch == "dispatch" or branch in TAIL_BRANCHES:
         candidates = folder.glob("*.summary.json")
     elif branch == "stages":
         candidates = folder.glob(f"combine-{op}-rank-{rank}-round-*.json")
@@ -163,6 +167,12 @@ def rank_records(folder, case, rank):
         if len(case) == 5 and (item.get("max_tokens") != case[4] or
                                item.get("effective_max_tokens") != case[4]):
             raise ValueError(f"rank {rank} has inconsistent configured/effective packet cap")
+        if branch in TAIL_BRANCHES:
+            expected_capture = case[3] == "on"
+            if (item.get("max_tokens") != 2 or item.get("dtype") != "fp8e4m3"
+                    or item.get("packet_trace") is not expected_capture
+                    or item.get("packet_trace_records") != (4096 if expected_capture else 0)):
+                raise ValueError(f"rank {rank} has inconsistent Dispatch trace settings")
         round_id = item["round"]
         if round_id in records or item["warmup"] != (round_id < 5):
             raise ValueError(f"rank {rank} reported bad warmup/round identity")
@@ -202,6 +212,8 @@ def run_node(index, capture, rendezvous, case):
 
 def summarize(case, all_ranks):
     branch, _, _, _ = case[:4]
+    if branch in TAIL_BRANCHES:
+        branch = "dispatch"
     time_key = {"dispatch": "dispatch_event_us", "stages": "combine_stream_us", "sleep": "combine_us"}[branch]
     byte_key = {"dispatch": "rdma_data_bytes", "stages": "return_bytes", "sleep": "rdma_wire_bytes"}[branch]
     all_samples = [all_ranks[str(rank)][str(round_id)] for rank in range(32) for round_id in range(5, 25)]
