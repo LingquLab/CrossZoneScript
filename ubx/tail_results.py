@@ -75,7 +75,8 @@ if sys.argv[2] == "pack" and state.get("phase") == "completed" and len(results) 
             for file in (path / "timing.json", path / "failure.json", *sorted((path / "tail-report").glob("*.json"))):
                 if file.is_file():
                     archive.write(file, file.relative_to(root))
-        for name in ("matrix.json", "status.json", "report-status.json", "restore_expert_copy.patch"):
+        for name in ("matrix.json", "status.json", "report-status.json", "retry-status.json",
+                     "retry-remaining.json", "retry-host-barrier.json", "restore_expert_copy.patch"):
             if (root / name).is_file():
                 archive.write(root / name, name)
         archive.writestr("comparison.json", json.dumps(answer, indent=2) + "\n")
@@ -90,8 +91,7 @@ print(json.dumps(answer, separators=(",", ":")))
 '''
 
 
-def main():
-    args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+def collect(args):
     assist = args.get("assist", False)
     namespace = ASSIST_NAMESPACE if assist else AB_NAMESPACE
     filename = ("TileXR-UBX-EP32-Dispatch-assist-e8ee4fff.zip" if assist else
@@ -114,8 +114,9 @@ def main():
                     raise ValueError("downloaded A/B report checksum differs")
             temporary.replace(target)
             result["green_windows_bundle"] = str(target)
-        print(json.dumps(result, separators=(",", ":")))
+        return result
 
 
 if __name__ == "__main__":
-    main()
+    args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+    print(json.dumps(collect(args), separators=(",", ":")))

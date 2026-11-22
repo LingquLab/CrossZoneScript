@@ -26,7 +26,9 @@ root = Path(sys.argv[1])
 destination = root / "exports" / sys.argv[2]
 destination.parent.mkdir(exist_ok=True)
 temporary = destination.with_suffix(".part")
-cases = sorted((root / "runs").glob("*-on")) + sorted((root / "attempts").glob("*/*-on"))
+cases = sorted((root / "runs").glob("*-on"))
+if sys.argv[3] == "snapshot":
+    cases += sorted((root / "attempts").glob("*/*-on"))
 entries = []
 with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:
     for relative in ("matrix.json", "status.json", "report-status.json", "retry-status.json",
@@ -35,7 +37,6 @@ with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=1) as archi
         path = root / relative
         if path.is_file():
             archive.writestr(relative, path.read_bytes())
-    counts = {}
     changed = []
     for case in cases:
         name = case.relative_to(root).as_posix()
@@ -71,15 +72,20 @@ print(json.dumps({"path": str(destination), "size": destination.stat().st_size, 
 '''
 
 
-def export(host, stamp):
+def export(host, stamp, snapshot=True):
     name = f"TileXR-e8ee4fff-profiling-on-{host.rsplit('.', 1)[-1]}-{stamp}.zip"
     with connect(host) as client, client.open_sftp() as transfer:
         root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / ASSIST_NAMESPACE
-        command = "nice -n 10 /usr/bin/python3 -B - " + shlex.join([str(root), name])
+        mode = "snapshot" if snapshot else "complete"
+        command = "nice -n 10 /usr/bin/python3 -B - " + shlex.join([str(root), name, mode])
         code, output, _ = run_remote(client, command, timeout=540, input_text=COLLECT)
         if code:
             raise RuntimeError(f"could not collect profiling snapshot from {host}")
         data = json.loads(output)
+        if not snapshot and (data["changed_files"] or len(data["cases"]) != 3
+                             or any(not case["completed_node"] or case["rank_summaries"] != 400
+                                    or case["record_captures"] != 400 for case in data["cases"])):
+            raise ValueError(f"incomplete final profiling coverage on {host}")
         downloads = Path(os.environ["USERPROFILE"]) / "Downloads"
         target = downloads / name
         temporary = target.with_suffix(".part")
