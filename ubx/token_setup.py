@@ -63,6 +63,9 @@ def start(args):
     coordinator, peer = args["hosts"]
     fixture = args.get("fixture", "stages")
     predecessor = args.get("start_after")
+    baseline = args.get("runtime_baseline", False)
+    if baseline and fixture != "dispatch":
+        raise ValueError("runtime_baseline requires the Dispatch fixture")
     if fixture not in ("stages", "dispatch"):
         raise ValueError("unsupported fixture")
     if predecessor and not re.fullmatch(r"[a-zA-Z0-9_-]+", predecessor):
@@ -91,13 +94,19 @@ def start(args):
                 if predecessor:
                     with transfer.file(str(directory / "start-after"), "w") as file:
                         file.write(predecessor + "\n")
-                rc, out, _ = run_remote(client, "/usr/bin/python3 - " + root + " " + fixture, input_text=SEED)
-                if rc:
-                    raise RuntimeError("could not confirm prior passes")
-                print(out, flush=True)
+                if predecessor and baseline:
+                    with transfer.file(str(directory / "start-after-phase"), "w") as file:
+                        file.write("waiting_for_dispatch\n")
+                if not baseline:
+                    rc, out, _ = run_remote(client, "/usr/bin/python3 - " + root + " " + fixture, input_text=SEED)
+                    if rc:
+                        raise RuntimeError("could not confirm prior passes")
+                    print(out, flush=True)
 
-    builder = {"namespace": namespace, "files": ["build_tokens.sh"], "program": "build_tokens.sh",
-               "unit": "build", "interpreter": "/bin/bash", "argv": [fixture]}
+    program = "build_node.sh" if baseline else "build_tokens.sh"
+    builder = {"namespace": namespace, "files": [program], "program": program,
+               "unit": "build", "interpreter": "/bin/bash",
+               "argv": ["dispatch-baseline" if baseline else fixture]}
     with ThreadPoolExecutor(max_workers=2) as pool:
         for host, snapshot in zip(args["hosts"], pool.map(lambda host: deploy(host, builder), args["hosts"])):
             print(json.dumps({"host": host, "build": snapshot}), flush=True)

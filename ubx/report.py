@@ -224,8 +224,9 @@ def write_markdown(reports, failures):
         lines.extend(["", "## RDMA 聚包配置", "",
                       "max1 和 max2 分别表示每个 RDMA 包最多包含 1 和 2 个 token。"])
         if CASES[0][0] == "dispatch":
-            lines.extend(["沿用上轮 FP8 Dispatch max2 的 4 个完整结果。max1 在 Combine 完成后实测。",
-                          "两版均使用同形状、同路由、sleep_at、框架 profiler 和生产屏障。"])
+            if any(report.get("reused_from") for report in reports):
+                lines.append("沿用上轮 FP8 Dispatch max2 的 4 个完整结果。max1 为本轮实测。")
+            lines.append("Dispatch 用例使用相同形状、路由、sleep_at、框架 profiler 和生产屏障。")
         else:
             lines.extend(["沿用上轮 stages-1-7 Combine 读 max2 的 6 个完整结果，其余项目本轮实测。",
                           "stages-1-7 用例关闭 sleep_at。第 6、10、14、18、22 轮为空路由轮，最小值可能来自这些轮次。",

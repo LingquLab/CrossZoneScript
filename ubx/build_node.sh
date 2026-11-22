@@ -13,6 +13,9 @@ if [[ "$kind" = profile ]]; then
     branches=(stages sleep)
     configs=(stages-on sleep-on)
     tree_suffix=-on
+elif [[ "$kind" = dispatch-baseline ]]; then
+    branches=(dispatch dispatch-fixture)
+    configs=(dispatch-off dispatch-on)
 fi
 exec >> "$PWD/build.log" 2>&1
 exec 9>"$PWD/build.lock"
@@ -83,7 +86,9 @@ for config in "${configs[@]}"; do
         cmake --install "$runtime"
         fixture=ubx_full_intra
         [[ "$branch" != sleep ]] || fixture=ubx_combine_write
-        cmake -S "$tree/tests/ep/$fixture" -B "$fixture_build" -G "$generator" \
+        fixture_tree="$tree"
+        if [[ "$kind" = dispatch-baseline ]]; then fixture_tree="$base/trees/dispatch-fixture"; fi
+        cmake -S "$fixture_tree/tests/ep/$fixture" -B "$fixture_build" -G "$generator" \
             -DTILEXR_HOST_PREFIX="$install" -DASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
             -DASCEND_DRIVER_PATH="$ASCEND_DRIVER_PATH" -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
@@ -93,8 +98,13 @@ for config in "${configs[@]}"; do
         {
             printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode"
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
+            printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"
             sha256sum "$install/bin/$fixture"
         } > "$install/provenance.txt"
+        if [[ "$kind" = dispatch-baseline ]]; then
+            ln -sfn "$install" "$base/installs/dispatch-one-$mode"
+            touch "$base/ready/dispatch-one-$mode"
+        fi
         touch "$base/ready/$config"
     ) > "$base/build-$config.log" 2>&1
 done
