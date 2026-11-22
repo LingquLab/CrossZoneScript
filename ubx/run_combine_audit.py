@@ -49,19 +49,23 @@ def run_node(index, rendezvous, capture):
     result.write_text(json.dumps(summary), encoding="utf-8")
 
 
-def main(coordinator, peer):
+def main(coordinator, peer, wait_seconds=0):
     ready = ORIGINAL / "ready/stages-off"
     queue = "tilexr-" + ORIGINAL.name + "-queue"
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        other = pool.submit(campaign.bounded_output, campaign.remote_python(peer, "probe", str(ready)))
-        own = campaign.occupancy()
-        remote = other.result().split()
-    if own != "I" * 16 or remote != ["1", "I" * 16]:
-        print(json.dumps({"phase": "devices_busy", "coordinator": own, "peer": remote}))
-        return
-    if subprocess.run(["systemctl", "is-active", "--quiet", queue], check=False).returncode == 0:
-        print(json.dumps({"phase": "separate_queue_active"}))
-        return
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            other = pool.submit(campaign.bounded_output, campaign.remote_python(peer, "probe", str(ready)))
+            own = campaign.occupancy()
+            remote = other.result().split()
+        active = subprocess.run(["systemctl", "is-active", "--quiet", queue], check=False).returncode == 0
+        if own == "I" * 16 and remote == ["1", "I" * 16] and not active:
+            break
+        if time.monotonic() >= deadline:
+            print(json.dumps({"phase": "separate_queue_active" if active else "devices_busy",
+                              "coordinator": own, "peer": remote}))
+            return
+        time.sleep(5)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind((coordinator, 0))
         rendezvous = f"{coordinator}:{listener.getsockname()[1]}"
@@ -88,4 +92,4 @@ if __name__ == "__main__":
     if sys.argv[1] == "node":
         run_node(int(sys.argv[3]), sys.argv[4], sys.argv[5])
     else:
-        main(sys.argv[3], sys.argv[4])
+        main(sys.argv[3], sys.argv[4], int(sys.argv[5]) if len(sys.argv) > 5 else 0)
