@@ -23,12 +23,20 @@ def run_schedule(request):
     global NAME, ID
     if request["mode"] == "status":
         return schedule_cases(request)
-    if not request["forward_only"]:
+    if request["focused"]:
+        baseline = case_status(MOUNT / "t96-repacked-sst-mte-drain-count-cache-38d743f7")
+        receipt = baseline.get("task-result.json", {})
+        if not receipt.get("container_stopped"):
+            return {"dense_baseline": {"run": {"status": "terminal_receipt_missing"}}}
+        if receipt.get("run", {}).get("status") == "sst_and_checker_passed":
+            return {"dense_baseline": {"run": {"status": "sst_and_checker_passed"},
+                                       "focused_run": "baseline_already_completed"}}
+    if not request["forward_only"] and not request["focused"]:
         if not wait_for_metadata(request["metadata_variants"]):
             return {"prerequisite": {"run": {"status": "metadata_receipt_missing"}}}
         return schedule_cases(request)
     previous = NAME, ID
-    NAME = "tilexr-cpu-b4f4660a-ht-dense-forward"
+    NAME = "tilexr-cpu-b4f4660a-ht-focused-schedule" if request["focused"] else "tilexr-cpu-b4f4660a-ht-dense-forward"
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
     ID = docker("create", "--name", NAME, "--runtime=runc", "--network=none",
                 "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=8",
@@ -41,7 +49,8 @@ def run_schedule(request):
     finally:
         docker("rm", ID)
         NAME, ID = previous
-    result["forward_page"]["private_container_removed"] = True
+    for row in result.values():
+        row["private_container_removed"] = True
     return result
 
 
@@ -49,13 +58,19 @@ def schedule_cases(request):
     result = {}
     for tag, candidate in request["variants"].items():
         build = candidate["build"]
-        name = "t96-repacked-" + build["variant"] + "-" + build["kernel_sha256"][:8]
+        prefix = "t96-focused-" if request["focused"] else "t96-repacked-"
+        name = prefix + build["variant"] + "-" + build["kernel_sha256"][:8]
         VARIANTS[build["kernel_sha256"]] = name
         if request["mode"] == "status":
             result[tag] = case_status(MOUNT / name)
             continue
         try:
             result[tag] = main(dict(request, **candidate, tokens=96, hidden=256, forward_images=True))
+            if request["focused"] and tag == "drain_count_cache":
+                if result[tag].get("run", {}).get("status") != "sst_and_checker_passed":
+                    break
         except (AssertionError, OSError, ValueError, subprocess.SubprocessError) as error:
             result[tag] = {"run": {"status": "failed"}, "exception_type": type(error).__name__}
+            if request["focused"] and tag == "drain_count_cache":
+                break
     return result

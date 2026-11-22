@@ -13,12 +13,14 @@ args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 mode = args["mode"]
 assert mode in {"run", "status"}
 forward_only = args.get("forward_only", False)
-assert isinstance(forward_only, bool)
+focused = args.get("focused", False)
+assert isinstance(forward_only, bool) and isinstance(focused, bool)
+assert not (forward_only and focused)
 resource = root / "resources"
-inputs = resource / "dense_schedule"
+inputs = resource / ("focused_schedule" if focused else "dense_schedule")
 identity = json.loads((inputs / "fixture-identity.json").read_text())
 assert identity["tokens"] == 96 and identity["hidden"] == 256
-request = {"mode": mode, "identity": identity, "variants": {}, "forward_only": forward_only}
+request = {"mode": mode, "identity": identity, "variants": {}, "forward_only": forward_only, "focused": focused}
 if mode == "run":
     request["metadata_variants"] = [
         json.loads((resource / variant / "build-record.json").read_text())
