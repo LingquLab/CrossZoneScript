@@ -76,6 +76,27 @@ def prepare_bulk(request, case, container_case):
 
 
 def run_multichunk(request):
+    if request["mode"] == "matrix":
+        small_hash = request["variants"]["queue_batch"]["build"]["kernel_sha256"][:8]
+        small = MOUNT / ("t8-sst-mte-queue-batch-" + small_hash) / "task-result.json"
+        deadline = time.monotonic() + 2100
+        while not small.is_file() and time.monotonic() < deadline:
+            time.sleep(10)
+        if not small.is_file():
+            return {"prerequisite": {"run": {"status": "small_t8_receipt_missing"}}}
+        try:
+            small_result = json.loads(small.read_text())
+        except ValueError:
+            time.sleep(1)
+            small_result = json.loads(small.read_text())
+        if small_result.get("run", {}).get("status") != "sst_and_checker_passed":
+            return {"prerequisite": {"run": {"status": "small_t8_failed"}}}
+        result = {}
+        for tag in ("queue_batch", "batch_cqe", "hotpath"):
+            result[tag] = run_multichunk(dict(request, **request["variants"][tag], variant=tag, mode="run"))
+            if result[tag].get("run", {}).get("status") != "sst_and_checker_passed":
+                break
+        return result
     build = request["build"]
     name = "t257-" + request["variant"] + "-" + build["kernel_sha256"][:8]
     VARIANTS[build["kernel_sha256"]] = name
