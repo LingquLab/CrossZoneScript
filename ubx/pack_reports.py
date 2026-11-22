@@ -7,6 +7,9 @@ from pathlib import Path, PurePosixPath
 import re
 import shlex
 import sys
+import time
+
+import paramiko
 
 from stage_sources import connect, run_remote
 
@@ -108,4 +111,18 @@ def fetch(args):
 
 if __name__ == "__main__":
     args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-    print(json.dumps(fetch(args), ensure_ascii=False, separators=(",", ":")))
+    deadline = time.monotonic() + args.get("wait_seconds", 0)
+    result = None
+    while True:
+        try:
+            result = fetch(args)
+        except (OSError, EOFError, paramiko.SSHException):
+            if time.monotonic() >= deadline:
+                raise
+        if result is not None and result.get("ready"):
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(24)
+    print(json.dumps(result or {"ready": False, "phase": "status_unavailable"},
+                     ensure_ascii=False, separators=(",", ":")))
