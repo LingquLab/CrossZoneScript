@@ -64,11 +64,13 @@ for branch in "${branches[@]}"; do
             git -C "$tree" apply "$patch"
         fi
     fi
-    if [[ "$kind" = dispatch-tail-relay && -f "$PWD/relay_cann_compat.patch" ]]; then
-        patch="$PWD/relay_cann_compat.patch"
-        if ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
-            git -C "$tree" apply "$patch"
-        fi
+    if [[ "$kind" = dispatch-tail-relay ]]; then
+        for patch_name in relay_cann_compat.patch relay_align_shift_compat.patch; do
+            patch="$PWD/$patch_name"
+            if [[ -f "$patch" ]] && ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
+                git -C "$tree" apply "$patch"
+            fi
+        done
     fi
     for module in spdlog picojson tilelang-ascend; do
         revision=$(git -C "$tree" ls-tree HEAD "3rdparty/$module" | awk '{print $3}')
@@ -165,6 +167,9 @@ for config in "${configs[@]}"; do
                 if [[ -f "$base/relay_cann_compat.patch" && ( "$relay_ub" = ON || "$relay_vector" = ON ) ]]; then
                     printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/relay_cann_compat.patch" | cut -d' ' -f1)"
                 fi
+            fi
+            if [[ "$kind" = dispatch-tail-relay && "$relay_align" = ON && -f "$base/relay_align_shift_compat.patch" ]]; then
+                printf 'align_patch_sha256=%s\n' "$(sha256sum "$base/relay_align_shift_compat.patch" | cut -d' ' -f1)"
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
             printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"

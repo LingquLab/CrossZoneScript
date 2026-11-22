@@ -1,0 +1,11 @@
+--- a/src/ep/kernels/tilexr_ep_ubx_route_ops.h
++++ b/src/ep/kernels/tilexr_ep_ubx_route_ops.h
+@@ -1576,7 +1576,7 @@
+         Duplicate(cap, capacity);
+         Sub(slack, cap, reinterpret_cast<RegTensor<uint32_t> &>(average), first);
+         // Adjacent cuts can each consume half of the slice's spare rows.
+-        ShiftRights(slack, slack, 1, first);
++        ShiftRights(slack, slack, static_cast<int16_t>(1), first);
+         Muls(begin, signedTotal, static_cast<int32_t>(owner), first);
+         Muls(end, signedTotal, static_cast<int32_t>(owner + 1U), first);
+         Div(begin, begin, divisor, first);

@@ -36,6 +36,10 @@ compat = root / "relay_cann_compat.patch"
 compat_digest = hashlib.sha256(compat.read_bytes()).hexdigest() if compat.is_file() else None
 if compat_digest:
     files.append(compat)
+align_patch = root / "relay_align_shift_compat.patch"
+align_digest = hashlib.sha256(align_patch.read_bytes()).hexdigest() if align_patch.is_file() else None
+if align_digest:
+    files.append(align_patch)
 summaries = {}
 baselines = {}
 route_hashes = {}
@@ -57,6 +61,9 @@ markdown = [
 if compat_digest:
     markdown[7:7] = ["CANN 9.2.T101 构建兼容补丁将 PublishRelayPlan 的 UB 结构体引用改为两个原有计数字段。"
                     "补丁及 SHA-256 随报告保存。", f"`{compat_digest}`", ""]
+
+if align_digest:
+    markdown[7:7] = ["TOKEN_ALIGN 的 CANN 编译补丁将标量移位量显式转换为 int16_t。", f"`{align_digest}`", ""]
 
 with stage_file.open("w", encoding="utf-8", newline="") as stream:
     stages = csv.writer(stream)
@@ -83,6 +90,8 @@ with stage_file.open("w", encoding="utf-8", newline="") as stream:
             raise ValueError("invalid benchmark provenance")
         if compat_digest and variant in {"ub", "vector"} and provenance.get("source_patch_sha256") != compat_digest:
             raise ValueError("missing compile compatibility patch provenance")
+        if align_digest and variant == "align" and provenance.get("align_patch_sha256") != align_digest:
+            raise ValueError("missing token-alignment compatibility patch provenance")
         if route_hashes.setdefault(batch, timing["route_sha256"]) != timing["route_sha256"]:
             raise ValueError("route fixtures differ across builds")
         native = timing["native_task_us"]["round_slowest_rank"]
