@@ -27,7 +27,7 @@ if mode == "run":
     archive = (inputs / "fixture-images.tar.gz").read_bytes()
     assert hashlib.sha256(archive).hexdigest() == identity["input_archive_sha256"]
     request["archive"] = base64.b64encode(archive).decode("ascii")
-variants = ("forward_page",) if forward_only else ("drain_count_cache", "batch16", "visit4", "lane_balanced")
+variants = ("forward_page",) if forward_only else ("drain_count_cache", "forward_page", "batch16", "visit4", "lane_balanced")
 for tag in variants:
     folder = resource / tag
     entry = {"build": json.loads((folder / "build-record.json").read_text())}
@@ -49,7 +49,7 @@ compile(source, "<schedule_runner>", "exec")
 command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
            "-o", "ConnectTimeout=10", "root@141.61.94.58", "python3", "-"]
 proc = subprocess.run(command, input=source.encode("utf-8"), capture_output=True,
-                      timeout=12400 if mode == "run" else 45)
+                      timeout=14500 if mode == "run" else 45)
 if proc.returncode:
     print(json.dumps({"remote_exit_code": proc.returncode, "stderr_bytes": len(proc.stderr)}))
     raise SystemExit(1)
