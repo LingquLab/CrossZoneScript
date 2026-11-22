@@ -11,10 +11,14 @@ args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 mode = args["mode"]
 assert mode in {"run", "status"}
 combined = args.get("combined", False)
-assert isinstance(combined, bool)
-request = {"mode": mode, "combined": combined, "variants": {}}
+lane_only = args.get("lane_only", False)
+assert isinstance(combined, bool) and isinstance(lane_only, bool)
+assert not (combined and lane_only)
+request = {"mode": mode, "combined": combined, "lane_only": lane_only, "variants": {}}
 variants = ("ready_combined", "ready_stagger_combined") if combined else (
     "ready_watermark", "ready_stagger_base", "ready_stagger_cache")
+if lane_only:
+    variants = ("lane_balanced",)
 for variant in variants:
     resources = root / "resources" / variant
     candidate = {"build": json.loads((resources / "build-record.json").read_text())}

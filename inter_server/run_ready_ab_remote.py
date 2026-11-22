@@ -6,7 +6,7 @@ retained_baseline = baseline_name
 
 
 def baseline_name(build, tokens):
-    if build["variant"].startswith("sst-mte-ready-"):
+    if build["variant"].startswith("sst-mte-ready-") or build["variant"] == "sst-mte-lane-balanced":
         reference = "range-cache" if build["variant"].endswith("-combined") else "drain-count-cache"
         return f"t{tokens}-sst-mte-{reference}-{build['baseline_kernel_sha256'][:8]}"
     return retained_baseline(build, tokens)
@@ -47,7 +47,7 @@ def run_ready(request):
         build = candidate["build"]
         prefix = build["variant"] + "-" + build["kernel_sha256"][:8]
         VARIANTS[build["kernel_sha256"]] = "t4-" + prefix
-        for tokens in ((4, 8) if variant in ("ready_watermark", "ready_combined") else (4,)):
+        for tokens in ((4, 8) if variant in ("ready_watermark", "ready_combined", "lane_balanced") else (4,)):
             work[f"{variant}_t{tokens}"] = (MOUNT / f"t{tokens}-{prefix}", tokens, candidate)
     if request["mode"] == "status":
         return {tag: case_status(path) for tag, (path, _, _) in work.items()}
@@ -56,6 +56,8 @@ def run_ready(request):
     NAME = "tilexr-cpu-b4f4660a-ht-ready"
     if request["combined"]:
         NAME += "-combined"
+    if request["lane_only"]:
+        NAME = "tilexr-cpu-b4f4660a-ht-small-lanes"
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
     ID = docker("create", "--name", NAME, "--runtime=runc", "--network=none",
                 "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=8",
