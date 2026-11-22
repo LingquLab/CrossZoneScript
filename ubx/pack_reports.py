@@ -91,7 +91,7 @@ print(json.dumps({"ready": True, "bundle": str(target), "sha256": digest,
 '''
 
 
-def fetch(args):
+def fetch(args, pack=PACK, command_timeout=75):
     host = args["host"]
     namespace = args["namespace"]
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", namespace):
@@ -100,7 +100,7 @@ def fetch(args):
         transfer.get_channel().settimeout(45)
         root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / namespace
         code, output, _ = run_remote(client, "/usr/bin/python3 - " + shlex.quote(str(root)),
-                                      timeout=75, input_text=PACK)
+                                      timeout=command_timeout, input_text=pack)
         if code:
             raise RuntimeError("reports or traces failed verification")
         summary = json.loads(output)
