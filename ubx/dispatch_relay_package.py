@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import time
 
-from dispatch_relay_setup import NAMESPACE
+from dispatch_relay_setup import REVISION, benchmark_revision
 from pack_reports import fetch
 
 PACK = r'''
@@ -31,6 +31,11 @@ if state.get("phase") != "completed" or report.get("reports", 0) + len(failed) !
     print(json.dumps(dict(ready=False, queue=state, report=report), separators=(",", ":")))
     raise SystemExit(0)
 
+revision = read(root / "upstream/manifest.json")["revisions"]["tail-relay"]["commit"]
+short_revision = revision[:8]
+has_reuse = any(case[0] == "tail-relay-reuse" for case in matrix)
+flags = ("TILEXR_EP_UBX_RELAY_VECTOR", "TILEXR_EP_UBX_RELAY_TOKEN_ALIGN",
+         "TILEXR_EP_UBX_INTRA_TOKEN_REUSE" if has_reuse else "TILEXR_EP_UBX_RELAY_UB")
 files = [root / name for name in ("matrix.json", "status.json", "report-status.json")]
 compat = root / "relay_cann_compat.patch"
 compat_digest = hashlib.sha256(compat.read_bytes()).hexdigest() if compat.is_file() else None
@@ -47,9 +52,8 @@ trace_count = 0
 stage_file = root / "stage-timings.csv"
 markdown = [
     "# EP32 UBX Dispatch RELAY 开关对比", "",
-    "提交 `70f1e52a`，32 张 Ascend950PR，FP8 E4M3，Hidden 3584，384 experts，TopK 8，maxTokens=2。",
-    "同一提交构建全关基线和三个单开配置 `TILEXR_EP_UBX_RELAY_UB`、"
-    "`TILEXR_EP_UBX_RELAY_VECTOR`、`TILEXR_EP_UBX_RELAY_TOKEN_ALIGN`。",
+    f"提交 `{short_revision}`，32 张 Ascend950PR，FP8 E4M3，Hidden 3584，384 experts，TopK 8，maxTokens=2。",
+    "同一提交构建全关基线和三个单开配置 " + "、".join(f"`{flag}`" for flag in flags) + "。",
     "SEND 提交 TopK，RELAY 执行 fanout，TopK 使用目标 server 的最后一个 payload QP。", "",
     "每项热身 5 轮，测量 20 轮。每轮取 32 个 rank 中最慢的 msprof 算子任务。",
     "阶段统计取该角色内每轮最长的单次同核区间。Perfetto 中的时间按 rank 分别归零。",
@@ -78,12 +82,14 @@ with stage_file.open("w", encoding="utf-8", newline="") as stream:
         timing = read(folder / "timing.json")
         provenance = dict(line.split("=", 1) for line in timing["provenance"] if "=" in line)
         expected = {
-            "revision": "70f1e52ad9b6f86cf3f72aaa97b7f734215704e5",
+            "revision": revision,
             "kernel_profiling": mode, "recv_topk": "OFF", "intra_fanout": "OFF",
             "relay_ub": "ON" if variant == "ub" else "OFF",
             "relay_vector": "ON" if variant == "vector" else "OFF",
             "relay_token_align": "ON" if variant == "align" else "OFF",
         }
+        if has_reuse:
+            expected["intra_token_reuse"] = "ON" if variant == "reuse" else "OFF"
         if not (timing["case"] == name and timing["samples"] == 640 and
                 timing["native"] is True and timing["max_tokens"] == timing["effective_max_tokens"] == tokens == 2
                 and all(provenance.get(key) == value for key, value in expected.items())):
@@ -129,7 +135,7 @@ if failed:
 path = root / "report.md"
 path.write_text("\n".join(markdown) + "\n", encoding="utf-8")
 files.extend((path, stage_file))
-target = root / "TileXR-UBX-EP32-RELAY-70f1e52a.zip"
+target = root / f"TileXR-UBX-EP32-RELAY-{short_revision}.zip"
 temporary = target.with_suffix(".part")
 with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=4) as bundle:
     for file in files:
@@ -146,7 +152,9 @@ print(json.dumps(dict(ready=True, bundle=str(target), sha256=digest, trace_count
 
 if __name__ == "__main__":
     args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-    args.update(namespace=NAMESPACE, output_name="TileXR-UBX-EP32-RELAY-70f1e52a.zip")
+    short_revision = args.get("revision", REVISION[:8])
+    _, namespace, _ = benchmark_revision(short_revision)
+    args.update(namespace=namespace, output_name=f"TileXR-UBX-EP32-RELAY-{short_revision}.zip")
     deadline = time.monotonic() + args.get("wait_seconds", 0)
     while True:
         result = fetch(args, pack=PACK, command_timeout=240)
