@@ -66,22 +66,29 @@ for config in "${configs[@]}"; do
         set +u
         source "$tree/scripts/common_env.sh"
         set -u
-        generator=()
-        if command -v ninja >/dev/null; then generator=(-G Ninja); fi
-        cmake -S "$tree" -B "$build/runtime" "${generator[@]}" -DBUILD_TESTING=OFF \
+        if command -v ninja >/dev/null; then
+            generator=Ninja
+            generator_tag=ninja
+        else
+            generator='Unix Makefiles'
+            generator_tag=make
+        fi
+        runtime="$build/runtime-$generator_tag"
+        fixture_build="$build/fixture-$generator_tag"
+        cmake -S "$tree" -B "$runtime" -G "$generator" -DBUILD_TESTING=OFF \
             -DTILEXR_BUILD_UNITEST=OFF -DTILEXR_BUILD_EP=ON -DTILEXR_BUILD_DIAGNOSTICS=ON \
             -DTILEXR_EP_ENABLE_PROFILING="$profiling" -DTILEXR_EP_UBX_PACKET_TRACE=OFF \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
-        cmake --build "$build/runtime" --parallel 8
-        cmake --install "$build/runtime"
+        cmake --build "$runtime" --parallel 8
+        cmake --install "$runtime"
         fixture=ubx_full_intra
         [[ "$branch" != sleep ]] || fixture=ubx_combine_write
-        cmake -S "$tree/tests/ep/$fixture" -B "$build/fixture" "${generator[@]}" \
+        cmake -S "$tree/tests/ep/$fixture" -B "$fixture_build" -G "$generator" \
             -DTILEXR_HOST_PREFIX="$install" -DASCEND_HOME_PATH="$ASCEND_HOME_PATH" \
             -DASCEND_DRIVER_PATH="$ASCEND_DRIVER_PATH" -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
-        cmake --build "$build/fixture" --parallel 8
-        cmake --install "$build/fixture"
+        cmake --build "$fixture_build" --parallel 8
+        cmake --install "$fixture_build"
         test -x "$install/bin/$fixture"
         {
             printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode"
