@@ -33,6 +33,7 @@ print(json.dumps({
     "phase": state.get("phase"), "case": state.get("case"),
     "finished": len(list((root / "runs").glob("*/report.json"))),
     "reported": reports.get("reports", 0),
+    "failed_cases": len(list((root / "runs").glob("*/failure.json"))),
     "build": [int(file.read_text()) if file.is_file() else None for file in (base, profile)],
 }))
 '''

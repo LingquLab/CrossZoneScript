@@ -177,12 +177,12 @@ def run_node(index, capture, rendezvous, case):
     if any(child.returncode != 0 for child in children):
         raise RuntimeError("rank failed")
     rounds = {rank: rank_records(directory / f"rank-{rank:02}", case, rank) for rank in ranks}
-    (directory / f"node-{index}.json").write_text(json.dumps(rounds), encoding="utf-8")
     if variant == "on":
         for rank in ranks:
             traces = list((directory / f"rank-{rank:02}").glob("*.records.bin"))
             if len(traces) != 25:
                 raise RuntimeError(f"rank {rank} has {len(traces)} of 25 captures")
+    (directory / f"node-{index}.json").write_text(json.dumps(rounds), encoding="utf-8")
 
 
 def summarize(case, all_ranks):
@@ -238,7 +238,9 @@ def run_pair(peer, coordinator_ip, case):
                                 check=True, capture_output=True, timeout=25, text=True)
         all_ranks.update(json.loads(remote.stdout))
         report = summarize(case, all_ranks)
-        (directory / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        temporary = directory / "report.part"
+        temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        temporary.replace(directory / "report.json")
     finally:
         for host, task in zip((None, peer), tasks):
             if task.poll() != 0:
@@ -247,10 +249,15 @@ def run_pair(peer, coordinator_ip, case):
 
 def run_campaign(coordinator, peer):
     (BASE / "runs").mkdir(exist_ok=True)
+    completed, failed = 0, 0
     for case in CASES:
         name = case_name(case)
         case_dir = BASE / "runs" / name
         if (case_dir / "report.json").is_file():
+            completed += 1
+            continue
+        if (case_dir / "failure.json").is_file():
+            failed += 1
             continue
         if case_dir.exists():
             raise RuntimeError(f"{name} has unfinished results")
@@ -270,9 +277,18 @@ def run_campaign(coordinator, peer):
             write_status(phase=phase, case=name, coordinator=own, peer=other_status)
             time.sleep(5)
         write_status(phase="running", case=name, coordinator=own, peer=other_status)
-        run_pair(peer, coordinator, case)
-        write_status(phase="case_completed", case=name)
-    write_status(phase="completed", cases=len(CASES))
+        try:
+            run_pair(peer, coordinator, case)
+        except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+            case_dir.mkdir(exist_ok=True)
+            failure = {"case": name, "reason": str(exc)}
+            (case_dir / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+            failed += 1
+            write_status(phase="case_failed", case=name, completed=completed, failed=failed)
+        else:
+            completed += 1
+            write_status(phase="case_completed", case=name, completed=completed, failed=failed)
+    write_status(phase="completed", cases=len(CASES), completed=completed, failed=failed)
 
 
 if __name__ == "__main__":

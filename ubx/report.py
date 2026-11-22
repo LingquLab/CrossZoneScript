@@ -208,7 +208,7 @@ def report_case(case, peer):
     atomic_json(case_dir / "timing.json", report)
 
 
-def write_markdown(reports):
+def write_markdown(reports, failures):
     lines = ["# UBX EP32 性能报告", "",
              "两台主机共 32 rank，H3584。每种配置预热 5 轮，以下统计后续 20 轮。",
              "时延统计先取每轮最慢 rank，再取 20 轮的最小值、中位数和最大值。", "",
@@ -219,6 +219,9 @@ def write_markdown(reports):
         lines.append(f"| {report['case']} | {report['backend']} | {report['native']} | {report['abi']} "
                      f"| {native['min']:.3f} | {native['median']:.3f} | {native['max']:.3f} "
                      f"| {report['rdma_bytes']['median']:.0f} | {report['rdma_GBps']['median']:.3f} |")
+    if failures:
+        lines.extend(["", "## 未通过的用例", ""])
+        lines.extend(f"- {case}。{reason}" for case, reason in failures.items())
     for report in reports:
         if "stages" not in report:
             continue
@@ -246,9 +249,12 @@ def follow(peer):
     sys.path.insert(0, str(BASE / "trees" / "dispatch" / "tools" / "profiling" / "python"))
     previous = None
     while True:
-        reports, errors = [], {}
+        reports, errors, failures = [], {}, {}
         for case in CASES:
             directory = BASE / "runs" / case_name(case)
+            failure = directory / "failure.json"
+            if failure.is_file():
+                failures[case_name(case)] = json.loads(failure.read_text(encoding="utf-8"))["reason"]
             if (directory / "report.json").is_file() and not (directory / "timing.json").is_file():
                 try:
                     report_case(case, peer)
@@ -256,12 +262,13 @@ def follow(peer):
                     errors[case_name(case)] = str(exc)
             if (directory / "timing.json").is_file():
                 reports.append(json.loads((directory / "timing.json").read_text(encoding="utf-8")))
-        state = {"reports": len(reports), "expected": len(CASES), "pending_report_errors": errors}
+        state = {"reports": len(reports), "expected": len(CASES), "failed_cases": failures,
+                 "pending_report_errors": errors}
         if state != previous:
-            write_markdown(reports)
+            write_markdown(reports, failures)
             atomic_json(BASE / "report-status.json", state)
             previous = state
-        if len(reports) == len(CASES):
+        if len(reports) + len(failures) == len(CASES):
             return
         time.sleep(45)
 
