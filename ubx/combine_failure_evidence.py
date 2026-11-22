@@ -10,7 +10,9 @@ from stage_sources import connect, run_remote
 
 
 REMOTE = r'''
-from collections import Counter
+from collections import Counter, defaultdict
+import csv
+from statistics import median
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -41,9 +43,34 @@ for key, path in paths.items():
             for match in re.findall(r"UBX_FAILURE.*?error=([^;\n]+)", sample):
                 errors.add(match[:110])
         error_classes.update(errors)
+    totals = defaultdict(list)
+    per_rank = defaultdict(dict)
+    for rank in ranks:
+        for file in rank.rglob("op_summary*.csv"):
+            seen = set()
+            with file.open(encoding="utf-8-sig", newline="") as stream:
+                for row in csv.DictReader(stream):
+                    values = {re.sub(r"[^a-z0-9]", "", (k or "").lower()): v for k, v in row.items()}
+                    names = [values.get("optype", ""), values.get("opname", "")]
+                    for name in names:
+                        if name and ("ubx_combine" in name or "ubx_barrier" in name):
+                            task = values.get("taskstarttimeus"), values.get("taskdurationus")
+                            if task not in seen and task[1]:
+                                seen.add(task)
+                                per_rank[rank.name].setdefault(name, []).append(float(task[1]))
+                            break
+        for name, times in per_rank[rank.name].items():
+            totals[name].extend(times)
+    durations = {
+        name: {"count": len(times), "min_us": min(times), "median_us": median(times), "max_us": max(times)}
+        for name, times in totals.items()
+    }
+    rank_extremes = {rank: {name: max(times) for name, times in values.items()}
+                     for rank, values in per_rank.items() if values}
     route = path / "routes.bin"
     result[key] = {
-        "ranks": len(ranks), "error_classes": dict(error_classes),
+        "ranks": len(ranks), "error_classes": dict(error_classes), "native_tasks": durations,
+        "sample_rank_tasks": {rank: rank_extremes[rank] for rank in sorted(rank_extremes)[:3]},
         "route_sha": hashlib.sha256(route.read_bytes()).hexdigest() if route.is_file() else None,
         "correctness": len([p for p in path.glob("rank-*/combine-write-rank-*-round-*.json") if ".clock." not in p.name]),
         "modified_utc": [datetime.fromtimestamp(x, timezone.utc).isoformat() for x in sorted(set(windows))[:1] + sorted(set(windows))[-1:]],
