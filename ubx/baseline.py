@@ -13,7 +13,8 @@ printf 'cann=%s\n' "$(readlink -f /usr/local/Ascend/cann)"
 if [ -r /usr/local/Ascend/driver/version.info ]; then
     awk -F= 'tolower($1) ~ /^[[:space:]]*(version|driver_version|firmware_version|package_version)[[:space:]]*$/ {print}' /usr/local/Ascend/driver/version.info
 fi
-npu-smi info 2>/dev/null | awk 'NR <= 4 {print}'
+npu-smi info 2>/dev/null | awk 'NR <= 4 {print} /^\|[[:space:]]+0[[:space:]]/ && !device0++ {print}'
+npu-smi info -t board -i 0 -c 0 2>/dev/null | awk '/Firmware|Software Version|Board ID|NPU Name|Chip Name/ {print}' | head -10
 python3 - <<'LINUX'
 import json
 from pathlib import Path
@@ -58,12 +59,18 @@ for directory in sorted(home.glob('tilexr-ubx-validation-*/qualification-*')):
         data = json.loads(file.read_text())
         selected = {}
         for key, value in data.items():
-            if re.search(r'device|rank|host|topolog|acceler|test|status|result|exit|build|driver|firmware|cann|binary|identity', key, re.I) and not re.search(r'log|raw|env$|out$', key, re.I):
+            if re.search(r'device|rank|host|topolog|acceler|test|status|result|exit|build|driver|firmware|cann|binary|identity|classif|pass|fail|verdict|reason|attempted', key, re.I) and not re.search(r'log|raw|env$|out$', key, re.I):
                 selected[key] = value
         print(name, json.dumps(selected)[:1800])
 for file in sorted(home.glob('crosszone/TileXR-*/hccl-aiv-baseline/all_reduce.log')):
     print('baseline-log', str(file))
+    print('bytes', file.stat().st_size)
     text = file.read_text(errors='replace')
+    other = file.with_name('result.json')
+    if other.is_file():
+        result = json.loads(other.read_text())
+        print('result', json.dumps({key: result[key] for key in ('status', 'classification', 'ranks', 'devices', 'return_code') if key in result}))
+    print('capacity lines', [line.strip()[:120] for line in text.splitlines() if 'size' in line.lower()][:3])
     lines = [line.strip()[:230] for line in text.splitlines() if re.search(r'all_reduce|rankSize|world size|aiv_only|[0-9]+ ranks?|test result|error.*test|out of bounds|num.*devices|data check|verification', line, re.I)]
     for line in list(dict.fromkeys(lines))[:15]:
         print(line)
