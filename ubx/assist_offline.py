@@ -165,9 +165,9 @@ def raw_metrics(data, rank, calibration):
     return capture, target, cores
 
 
-def archive_inputs(archives, batch):
+def archive_inputs(archives, batch, prefix=None):
     records, summaries, native = {}, {}, defaultdict(set)
-    prefix = f"runs/tail-reviewed-dispatch-bs{batch}-on/"
+    prefix = prefix or f"runs/tail-reviewed-dispatch-bs{batch}-on/"
     for archive in archives:
         for name in archive.namelist():
             if not name.startswith(prefix):
