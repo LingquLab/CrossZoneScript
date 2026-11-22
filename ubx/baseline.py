@@ -9,12 +9,30 @@ from stage_sources import connect, run_remote
 
 REMOTE = r'''set -u
 hccl_dir=/usr/local/Ascend/cann-9.2.T101/tools/hccl_test
-echo 'source layout'
-find "$hccl_dir" -maxdepth 4 -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' \) -printf '%P\n' | head -55
-echo 'device mapping and checks'
-rg -n -i -g '*.cc' -g '*.cpp' -g '*.h' 'HCCL_TEST_USE_DEVS|g_.*dev(num|icecount)|numDev.*>[[:space:]]*(8|16)|ndevs.*(max|limit|rang)|npus.*(max|limit|rang)|dev(num|icecount).*(max|limit|rang)' "$hccl_dir" 2>/dev/null | cut -c1-245 | head -35
-echo 'binary diagnostics'
-strings "$hccl_dir/bin/all_reduce_test" | grep -iE 'npus|device num|HCCL_TEST_USE_DEVS|rank number|out of range' | cut -c1-190 | head -22
+echo 'device count constants and validation'
+python3 - "$hccl_dir" <<'LINUX'
+from pathlib import Path
+import re
+import sys
+
+files = sorted((Path(sys.argv[1]) / "common" / "src").glob("*"))
+patterns = [
+    r'invalid, npus',
+    r'case [."]p',
+    r'HCCL_TEST_USE_DEVS',
+    r'(?:MAX|LIMIT).*?(?:NPU|DEV)|(?:NPU|DEV).*?(?:MAX|LIMIT)',
+    r'(?:nDev|devNum|npus).*(?:[<>]=?|MAX|LIMIT)',
+]
+hits = []
+for f in files:
+    if not f.is_file() or f.suffix not in (".cc", ".h"):
+        continue
+    for i, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
+        if any(re.search(pattern, line, re.IGNORECASE) for pattern in patterns):
+            hits.append(f'{f.name}:{i} {line.strip()[:170]}')
+for line in hits[:9]:
+    print(line)
+LINUX
 for file in /etc/hccl_rootInfo.json /usr/local/mpich-3.2.1/bin/mpirun; do
     if test -r "$file"; then printf 'present=%s\n' "$file"; fi
 done
