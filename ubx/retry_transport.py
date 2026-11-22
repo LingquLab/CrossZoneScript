@@ -8,7 +8,7 @@ import sys
 import time
 import uuid
 
-from campaign import BASE, CASES, bounded_output, case_name, inspect_case, occupancy, remote_python, run_pair
+from campaign import BASE, CASES, bounded_output, case_name, finalize_case, inspect_case, occupancy, remote_python, run_pair
 
 
 def status(phase, **details):
@@ -42,9 +42,17 @@ def retry(coordinator, peer, name):
         return
     while True:
         remote = bounded_output(remote_python(peer, "inspect-case", name, "1"))
-        if remote and not json.loads(remote)["active"] and not inspect_case(name, 0)["active"]:
-            break
+        if remote:
+            local_case, peer_case = inspect_case(name, 0), json.loads(remote)
+            if not local_case["active"] and not peer_case["active"]:
+                break
         time.sleep(5)
+    if local_case["done"] and peer_case["done"]:
+        finalize_case(peer, case)
+        (directory / "failure.json").unlink(missing_ok=True)
+        status("case_passed", case=name, recovered=True)
+        start_report(peer)
+        return
     attempt = "transport-" + uuid.uuid4().hex
     for host in (peer, None):
         subprocess.run(remote_python(host, "archive-case", name, attempt),
@@ -69,11 +77,16 @@ def retry(coordinator, peer, name):
         status("case_failed", case=name, archive=attempt, reason=str(error))
     else:
         status("case_passed", case=name, archive=attempt)
+    start_report(peer)
+
+
+def start_report(peer):
     unit = "tilexr-" + BASE.name + "-report"
     running = subprocess.run(["systemctl", "is-active", "--quiet", unit], timeout=8)
     if running.returncode:
+        script = "tail_report.py" if (BASE / "tail_report.py").is_file() else "report.py"
         subprocess.run(["systemd-run", "--quiet", "--collect", "--unit=" + unit,
-                        "--property=Type=exec", "/usr/bin/python3", str(BASE / "report.py"), peer],
+                        "--property=Type=exec", "/usr/bin/python3", str(BASE / script), peer],
                        timeout=15, check=True)
 
 

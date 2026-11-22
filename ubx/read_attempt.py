@@ -20,6 +20,8 @@ shopt -s nullglob
 dir="runs/$case"
 printf 'node_summaries=%s\n' "$(find "$dir" -maxdepth 1 -name 'node-*.json' 2>/dev/null | wc -l)"
 printf 'rank_round_summaries=%s\n' "$(find "$dir" -name 'combine-read-rank-*-round-*.json' ! -name '*.clock.json' 2>/dev/null | wc -l)"
+printf 'dispatch_rank_round_summaries=%s\n' "$(find "$dir" -name '*.summary.json' 2>/dev/null | wc -l)"
+printf 'dispatch_packet_captures=%s\n' "$(find "$dir" -name '*.records.bin' 2>/dev/null | wc -l)"
 if [[ -d "$dir" ]]; then
     grep -hE 'UBX_FAILURE|COMBINE_FAILURE|507035|COMBINE_FAIL' "$dir"/rank-*/*.log 2>/dev/null       | cut -c1-165 | awk '!seen[$0]++' | head -5 || true
 fi
