@@ -23,7 +23,7 @@ def run_schedule(request):
     global NAME, ID
     if request["mode"] == "status":
         return schedule_cases(request)
-    if request["focused"]:
+    if request["focused"] or request["stripe_probe"]:
         baseline = case_status(MOUNT / "t96-repacked-sst-mte-drain-count-cache-38d743f7")
         receipt = baseline.get("task-result.json", {})
         if not receipt.get("container_stopped"):
@@ -31,12 +31,17 @@ def run_schedule(request):
         if receipt.get("run", {}).get("status") == "sst_and_checker_passed":
             return {"dense_baseline": {"run": {"status": "sst_and_checker_passed"},
                                        "focused_run": "baseline_already_completed"}}
-    if not request["forward_only"] and not request["focused"]:
+    if not any(request[key] for key in ("forward_only", "focused", "stripe_probe")):
         if not wait_for_metadata(request["metadata_variants"]):
             return {"prerequisite": {"run": {"status": "metadata_receipt_missing"}}}
         return schedule_cases(request)
     previous = NAME, ID
-    NAME = "tilexr-cpu-b4f4660a-ht-focused-schedule" if request["focused"] else "tilexr-cpu-b4f4660a-ht-dense-forward"
+    if request["stripe_probe"]:
+        NAME = "tilexr-cpu-b4f4660a-ht-sq-stripe"
+    elif request["focused"]:
+        NAME = "tilexr-cpu-b4f4660a-ht-focused-schedule"
+    else:
+        NAME = "tilexr-cpu-b4f4660a-ht-dense-forward"
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
     ID = docker("create", "--name", NAME, "--runtime=runc", "--network=none",
                 "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=8",

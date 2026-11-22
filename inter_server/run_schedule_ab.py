@@ -15,12 +15,14 @@ assert mode in {"run", "status"}
 forward_only = args.get("forward_only", False)
 focused = args.get("focused", False)
 assert isinstance(forward_only, bool) and isinstance(focused, bool)
-assert not (forward_only and focused)
+stripe_probe = args.get("stripe_probe", False)
+assert isinstance(stripe_probe, bool)
+assert sum((forward_only, focused, stripe_probe)) <= 1
 resource = root / "resources"
 inputs = resource / ("focused_schedule" if focused else "dense_schedule")
 identity = json.loads((inputs / "fixture-identity.json").read_text())
 assert identity["tokens"] == 96 and identity["hidden"] == 256
-request = {"mode": mode, "identity": identity, "variants": {}, "forward_only": forward_only, "focused": focused}
+request = {"mode": mode, "identity": identity, "variants": {}, "forward_only": forward_only, "focused": focused, "stripe_probe": stripe_probe}
 if mode == "run":
     request["metadata_variants"] = [
         json.loads((resource / variant / "build-record.json").read_text())
@@ -29,7 +31,12 @@ if mode == "run":
     archive = (inputs / "fixture-images.tar.gz").read_bytes()
     assert hashlib.sha256(archive).hexdigest() == identity["input_archive_sha256"]
     request["archive"] = base64.b64encode(archive).decode("ascii")
-variants = ("forward_page",) if forward_only else ("drain_count_cache", "forward_page", "batch16", "visit4", "lane_balanced")
+if stripe_probe:
+    variants = ("sq_stripe_probe",)
+elif forward_only:
+    variants = ("forward_page",)
+else:
+    variants = ("drain_count_cache", "forward_page", "batch16", "visit4", "lane_balanced")
 for tag in variants:
     folder = resource / tag
     entry = {"build": json.loads((folder / "build-record.json").read_text())}
