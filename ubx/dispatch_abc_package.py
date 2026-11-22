@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import sys
+import time
 
 from dispatch_abc_setup import NAMESPACE
 from pack_reports import fetch
@@ -30,7 +31,16 @@ report = read_optional(root / "report-status.json")
 matrix = read(root / "matrix.json")
 failures = report.get("failed_cases", {})
 if queue.get("phase") != "completed" or report.get("reports", 0) + len(failures) != len(matrix):
-    print(json.dumps(dict(ready=False, queue=queue, report=report), separators=(",", ":")))
+    batches = {}
+    for label, op, batch, mode, tokens in matrix:
+        if batch != 64:
+            continue
+        entry = root / "runs" / f"{label}-{op}-bs{batch}-max{tokens}-{mode}" / "timing.json"
+        timing = read_optional(entry)
+        if timing:
+            batches[f"{batch}-max{tokens}-{label[-1].upper()}-{mode}"] = (
+                timing["native_task_us"]["round_slowest_rank"])
+    print(json.dumps(dict(ready=False, queue=queue, report=report, bs64=batches), separators=(",", ":")))
     raise SystemExit(0)
 
 files = [root / name for name in ("matrix.json", "status.json", "report-status.json")]
@@ -118,8 +128,14 @@ print(json.dumps(dict(ready=True, bundle=str(target), sha256=sha256, trace_count
 if __name__ == "__main__":
     args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
     args["namespace"] = NAMESPACE
+    deadline = time.monotonic() + args.get("wait_seconds", 0)
     try:
-        result = fetch(args, pack=PACK, command_timeout=240)
+        while True:
+            result = fetch(args, pack=PACK, command_timeout=240)
+            if (result["ready"] or time.monotonic() >= deadline
+                    or result.get("report", {}).get("pending_report_errors")):
+                break
+            time.sleep(min(40, max(0, deadline - time.monotonic())))
     except (OSError, RuntimeError, ValueError) as error:
         print(json.dumps(dict(ready=False, error=type(error).__name__)))
         raise SystemExit(1) from None
