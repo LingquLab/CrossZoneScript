@@ -15,6 +15,13 @@ def main():
     case = "tail-reviewed-dispatch-bs128-on"
     args.update(namespace=ASSIST_NAMESPACE, case=case)
     hosts = args["hosts"]
+    if args.get("host_barrier"):
+        config = {"namespace": ASSIST_NAMESPACE,
+                  "files": ["retry_host_barrier.py", "retry_remaining.py", "retry_transport.py"],
+                  "program": "retry_host_barrier.py", "interpreter": "/usr/bin/python3",
+                  "unit": "retry-host-barrier", "argv": [hosts[0], args["peer"]]}
+        print(json.dumps({"retry": deploy(hosts[0], config)}, separators=(",", ":")))
+        return
     if args.get("remaining"):
         config = {"namespace": ASSIST_NAMESPACE, "files": ["retry_remaining.py", "retry_transport.py"],
                   "program": "retry_remaining.py", "interpreter": "/usr/bin/python3",

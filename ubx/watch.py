@@ -31,12 +31,18 @@ state = read(root / "status.json") or {}
 reports = read(root / "report-status.json") or {}
 retry = read(root / "retry-status.json") or {}
 remaining = read(root / "retry-remaining.json") or {}
+host_retry = read(root / "retry-host-barrier.json") or {}
+retry_phase = retry.get("phase")
+case = state.get("case")
+if remaining.get("phase") == "active":
+    retry_phase, case = "retrying_remaining", remaining.get("case")
+elif host_retry.get("phase") == "active":
+    retry_phase, case = "retrying_host_barrier", host_retry.get("case")
 base = root / "build.exit"
 profile = root.with_name(root.name + "-profile") / "build.exit"
 print(json.dumps({
     "phase": state.get("phase"),
-    "retry": ("retrying_remaining" if remaining.get("phase") == "active" else retry.get("phase")),
-    "case": remaining.get("case") if remaining.get("phase") == "active" else state.get("case"),
+    "retry": retry_phase, "case": case,
     "finished": len(list((root / "runs").glob("*/report.json"))),
     "reported": reports.get("reports", 0),
     "expected": reports.get("expected", state.get("cases", len(read(root / "matrix.json") or range(22)))),
