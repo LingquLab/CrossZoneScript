@@ -49,7 +49,7 @@ def schedule_cases(request):
     result = {}
     for tag, candidate in request["variants"].items():
         build = candidate["build"]
-        name = "t96-" + build["variant"] + "-" + build["kernel_sha256"][:8]
+        name = "t96-repacked-" + build["variant"] + "-" + build["kernel_sha256"][:8]
         VARIANTS[build["kernel_sha256"]] = name
         if request["mode"] == "status":
             result[tag] = case_status(MOUNT / name)
