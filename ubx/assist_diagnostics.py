@@ -20,6 +20,9 @@ import sys
 
 root = Path(sys.argv[1])
 index = int(sys.argv[2])
+sys.path.insert(0, str(root))
+from campaign import occupancy
+
 cases = {}
 for folder in sorted((root / "runs").glob("tail-reviewed-dispatch-*")):
     local_done = (folder / f"node-{index}.json").is_file()
@@ -53,9 +56,18 @@ for folder in sorted((root / "runs").glob("tail-reviewed-dispatch-*")):
             if re.search(r"Error:|exit-code|killed|broken pipe|timed out|connection reset", line, re.I)
         ][-4:]
     cases[folder.name] = summary
-result = {"cases": cases}
+unit_prefix = "tilexr-" + root.name + "-"
+suffixes = ("retry-remaining", "retry-host-barrier", "tail-reviewed-dispatch-bs32-on", "report")
+unit_states = {}
+for suffix in suffixes:
+    unit = subprocess.run(["systemctl", "show", unit_prefix + suffix, "-p", "ActiveState",
+                           "-p", "MainPID", "-p", "Result", "-p", "ExecMainStatus"],
+                          capture_output=True, text=True, timeout=8)
+    unit_states[suffix] = unit.stdout.strip().replace("\n", " ")
+result = {"cases": cases, "occupancy": occupancy(), "units": unit_states}
 if index == 0:
-    for name in ("status.json", "report-status.json", "retry-status.json", "retry-remaining.json"):
+    for name in ("status.json", "report-status.json", "retry-status.json", "retry-remaining.json",
+                 "retry-host-barrier.json"):
         path = root / name
         if path.is_file():
             result[name.split(".")[0]] = json.loads(path.read_text())
