@@ -166,15 +166,24 @@ def rank_records(folder, case, rank):
             raise ValueError(f"rank {rank} reported invalid correctness or native status")
         if item["rank"] != rank or item["batch"] != case[2]:
             raise ValueError(f"rank {rank} reported wrong identity")
-        if len(case) == 5 and (item.get("max_tokens") != case[4] or
-                               item.get("effective_max_tokens") != case[4]):
-            raise ValueError(f"rank {rank} has inconsistent configured/effective packet cap")
+        if len(case) == 5:
+            effective = item.get("effective_max_tokens")
+            if branch in ABC_BRANCHES and effective is None:
+                # This pinned RDMA fixture reports the configured value. Its 32768-byte
+                # budget leaves both the 1- and 2-token FP8 packets unclamped.
+                payload_bytes = item["hidden"] + 4 * item["topk"] + 64
+                effective = min(item["max_tokens"], 32768 // payload_bytes)
+            if item.get("max_tokens") != case[4] or effective != case[4]:
+                raise ValueError(f"rank {rank} has inconsistent configured/effective packet cap")
         if branch in TAIL_BRANCHES:
             expected_capture = case[3] == "on"
-            if (item.get("max_tokens") != 2 or item.get("dtype") != "fp8e4m3"
+            expected_tokens = case[4] if branch in ABC_BRANCHES else 2
+            if (item.get("max_tokens") != expected_tokens or item.get("dtype") != "fp8e4m3"
                     or item.get("packet_trace") is not expected_capture
                     or item.get("packet_trace_records") != (4096 if expected_capture else 0)):
                 raise ValueError(f"rank {rank} has inconsistent Dispatch trace settings")
+            if branch in ABC_BRANCHES and (item["hidden"], item["topk"], item["experts"], item["rank_size"]) != (3584, 8, 384, 32):
+                raise ValueError(f"rank {rank} has inconsistent Dispatch input size")
         round_id = item["round"]
         if round_id in records or item["warmup"] != (round_id < 5):
             raise ValueError(f"rank {rank} reported bad warmup/round identity")
@@ -203,8 +212,19 @@ def run_node(index, capture, rendezvous, case):
         time.sleep(0.5)
     if any(child.returncode != 0 for child in children):
         raise RuntimeError("rank failed")
+    collect_node(index, case)
+
+
+def collect_node(index, case, retained=False):
+    directory = BASE / "runs" / case_name(case)
+    start = index * 16
+    ranks = range(start, start + 16)
     rounds = {rank: rank_records(directory / f"rank-{rank:02}", case, rank) for rank in ranks}
-    if variant == "on":
+    if retained:
+        from report import native_rounds, OPERATOR
+        for rank in ranks:
+            native_rounds(directory / f"rank-{rank:02}", OPERATOR["dispatch", "dispatch"])
+    if case[3] == "on":
         for rank in ranks:
             traces = list((directory / f"rank-{rank:02}").glob("*.records.bin"))
             if len(traces) != 25:
@@ -421,6 +441,12 @@ if __name__ == "__main__":
         index, capture, rendezvous, branch, op, bs, variant, *max_tokens = sys.argv[2:]
         case = (branch, op, int(bs), variant, *(int(value) for value in max_tokens))
         run_node(int(index), capture, rendezvous, case)
+    elif mode == "collect-node":
+        index, branch, op, bs, variant, tokens = sys.argv[2:]
+        try:
+            collect_node(int(index), (branch, op, int(bs), variant, int(tokens)), retained=True)
+        except (OSError, ValueError, KeyError, RuntimeError):
+            raise SystemExit(1) from None
     elif mode == "campaign":
         try:
             run_campaign(*sys.argv[2:])

@@ -39,15 +39,15 @@ by_batch_mode = {}
 trace_count = 0
 markdown = [
     "# EP32 UBX Dispatch TopK A/B/C", "",
-    "共 32 张 Ascend950PR，FP8 E4M3，Hidden 3584，384 experts，TopK 8，maxTokens 2。",
+    "共 32 张 Ascend950PR，FP8 E4M3，Hidden 3584，384 experts，TopK 8，maxTokens 1 和 2。",
     "两台服务器使用提交 fe5e617d。A 由 SEND 提交 TopK，RELAY 执行 fanout。",
     "B 由 RECV 提交 TopK，RELAY 执行 fanout。C 由 RECV 提交 TopK，INTRA_SEND 执行 fanout。",
     "三个配置的 TopK 均由目标 server 的最后一个 payload QP 提交。", "",
     "每项先热身 5 轮，再测量 20 轮。每轮取 32 个 rank 中最慢的 msprof 算子耗时。",
     "Profiling on 的阶段统计按角色取每轮最慢的核，保存最小轮、两个中位轮和最大轮的 trace。",
     "Perfetto 时间按 rank 独立归零。逐路由分析另有时钟校准及误差界。", "",
-    "| BS | 配置 | Profiling | 最小 µs | 中位 µs | 最大 µs | Backend | Native | ABI | RDMA 中位 bytes | RDMA 中位 GB/s |",
-    "|---:|:---|:---|---:|---:|---:|:---|:---|---:|---:|---:|",
+    "| BS | Max tokens | 配置 | Profiling | 最小 µs | 中位 µs | 最大 µs | Backend | Native | ABI | RDMA 中位 bytes | RDMA 中位 GB/s |",
+    "|---:|---:|:---|:---|---:|---:|---:|:---|:---|---:|---:|---:|",
 ]
 for label, op, batch, mode, tokens in matrix:
     case = f"{label}-{op}-bs{batch}-max{tokens}-{mode}"
@@ -59,17 +59,17 @@ for label, op, batch, mode, tokens in matrix:
     source = dict(line.split("=", 1) for line in item["provenance"] if "=" in line)
     recv = "OFF" if label == "tail-a" else "ON"
     intra = "ON" if label == "tail-c" else "OFF"
-    if not (item["samples"] == 32 * 20 and item["native"] and item["effective_max_tokens"] == 2
+    if not (item["samples"] == 32 * 20 and item["native"] and item["max_tokens"] == item["effective_max_tokens"] == tokens
             and source["revision"] == "fe5e617d54f5735fb08c730aa71e71a76c5e6988"
             and source["kernel_profiling"] == mode and source["recv_topk"] == recv
             and source["intra_fanout"] == intra):
         raise ValueError("unexpected config or incomplete sampling")
     native = item["native_task_us"]["round_slowest_rank"]
     name = label[-1].upper()
-    summaries[f"{batch}-{name}-{mode}"] = native
-    by_batch_mode.setdefault((batch, mode), {})[name] = native["median"]
+    summaries[f"{batch}-max{tokens}-{name}-{mode}"] = native
+    by_batch_mode.setdefault((batch, tokens, mode), {})[name] = native["median"]
     files.append(directory / "timing.json")
-    markdown.append(f"| {batch} | {name} | {mode} | {native['min']:.3f} | {native['median']:.3f} | "
+    markdown.append(f"| {batch} | {tokens} | {name} | {mode} | {native['min']:.3f} | {native['median']:.3f} | "
                     f"{native['max']:.3f} | {item['backend']} | {item['native']} | {item['abi']} | "
                     f"{item['rdma_bytes']['median']:.0f} | {item['rdma_GBps']['median']:.3f} |")
     if mode == "on":
@@ -86,13 +86,13 @@ for label, op, batch, mode, tokens in matrix:
 
 markdown += ["", "## 变更前后中位耗时", "",
              "差值为后一个配置减去前一个配置，单位 µs。", "",
-             "| BS | Profiling | B − A | C − B | C − A |",
-             "|---:|:---|---:|---:|---:|"]
-for (batch, mode), pair in by_batch_mode.items():
+             "| BS | Max tokens | Profiling | B − A | C − B | C − A |",
+             "|---:|---:|:---|---:|---:|---:|"]
+for (batch, tokens, mode), pair in by_batch_mode.items():
     def delta(first, second):
         return f"{pair[second] - pair[first]:+.3f}" if first in pair and second in pair else "—"
 
-    markdown.append(f"| {batch} | {mode} | {delta('A', 'B')} | {delta('B', 'C')} | {delta('A', 'C')} |")
+    markdown.append(f"| {batch} | {tokens} | {mode} | {delta('A', 'B')} | {delta('B', 'C')} | {delta('A', 'C')} |")
 if failures:
     markdown += ["", "## 未完成项", ""]
     markdown += [f"- `{case}` · {reason}" for case, reason in failures.items()]

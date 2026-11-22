@@ -14,8 +14,9 @@ from stage_sources import connect, download, stage
 REVISION = "fe5e617d54f5735fb08c730aa71e71a76c5e6988"
 BRANCH = "codex/ubx-dispatch-tail-e4a9e4c2"
 NAMESPACE = "ep32-topk-abc-fe5e617d-c7d172ab"
-MATRIX = [(variant, "dispatch", batch, mode, 2)
-          for batch in (64, 128, 32) for variant in ABC_BRANCHES for mode in ("off", "on")]
+MATRIX = [(variant, "dispatch", batch, mode, tokens)
+          for batch in (64, 128, 32) for tokens in (2, 1)
+          for variant in ABC_BRANCHES for mode in ("off", "on")]
 
 
 def stage_matrix(host):
