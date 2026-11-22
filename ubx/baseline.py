@@ -16,22 +16,16 @@ import re
 import sys
 
 files = sorted((Path(sys.argv[1]) / "common" / "src").glob("*"))
-patterns = [
-    r'invalid, npus',
-    r'case [."]p',
-    r'HCCL_TEST_USE_DEVS',
-    r'(?:MAX|LIMIT).*?(?:NPU|DEV)|(?:NPU|DEV).*?(?:MAX|LIMIT)',
-    r'(?:nDev|devNum|npus).*(?:[<>]=?|MAX|LIMIT)',
-]
-hits = []
+keys = ("SERVER_MAX_DEV_NUM", "dev_count", "npus >")
+selected = []
 for f in files:
     if not f.is_file() or f.suffix not in (".cc", ".h"):
         continue
     for i, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
-        if any(re.search(pattern, line, re.IGNORECASE) for pattern in patterns):
-            hits.append(f'{f.name}:{i} {line.strip()[:170]}')
-for line in hits[:9]:
-    print(line)
+        if any(key in line for key in keys):
+            selected.append(f"{f.name}:{i} {line.strip()[:160]}")
+for item in selected[:9]:
+    print(item)
 LINUX
 for file in /etc/hccl_rootInfo.json /usr/local/mpich-3.2.1/bin/mpirun; do
     if test -r "$file"; then printf 'present=%s\n' "$file"; fi
