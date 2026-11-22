@@ -14,11 +14,13 @@ assert sys.argv[1:2] == ["--args-file"] and len(sys.argv) == 3
 args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 mode = args.get("mode", "run")
 variant = args.get("variant", "queue_batch")
-assert variant in {"queue_batch", "drain_count_cache"}
+assert variant in {"queue_batch", "drain_count_cache", "batch_cqe"}
 resources = root / "resources" / variant
 build = json.loads((resources / "build-record.json").read_text(encoding="utf-8"))
 assert mode in ("run", "status")
-request = {"build": build, "mode": mode}
+tokens = args.get("tokens", [4, 8])
+assert tokens in ([4, 8], [4], [8])
+request = {"build": build, "mode": mode, "tokens_to_run": tokens}
 if mode == "run":
     compressed = (resources / "inter_server_send.o.gz").read_bytes()
     assert hashlib.sha256(gzip.decompress(compressed)).hexdigest() == build["kernel_sha256"]
@@ -46,6 +48,6 @@ else:
     print(json.dumps(result, separators=(",", ":")))
 if mode == "run" and not all(
     result.get(case, {}).get("run", {}).get("status") == "sst_and_checker_passed"
-    for case in ("t4", "t8")
+    for case in (f"t{t}" for t in tokens)
 ):
     raise SystemExit(1)

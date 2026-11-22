@@ -1,10 +1,16 @@
+def baseline_name(build, tokens):
+    variant = ("sst-mte-queue-batch" if build["variant"] == "sst-mte-batch-cqe"
+               else "sst-mte-bulk-forward-hotpath")
+    return f"t{tokens}-{variant}-{build['baseline_kernel_sha256'][:8]}"
+
+
 """Reuse the passed baseline's model, input images, guard layout and checker."""
 
 
 def prepare_bulk(request, case, container_case):
     tokens = request["tokens"]
     build = request["build"]
-    baseline = case.with_name(f"t{tokens}-sst-mte-bulk-forward-hotpath-{build['baseline_kernel_sha256'][:8]}")
+    baseline = case.with_name(baseline_name(build, tokens))
     manifest = json.loads((baseline / "case-manifest.json").read_text())
     assert json.loads((baseline / "run.json").read_text())["status"] == "sst_and_checker_passed"
     assert manifest["kernel_sha256"] == build["baseline_kernel_sha256"]
@@ -71,13 +77,13 @@ def run_queue_batch(request):
     name = build["variant"] + "-" + build["kernel_sha256"][:8]
     VARIANTS[build["kernel_sha256"]] = "t4-" + name
     if request["mode"] == "status":
-        return {f"t{tokens}": case_status(MOUNT / f"t{tokens}-{name}") for tokens in (4, 8)}
+        return {f"t{tokens}": case_status(MOUNT / f"t{tokens}-{name}") for tokens in request["tokens_to_run"]}
     result = {}
-    for tokens in (4, 8):
+    for tokens in request["tokens_to_run"]:
         result[f"t{tokens}"] = row = main(dict(request, tokens=tokens, forward_images=True))
         if row.get("run", {}).get("status") != "sst_and_checker_passed":
             break
-        baseline = case_status(MOUNT / f"t{tokens}-sst-mte-bulk-forward-hotpath-{build['baseline_kernel_sha256'][:8]}")
+        baseline = case_status(MOUNT / baseline_name(build, tokens))
         baseline_receipt = baseline["task-result.json"]
         assert baseline_receipt["kernel_sha256"] == build["baseline_kernel_sha256"]
         row["baseline_simulated_microseconds"] = baseline_receipt["sst_simulated_microseconds"]
