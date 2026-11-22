@@ -24,9 +24,24 @@ for path in sorted(root.glob("rank-*/stderr.log")):
     if "UBX_COMBINE_RUNTIME" not in text:
         continue
     block = text.split("UBX_COMBINE_RUNTIME", 1)[1].split("UBX_FAILURE", 1)[0]
-    selected = [line.strip()[:300] for line in block.splitlines() if error.search(line)]
-    hits[path.parent.name] = selected[-9:]
-print(json.dumps({"runtime_error_ranks": len(hits), "examples": dict(list(hits.items())[:4])}, separators=(",", ":")))
+    selected = []
+    for line in block.splitlines():
+        matches = list(error.finditer(line))
+        if matches:
+            for match in matches[:4]:
+                lo = max(0, match.start() - 30)
+                part = line[lo:lo + 160].strip()
+                if part not in selected:
+                    selected.append(part)
+    hits[path.parent.name] = selected[:7]
+examples = {}
+for rank, selected in hits.items():
+    if selected and selected not in examples.values():
+        examples[rank] = selected
+        if len(examples) == 2:
+            break
+print(json.dumps({"runtime_error_ranks": len(hits), "examples": examples},
+                 separators=(",", ":"), ensure_ascii=False))
 '''
 
 
@@ -36,8 +51,13 @@ def run(host, ns, attempt):
         code, output, _ = run_remote(client, "/usr/bin/python3 - " + shlex.quote(root),
                                       timeout=35, input_text=REMOTE)
         if code:
-            raise RuntimeError(f"unable to read {host} runtime detail")
-        print(json.dumps({"host": host, **json.loads(output)}, separators=(",", ":")))
+            summary = {"phase": "remote_read_failed", "exit_code": code}
+        else:
+            try:
+                summary = json.loads(output)
+            except ValueError:
+                summary = {"phase": "invalid_output", "bytes": len(output.encode("utf-8"))}
+        print(json.dumps({"host": host, **summary}, separators=(",", ":")))
 
 
 if __name__ == "__main__":
