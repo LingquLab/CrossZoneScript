@@ -48,7 +48,33 @@ def recover():
             if match:
                 report["first_stream"] = [int(value) for value in match.groups()]
             report["decoder_sha256"] = sha(decoder)
-            report["missing_dump_bytes"] = "Missing dump bytes" in message
+            error_categories = {
+                "missing_dump_bytes": "Missing dump bytes",
+                "conflicting_records": "Conflicting dump records",
+                "truncated_dump": "Truncated addressed-512",
+                "missing_kernel_endpoints": "Missing kernel endpoints",
+                "incomplete_stream": "Incomplete profile stream",
+                "invalid_range": "Need a nonempty chip-local output range",
+                "decoder_identity": "decoder identity differs",
+            }
+            report["reason"] = next((key for key, value in error_categories.items()
+                                     if value in message), "other")
+            ids = re.search(r"rank=(\d+) owner=(\d+)", message)
+            if ids:
+                report["first_rank_owner"] = [int(value) for value in ids.groups()]
+            if report["reason"] == "missing_kernel_endpoints":
+                diagnostic = work / "diagnose.py"
+                code = (case / "adapter/profile_trace.py").read_text()
+                lead = '        raise ValueError(f"Missing kernel endpoints for rank={rank} owner={owner}")'
+                code = code.replace(lead, '        print("ENDPOINTS", rank, owner, count, pairs[0][1], pairs[-1][1]); raise SystemExit(3)')
+                sys.path.insert(0, str(case / "adapter"))
+                diagnostic.write_text(code)
+                env_with_adapter = dict(invocation_env, PYTHONPATH=str(case / "adapter") + os.pathsep + str(case / "profile_sdk.zip"))
+                debug = subprocess.run([sys.executable, str(diagnostic), str(work), "1650"],
+                                       env=env_with_adapter, capture_output=True, timeout=75)
+                endpoint = re.fullmatch(rb"ENDPOINTS (\d+) (\d+) (\d+) (\d+) (\d+)\s*", debug.stdout)
+                if endpoint:
+                    report["endpoint_values"] = [int(value) for value in endpoint.groups()]
             report["status"] = "records_export_failed"
             return report
         report["streams"] = int(export.stdout)
