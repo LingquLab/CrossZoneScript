@@ -11,10 +11,10 @@ import tarfile
 import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-ep16-v310-1t"
+case = root / "combine-memory-cast-c266-v310-local-fp16"
 reference = root / "lr8-source/lr8-64p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast-v310-1t"
+name = "tilexr-cpu-b4f4660a-combine-cast-v310-local"
 container_case = "/work/" + case.name
 
 
@@ -49,7 +49,7 @@ def main(result):
     network = (case / "UBusSim_config" / "UBusSim_simulator_config.yml").read_text()
     result["configured_network_hosts"] = int(re.search(r"(?m)^\s*host_num:\s*(\d+)", network).group(1))
     workload = json.loads((case / "workload.yml").read_text())["workload_config"]
-    assert set(workload) == {f"chip{rank}" for rank in range(16)}
+    assert set(workload) == {"chip0"}
     result["workload_ranks"] = len(workload)
     for file in ("test_UBusSim.py", "installed_model.py", "environment.snapshot.json"):
         shutil.copyfile(platform / file, case / file)
@@ -79,7 +79,7 @@ def main(result):
         started = time.monotonic()
         with (case / "sim.log").open("wb") as log:
             run = docker("exec", identity, "bash", "-c", command, "bash", container_case,
-                         stdout=log, stderr=subprocess.STDOUT, timeout=240)
+                         stdout=log, stderr=subprocess.STDOUT, timeout=150)
         result["sst_wall_seconds"] = round(time.monotonic() - started, 3)
         result["sst_exit"] = run.returncode
         with (case / "sim.log").open("rb") as log:
