@@ -133,7 +133,9 @@ def stage(host, namespace, archive, digest):
 
 
 def main():
-    args = json.loads(sys.argv[1])
+    if len(sys.argv) != 3 or sys.argv[1] != "--args-file":
+        raise SystemExit("expected --args-file")
+    args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
     namespace = args["namespace"]
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", namespace):
         raise ValueError("invalid namespace")
