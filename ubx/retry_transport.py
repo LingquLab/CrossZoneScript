@@ -24,7 +24,7 @@ def read(path):
         return {}
 
 
-def retry(coordinator, peer, name, pair=run_pair, transport_only=True):
+def retry(coordinator, peer, name, pair=run_pair, transport_only=True, allow_incomplete=False):
     case = next(item for item in CASES if case_name(item) == name)
     directory = BASE / "runs" / name
     status("waiting_for_main_queue", case=name)
@@ -37,7 +37,7 @@ def retry(coordinator, peer, name, pair=run_pair, transport_only=True):
         status("already_passed", case=name)
         return
     failure = read(directory / "failure.json")
-    if not failure or (transport_only and "255" not in failure.get("reason", "")):
+    if (not failure and not allow_incomplete) or (transport_only and "255" not in failure.get("reason", "")):
         status("no_transport_failure", case=name)
         return
     while True:

@@ -35,10 +35,11 @@ def deploy(host, args):
         restart = ""
         if args.get("restart"):
             restart = "if systemctl is-active --quiet " + unit + "; then systemctl stop " + unit + "; fi; "
+        retry = " --property=Restart=on-failure --property=RestartSec=20s" if args.get("restart_on_failure") else ""
         command = (
             "set -eu; " + restart + "if ! systemctl is-active --quiet " + unit + "; then "
             + "systemd-run --quiet --collect --property=Type=exec --unit=" + unit
-            + " " + args["interpreter"] + " " + program + " " + " ".join(paths)
+            + retry + " " + args["interpreter"] + " " + program + " " + " ".join(paths)
             + "; fi; systemctl show -p ActiveState -p SubState -p MainPID " + unit
         )
         code, out, _ = run_remote(client, command)
