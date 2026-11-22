@@ -146,10 +146,20 @@ def main():
                 destinations = list(pool.map(
                     lambda host: stage(host, namespace, archive, digest), args["hosts"]
                 ))
-            print(json.dumps({
+            result = {
                 "sha256": digest, "bytes": archive.stat().st_size,
                 "destinations": dict(zip(args["hosts"], destinations)),
-            }))
+            }
+            if args.get("build_profile"):
+                from deploy import deploy
+                build_args = {"namespace": namespace, "files": ["build_node.sh"],
+                              "program": "build_node.sh", "interpreter": "/bin/bash",
+                              "argv": ["profile"], "unit": "build"}
+                with ThreadPoolExecutor(max_workers=len(args["hosts"])) as pool:
+                    result["build"] = dict(zip(args["hosts"], pool.map(
+                        lambda host: deploy(host, build_args), args["hosts"]
+                    )))
+            print(json.dumps(result))
     except subprocess.CalledProcessError as exc:
         details = (exc.stderr or "").lower() if isinstance(exc.stderr, str) else ""
         outcome = "git_tls" if "certificate" in details else (
