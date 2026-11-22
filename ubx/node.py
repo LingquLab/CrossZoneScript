@@ -44,10 +44,38 @@ def prepare():
     assert 'not found' not in deps and all(str(lib/name) in deps for name in ['libtile-comm.so','libtilexr-ep.so','libtilexr-diagnostics.so'])
     return env
 
+def both_hosts_ready(idle):
+    # Exchange the final local checks before either host may create ranks.
+    address=('90.90.93.84', SPEC['gate'])
+    hello=(SPEC['run']+' '+str(SPEC['port'])+' ').encode()
+    if node==0:
+        with socket.socket() as listener:
+            listener.settimeout(30)
+            listener.bind(address)
+            listener.listen(1)
+            peer,origin=listener.accept()
+            with peer, peer.makefile('rb') as stream:
+                peer.settimeout(10)
+                ready=origin[0]=='90.90.93.184' and stream.readline(128)==hello+b'idle\n' and idle
+                peer.sendall(b'GO\n' if ready else b'WAIT\n')
+                return ready
+    until=time.monotonic()+25
+    while True:
+        try:
+            peer=socket.create_connection(address,timeout=3)
+            break
+        except OSError:
+            if time.monotonic()>=until:raise
+            time.sleep(.2)
+    with peer, peer.makefile('rb') as stream:
+        peer.settimeout(10)
+        peer.sendall(hello+(b'idle\n' if idle else b'busy\n'))
+        return stream.readline(16)==b'GO\n' and idle
+
 def execute():
     env=prepare()
     states=sample()
-    if states!=['idle']*16:
+    if not both_hosts_ready(states==['idle']*16):
         return dict(status='CAPACITY_CHANGED',devices=states,started=0)
     run.mkdir()
     (run/'request.json').write_text(json.dumps(SPEC,indent=2))
@@ -57,7 +85,7 @@ def execute():
             rank=node*16+device
             d=run/('rank-'+str(rank))
             d.mkdir()
-            penv=dict(env,RANK_SIZE='32',RANK=str(rank),DEVICE_ID=str(device),TILEXR_COMM_ID='90.90.93.84:'+str(SPEC['port']-1),TILEXR_IPC_SCOPE='local',TILEXR_ENABLE_IPC='1',TILEXR_ENABLE_CREDIT_IPC='0',TILEXR_ENABLE_RDMA='1',TILEXR_ENABLE_UDMA='0',TILEXR_ENABLE_SDMA='0',TILEXR_RDMA_MODE='aiv',TILEXR_RDMA_DMA_MODE='indep_ub',TILEXR_RDMA_DB_MODE='hard',TILEXR_RDMA_DEVICE='hrn5_'+str(device//2),TILEXR_RDMA_GID_INDEX='1',TILEXR_COMBINE_CLOCK='align',TILEXR_UBX_STAGE_LOG='1',ASCEND_PROCESS_LOG_PATH=str(d/'plog'))
+            penv=dict(env,RANK_SIZE='32',RANK=str(rank),DEVICE_ID=str(device),TILEXR_COMM_ID='90.90.93.84:'+str(SPEC['port']-1),TILEXR_IPC_SCOPE='local',TILEXR_ENABLE_IPC='1',TILEXR_ENABLE_CREDIT_IPC='0',TILEXR_ENABLE_RDMA='1',TILEXR_ENABLE_UDMA='0',TILEXR_ENABLE_SDMA='0',TILEXR_RDMA_MODE='aiv',TILEXR_RDMA_DMA_MODE='indep_ub',TILEXR_RDMA_DB_MODE='hard',TILEXR_RDMA_DEVICE='hrn5_'+str(device//2),TILEXR_RDMA_GID_INDEX='1',TILEXR_COMBINE_CLOCK='sleep',TILEXR_UBX_STAGE_LOG='1',ASCEND_PROCESS_LOG_PATH=str(d/'plog'))
             with (d/'launcher.log').open('wb') as log:
                 p=subprocess.Popen([str(binary),'mixed','32','8','2','1','30000000000','32768',str(d),'pid'],env=penv,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
             children.append(p)
@@ -84,7 +112,7 @@ def execute():
         stages=re.findall(r'UBX_STAGE [^\n]*stage=([a-zA-Z0-9_]+)',f.read_text(errors='replace'))
         stage=stages[-1] if stages else 'no_clock_stage_logged'
         stage_counts[stage]=stage_counts.get(stage,0)+1
-    result=dict(clock_mode='align',last_clock_stages=stage_counts,status='NODE_PASS' if ok else 'NODE_FAIL',started=len(children),exits=exits,correct_receipts=correct,errors=errors,path=str(run))
+    result=dict(clock_mode='sleep',last_clock_stages=stage_counts,status='NODE_PASS' if ok else 'NODE_FAIL',started=len(children),exits=exits,correct_receipts=correct,errors=errors,path=str(run))
     (run/'result.json').write_text(json.dumps(result,indent=2))
     return result
 
@@ -92,9 +120,11 @@ if SPEC['action']=='prepare':
     prepare()
     print(json.dumps({'ready':True}))
 elif SPEC['action']=='sample':
-    with socket.socket() as s:
+    with socket.socket() as s, socket.socket() as other:
         s.bind(('',0))
+        other.bind(('',0))
         port=s.getsockname()[1]
-    print(json.dumps(dict(devices=sample(),port=port)))
+        gate=other.getsockname()[1]
+    print(json.dumps(dict(devices=sample(),port=port,gate=gate)))
 else:
     print(json.dumps(execute()))

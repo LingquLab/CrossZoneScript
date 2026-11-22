@@ -12,16 +12,16 @@ import tarfile
 import time
 from common import HOSTS,ROOT,REMOTE_ROOT,REVISION,remote_python,json_rows,ssh
 
-run='trace-mixed-align-002'
+run='trace-mixed-75076b89-003'
 dest=ROOT/run
 dest.mkdir(exist_ok=False)
-manifest=json.loads((ROOT/'ep32-build-result.json').read_text())
+manifest=json.loads((ROOT/('ep32-build-result-'+REVISION[:8]+'.json')).read_text())
 hashes=manifest['hosts'][0]['rows'][0]['artifacts']
 assert all(h['rows'][0]['artifacts']==hashes for h in manifest['hosts'])
 script=Path(__file__).with_name('node.py').read_text(encoding='utf-8')
-def both(action,port=0):
+def both(action,port=0,gate=0):
     def one(node):
-        spec=dict(action=action,root=REMOTE_ROOT,revision=REVISION,hashes=hashes,node=node,run=run,port=port)
+        spec=dict(action=action,root=REMOTE_ROOT,revision=REVISION,hashes=hashes,node=node,run=run,port=port,gate=gate)
         r=remote_python(HOSTS[node],'SPEC='+repr(spec)+'\n'+script,timeout=500 if action=='run' else 55,label='ep32-'+action)
         rows=json_rows(r.stdout)
         return rows[-1] if r.returncode==0 and rows else {'status':'REMOTE_ERROR','exit':r.returncode}
@@ -37,7 +37,7 @@ def main():
             log.write(json.dumps({'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'hosts':rows})+'\n')
             log.flush()
             if all(v.get('devices')==['idle']*16 for v in rows):
-                result=both('run',rows[0]['port'])
+                result=both('run',rows[0]['port'],rows[0]['gate'])
                 if all(v.get('status')=='CAPACITY_CHANGED' for v in result):continue
                 break
             time.sleep(12)

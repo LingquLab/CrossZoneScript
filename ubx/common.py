@@ -7,9 +7,9 @@ from pathlib import Path
 import re
 import subprocess
 
-REVISION = 'ac02d2451345b8f3112053975694172fac0ebee0'
+REVISION = '75076b89d4750a7fd5db2e5b85d124274d22b62f'
 HOSTS = ['90.90.93.84', '90.90.93.184']
-REMOTE_ROOT = '/root/ubx-combine-ac02d245-e5db7753'
+REMOTE_ROOT = '/root/ubx-combine-75076b89-e5db7753'
 ROOT = Path.cwd()
 
 

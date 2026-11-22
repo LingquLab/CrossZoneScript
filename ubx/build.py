@@ -23,7 +23,7 @@ def run(label, argv, timeout=180):
 def main():
     repo = Path(r'D:\project\tileXR')
     assert run('origin', ['git', '-C', str(repo), 'remote', 'get-url', 'origin']).decode().strip() == 'https://github.com/LingquLab/TileXR.git'
-    run('fetch', ['git', '-C', str(repo), 'fetch', 'origin', 'refs/heads/codex/ubx-combine-push'])
+    run('fetch', ['git', '-C', str(repo), 'fetch', 'origin', 'refs/heads/codex/ep32-combine-diagnose-e5db7753'])
     assert run('revision', ['git', '-C', str(repo), 'rev-parse', REVISION + '^{commit}']).decode().strip() == REVISION
     source = ROOT / ('source-' + REVISION[:8])
     assert not source.exists(), 'Source snapshot exists; inspect previous preparation first'
@@ -38,7 +38,7 @@ def main():
             if path.is_file() and not path.is_symlink():
                 archive.add(path, arcname=str(rel).replace('\\', '/'), recursive=False)
     raw = data.getvalue()
-    (ROOT / 'ep32-source.tar.gz').write_bytes(raw)
+    (ROOT / ('ep32-source-' + REVISION[:8] + '.tar.gz')).write_bytes(raw)
     spec = dict(root=REMOTE_ROOT, revision=REVISION, source_sha256=hashlib.sha256(raw).hexdigest(), source_b64=base64.b64encode(raw).decode())
     template = Path(__file__).with_name('remote_build.py').read_text(encoding='utf-8')
     script = 'SPEC=' + repr(spec) + '\n' + template
@@ -48,7 +48,7 @@ def main():
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         rows = list(pool.map(one, HOSTS))
     answer = dict(revision=REVISION, remote_root=REMOTE_ROOT, source_sha256=spec['source_sha256'], hosts=rows, hardware_started=False)
-    (ROOT / 'ep32-build-result.json').write_text(json.dumps(answer, indent=2), encoding='utf-8')
+    (ROOT / ('ep32-build-result-' + REVISION[:8] + '.json')).write_text(json.dumps(answer, indent=2), encoding='utf-8')
     print(json.dumps(answer, separators=(',', ':')))
     return 0 if all(row['exit'] == 0 and len(row['rows']) == 1 and row['rows'][0].get('status') == 'BUILD_READY' for row in rows) else 1
 
