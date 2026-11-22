@@ -54,11 +54,14 @@ def main():
         with client.open_sftp() as transfer:
             root = transfer.normalize(".") + "/.local/state/tilexr-ubx/" + namespace
         baseline = args.get("baseline")
+        target = args.get("target_cases")
         while True:
             state = read_state(client, root)
             if baseline is None:
                 baseline = state
-            if (state != baseline or state["phase"] in ("completed", "failed")
+            advanced = (state["finished"] + state["failed_cases"] >= target
+                        if target is not None else state != baseline)
+            if (advanced or state["phase"] in ("completed", "failed")
                     or any(code not in (0, None) for code in state["build"])):
                 break
             if time.monotonic() >= deadline:
