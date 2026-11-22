@@ -76,6 +76,7 @@ def prepare_bulk(request, case, container_case):
 
 
 def run_multichunk(request):
+    global NAME, ID
     if request["mode"] == "matrix":
         small_hash = request["variants"]["queue_batch"]["build"]["kernel_sha256"][:8]
         small = MOUNT / ("t8-sst-mte-queue-batch-" + small_hash) / "task-result.json"
@@ -92,13 +93,28 @@ def run_multichunk(request):
         if small_result.get("run", {}).get("status") != "sst_and_checker_passed":
             return {"prerequisite": {"run": {"status": "small_t8_failed"}}}
         result = {}
-        for tag in ("queue_batch", "batch_cqe", "hotpath"):
-            result[tag] = run_multichunk(dict(request, **request["variants"][tag], variant=tag, mode="run"))
-            if result[tag].get("run", {}).get("status") != "sst_and_checker_passed":
-                break
+        previous = NAME, ID
+        if request["memory_retry"]:
+            NAME = "tilexr-cpu-b4f4660a-ht-t257"
+            image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
+            ID = docker("create", "--name", NAME, "--runtime=runc", "--network=none",
+                        "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=8",
+                        "--memory=32g", "--pids-limit=1024", "--shm-size=64m",
+                        "--ulimit", "nofile=524288:524288",
+                        "--mount", f"type=bind,src={MOUNT.parent},dst=/work",
+                        image, "/bin/bash", "-lc", "exec sleep infinity").stdout.decode("ascii").strip()
+        try:
+            for tag in ("queue_batch", "batch_cqe", "hotpath"):
+                result[tag] = run_multichunk(dict(request, **request["variants"][tag], variant=tag, mode="run"))
+        finally:
+            if request["memory_retry"]:
+                docker("rm", ID)
+                NAME, ID = previous
         return result
     build = request["build"]
     name = "t257-" + request["variant"] + "-" + build["kernel_sha256"][:8]
+    if request["memory_retry"]:
+        name += "-32g"
     VARIANTS[build["kernel_sha256"]] = name
     if request["mode"] == "status":
         return case_status(MOUNT / name)
