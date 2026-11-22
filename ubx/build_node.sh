@@ -64,6 +64,12 @@ for branch in "${branches[@]}"; do
             git -C "$tree" apply "$patch"
         fi
     fi
+    if [[ "$kind" = dispatch-tail-relay && -f "$PWD/relay_cann_compat.patch" ]]; then
+        patch="$PWD/relay_cann_compat.patch"
+        if ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
+            git -C "$tree" apply "$patch"
+        fi
+    fi
     for module in spdlog picojson tilelang-ascend; do
         revision=$(git -C "$tree" ls-tree HEAD "3rdparty/$module" | awk '{print $3}')
         [[ $(git --git-dir="$PWD/upstream/$module.git" rev-parse refs/heads/pinned) = "$revision" ]]
@@ -155,7 +161,10 @@ for config in "${configs[@]}"; do
                 printf '%s\n' "recv_topk=$recv_topk" "intra_fanout=$intra_fanout"
             fi
             if [[ "$kind" = dispatch-tail-relay ]]; then
-                printf '%s\n' "recv_topk=OFF" "intra_fanout=OFF" "relay_ub=$relay_ub"                     "relay_vector=$relay_vector" "relay_token_align=$relay_align"
+                printf '%s\n' "recv_topk=OFF" "intra_fanout=OFF" "relay_ub=$relay_ub" "relay_vector=$relay_vector" "relay_token_align=$relay_align"
+                if [[ -f "$base/relay_cann_compat.patch" && ( "$relay_ub" = ON || "$relay_vector" = ON ) ]]; then
+                    printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/relay_cann_compat.patch" | cut -d' ' -f1)"
+                fi
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
             printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"

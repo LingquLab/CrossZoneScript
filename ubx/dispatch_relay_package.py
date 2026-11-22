@@ -32,6 +32,10 @@ if state.get("phase") != "completed" or report.get("reports", 0) + len(failed) !
     raise SystemExit(0)
 
 files = [root / name for name in ("matrix.json", "status.json", "report-status.json")]
+compat = root / "relay_cann_compat.patch"
+compat_digest = hashlib.sha256(compat.read_bytes()).hexdigest() if compat.is_file() else None
+if compat_digest:
+    files.append(compat)
 summaries = {}
 baselines = {}
 route_hashes = {}
@@ -49,6 +53,10 @@ markdown = [
     "| BS | 开关 | Profiling | 最小 | 中位 | 最大 | 中位差值 | Backend | Native | ABI | RDMA bytes 中位 | RDMA GB/s 中位 |",
     "|---:|:---|:---|---:|---:|---:|---:|:---|:---|---:|---:|---:|",
 ]
+
+if compat_digest:
+    markdown[7:7] = ["CANN 9.2.T101 构建兼容补丁将 PublishRelayPlan 的 UB 结构体引用改为两个原有计数字段。"
+                    "补丁及 SHA-256 随报告保存。", f"`{compat_digest}`", ""]
 
 with stage_file.open("w", encoding="utf-8", newline="") as stream:
     stages = csv.writer(stream)
@@ -73,6 +81,8 @@ with stage_file.open("w", encoding="utf-8", newline="") as stream:
                 timing["native"] is True and timing["max_tokens"] == timing["effective_max_tokens"] == tokens == 2
                 and all(provenance.get(key) == value for key, value in expected.items())):
             raise ValueError("invalid benchmark provenance")
+        if compat_digest and variant in {"ub", "vector"} and provenance.get("source_patch_sha256") != compat_digest:
+            raise ValueError("missing compile compatibility patch provenance")
         if route_hashes.setdefault(batch, timing["route_sha256"]) != timing["route_sha256"]:
             raise ValueError("route fixtures differ across builds")
         native = timing["native_task_us"]["round_slowest_rank"]

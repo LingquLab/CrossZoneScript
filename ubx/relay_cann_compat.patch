@@ -1,0 +1,60 @@
+--- a/src/ep/kernels/tilexr_ep_ubx_kernel.h
++++ b/src/ep/kernels/tilexr_ep_ubx_kernel.h
+@@ -457,7 +457,7 @@
+     __aicore__ inline void RunRelay();
+     __aicore__ inline void AppendRelayPeer(uint32_t sourceHost);
+ #if TILEXR_EP_UBX_RELAY_PLAN_UB
+-    __aicore__ inline void PublishRelayPlan(uint32_t owner, const UBXCoreResult &result,
++    __aicore__ inline void PublishRelayPlan(uint32_t owner, uint32_t expectedPackets, uint32_t routeCount,
+         uint32_t firstPacket = 0U, uint32_t firstRoute = 0U);
+ #endif
+     __aicore__ inline int32_t ExchangeControlSplit();
+@@ -1214,10 +1214,10 @@
+ }
+ 
+ #if TILEXR_EP_UBX_RELAY_PLAN_UB
+-__aicore__ inline void MoeEpUBX::PublishRelayPlan(uint32_t owner, const UBXCoreResult &result,
++__aicore__ inline void MoeEpUBX::PublishRelayPlan(uint32_t owner, uint32_t expectedPackets, uint32_t routeCount,
+     uint32_t firstPacket, uint32_t firstRoute)
+ {
+-    const uint32_t routes = result.routeCount - firstRoute;
++    const uint32_t routes = routeCount - firstRoute;
+     if (routes == 0U) {
+         return;
+     }
+@@ -1228,7 +1228,7 @@
+     SyncSendEvent<HardEvent::V_MTE3>();
+     CopyToGm(args_.workspace + layout_.listenItemsOffset + owner * layout_.listenCoreStride +
+         firstPacket * sizeof(UBXListenItem), relayScratch_.planListeners,
+-        (result.expectedPackets - firstPacket) * sizeof(UBXListenItem));
++        (expectedPackets - firstPacket) * sizeof(UBXListenItem));
+     CopyToGm(args_.workspace + layout_.positionsOffset + owner * layout_.positionCoreStride +
+         firstRoute * sizeof(UBXPosition), relayScratch_.planPositions, routes * sizeof(UBXPosition));
+     CopyToGm(args_.assistInfoForCombineOut + owner * layout_.assistCoreStride +
+@@ -1418,7 +1418,7 @@
+ #endif
+ #endif
+ #if TILEXR_EP_UBX_RELAY_VECTOR && !TILEXR_EP_UBX_RELAY_UB
+-    PublishRelayPlan(owner, *result, firstPacket, firstRoute);
++    PublishRelayPlan(owner, result->expectedPackets, result->routeCount, firstPacket, firstRoute);
+ #endif
+     profile_.Counters().Packets().Mark(UBXPacketEvent::TopkRelayEnd, srcRank, rank_);
+ }
+@@ -1439,7 +1439,7 @@
+     }
+ #if TILEXR_EP_UBX_RELAY_UB
+     const uint32_t owner = coreId_ - config_.sendCores - config_.recvCores;
+-    PublishRelayPlan(owner, *result);
++    PublishRelayPlan(owner, result->expectedPackets, result->routeCount);
+ #endif
+     result->phase = TILEXR_EP_UBX_COMPUTE_DONE;
+     if (config_.enableTiming) {
+@@ -1501,7 +1501,7 @@
+ #if TILEXR_EP_UBX_RELAY_UB
+     // Publish the dense mirror once, after every peer's UB plan has been appended.
+     const uint32_t owner = coreId_ - config_.sendCores - config_.recvCores;
+-    PublishRelayPlan(owner, *result);
++    PublishRelayPlan(owner, result->expectedPackets, result->routeCount);
+ #endif
+     profile_.Mark(UBXProfileEvent::RelayListenEnd);
+ }
