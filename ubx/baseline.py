@@ -42,23 +42,42 @@ for path in files[:12]:
     except (OSError, ValueError):
         continue
 LINUX
-printf '%s\n' '=== qualification files ==='
-for top in "$HOME"/tilexr-ubx-validation-* "$HOME"/ubx-ep32-* "$HOME"/crosszone; do
-    test -d "$top" || continue
-    timeout 5 find "$top" -maxdepth 4 -type f \( -iname '*hccl*baseline*' -o -iname '*hccl*qualification*' -o -iname '*all*reduce*.log' -o -path '*/qualification-*/*' \) -print 2>/dev/null
-done | sort -u | head -65
-for directory in "$HOME"/tilexr-ubx-validation-*/qualification-*; do
-    test -d "$directory" || continue
-    printf 'qualification=%s\n' "$directory"
-    timeout 7 find "$directory" -maxdepth 2 -type f -size -2M -print0 | xargs -0 -r grep -hEi '(^|[[:space:]])(mpirun|all_reduce_test)([[:space:]]|$)|aiv_only|rank[_ ]?size|errors in test|out of bounds|test[_ ]?result|CANN|firmware' 2>/dev/null | cut -c1-220 | awk '!seen[$0]++' | head -15
-done
+python3 - <<'LINUX'
+import hashlib
+import json
+from pathlib import Path
+import re
+
+home = Path.home()
+for directory in sorted(home.glob('tilexr-ubx-validation-*/qualification-*')):
+    print('qualification', str(directory))
+    for name in ('environment.json', 'result.json', 'attempt.json'):
+        file = directory / name
+        if not file.is_file():
+            continue
+        data = json.loads(file.read_text())
+        selected = {}
+        for key, value in data.items():
+            if re.search(r'device|rank|host|topolog|acceler|test|status|result|exit|build|driver|firmware|cann|binary|identity', key, re.I) and not re.search(r'log|raw|env$|out$', key, re.I):
+                selected[key] = value
+        print(name, json.dumps(selected)[:1800])
+for file in sorted(home.glob('crosszone/TileXR-*/hccl-aiv-baseline/all_reduce.log')):
+    print('baseline-log', str(file))
+    text = file.read_text(errors='replace')
+    lines = [line.strip()[:230] for line in text.splitlines() if re.search(r'all_reduce|rankSize|world size|aiv_only|[0-9]+ ranks?|test result|error.*test|out of bounds|num.*devices|data check|verification', line, re.I)]
+    for line in list(dict.fromkeys(lines))[:15]:
+        print(line)
+for p in (Path('/usr/local/mpich-3.2.1/bin/mpirun'), Path('/usr/bin/mpirun')):
+    if p.is_file():
+        print('mpi', str(p))
+LINUX
 tool=/usr/local/Ascend/cann/tools/hccl_test/bin/all_reduce_test
 if test -x "$tool"; then
     (
         source /usr/local/Ascend/cann/set_env.sh >/dev/null 2>&1
-        printf 'mpi=%s\n' "$(command -v mpirun || true)"
-        timeout 6 "$tool" --help 2>&1 | grep -E -- 'aiv_only|--npus|--ranks|--device|--check|--ranktable' | head -10
-        sha256sum "$tool" | cut -d' ' -f1
+        export LD_LIBRARY_PATH=/usr/local/mpich-3.2.1/lib:/usr/local/mpich-3.2.1/lib64:$LD_LIBRARY_PATH
+        echo '=== test help ==='
+        timeout 5 "$tool" --help 2>&1 | head -38
     )
 fi
 for root in /usr/local/Ascend/cann /usr/local/Ascend/ascend-toolkit; do
