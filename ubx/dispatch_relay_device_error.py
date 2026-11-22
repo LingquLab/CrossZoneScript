@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import re
 from pathlib import Path, PurePosixPath
 import shlex
 import sys
@@ -30,7 +31,6 @@ patterns = {
 }
 rule = {name: re.compile(pattern, re.I) for name, pattern in patterns.items()}
 stamp = re.compile(r"20\d\d-\d\d-\d\d[- T]\d\d:\d\d:\d\d")
-fault = re.compile(r"(?:errorStr|fault description|error description|error message)\s*[:=]\s*([^\r\n\]\[;]{1,180})", re.I)
 kernel = re.compile(r"tilexr_ep_ubx(?:_barrier)?_kernel\w*")
 hardware = re.compile(r"(?:exception code|error code|error code is|mte error info|vec error info)\s*[:=]?\s*(0x[0-9a-f]+)", re.I)
 cases = {}
@@ -40,18 +40,24 @@ for variant in ("vector", "align"):
     if files:
         times = [entry.stat().st_mtime for entry in files]
         cases[variant] = min(times) - 25, max(times) + 5
-results = {name: dict(classes=Counter(), kernels=Counter(), hardware=Counter(), descriptions=[])
+results = {name: dict(classes=Counter(), kernels=Counter(), hardware=Counter())
            for name in cases}
 scanned = 0
 for base in (Path.home() / "ascend/log/run", Path.home() / "ascend/log/plog", Path.home() / "ascend/log/debug"):
     for path in base.glob("**/plog*.log"):
-        info = path.stat()
-        if not any(low - 90 <= info.st_mtime <= high + 150 for low, high in cases.values()):
+        try:
+            info = path.stat()
+            if not path.is_file() or not any(low - 90 <= info.st_mtime <= high + 150
+                                             for low, high in cases.values()):
+                continue
+            scanned += 1
+            with path.open("rb") as stream:
+                stream.seek(max(0, info.st_size - 400000))
+                lines = stream.read().decode(errors="replace").splitlines()
+        except OSError:
             continue
-        scanned += 1
-        with path.open("rb") as stream:
-            stream.seek(max(0, info.st_size - 600000))
-            lines = stream.read().decode(errors="replace").splitlines()
+        if scanned > 200:
+            break
         for line in lines:
             part = stamp.search(line)
             if part is None:
@@ -75,11 +81,6 @@ for base in (Path.home() / "ascend/log/run", Path.home() / "ascend/log/plog", Pa
                     code = hardware.search(line)
                     if code:
                         result["hardware"][code[1]] += 1
-                    detail = fault.search(line)
-                    if detail:
-                        description = re.sub(r"[^a-zA-Z0-9 ,_.-]", "", detail[1]).strip()
-                        if description and description not in result["descriptions"] and len(result["descriptions"]) < 4:
-                            result["descriptions"].append(description[:140])
 print(json.dumps(dict(scanned_plogs=scanned, cases=results), separators=(",", ":")))
 '''
 
@@ -87,8 +88,8 @@ print(json.dumps(dict(scanned_plogs=scanned, cases=results), separators=(",", ":
 def inspect(host):
     with connect(host) as client, client.open_sftp() as transfer:
         root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / NAMESPACE
-        code, output, _ = run_remote(client, "/usr/bin/python3 - " + shlex.quote(str(root)),
-                                     timeout=70, input_text=PROBE)
+        code, output, errors = run_remote(client, "/usr/bin/python3 - " + shlex.quote(str(root)),
+                                          timeout=85, input_text=PROBE)
         if code:
             raise RuntimeError("device evidence unavailable")
     return dict(host=host, **json.loads(output))
