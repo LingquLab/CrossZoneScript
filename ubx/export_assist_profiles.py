@@ -11,7 +11,7 @@ import uuid
 from zipfile import ZipFile
 
 from stage_sources import connect, run_remote
-from tail_queue import ASSIST_NAMESPACE
+from tail_queue import ASSIST_REVISION, assist_identity
 
 
 COLLECT = r'''
@@ -24,6 +24,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 root = Path(sys.argv[1])
 destination = root / "exports" / sys.argv[2]
+revision = sys.argv[4]
+provenance = "installs/tail-reviewed-on/provenance.txt"
+if f"revision={revision}" not in (root / provenance).read_text().splitlines():
+    raise ValueError("capture provenance differs from the requested commit")
 destination.parent.mkdir(exist_ok=True)
 temporary = destination.with_suffix(".part")
 cases = sorted((root / "runs").glob("*-on"))
@@ -33,7 +37,7 @@ entries = []
 with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:
     for relative in ("matrix.json", "status.json", "report-status.json", "retry-status.json",
                      "retry-remaining.json", "restore_expert_copy.patch",
-                     "installs/tail-reviewed-on/provenance.txt"):
+                     provenance):
         path = root / relative
         if path.is_file():
             archive.writestr(relative, path.read_bytes())
@@ -60,7 +64,7 @@ with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=1) as archi
             counts["record_captures"] += path.name.endswith(".records.bin")
             counts["analysis_files"] += path.parent.name == "tail-report" and path.suffix == ".json"
         entries.append({"directory": name, "completed_node": any(case.glob("node-*.json")), **counts})
-    index = {"revision": "e8ee4fffc2da1dfdf1acf7f67ac9a71129de868b",
+    index = {"revision": revision,
              "snapshot_utc": datetime.now(timezone.utc).isoformat(),
              "cases": entries, "files_changed_during_snapshot": changed}
     archive.writestr("snapshot-index.json", json.dumps(index, indent=2) + "\n")
@@ -72,12 +76,13 @@ print(json.dumps({"path": str(destination), "size": destination.stat().st_size, 
 '''
 
 
-def export(host, stamp, snapshot=True):
-    name = f"TileXR-e8ee4fff-profiling-on-{host.rsplit('.', 1)[-1]}-{stamp}.zip"
+def export(host, stamp, snapshot=True, revision=ASSIST_REVISION):
+    revision, namespace = assist_identity({"revision": revision})
+    name = f"TileXR-{revision[:8]}-profiling-on-{host.rsplit('.', 1)[-1]}-{stamp}.zip"
     with connect(host) as client, client.open_sftp() as transfer:
-        root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / ASSIST_NAMESPACE
+        root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / namespace
         mode = "snapshot" if snapshot else "complete"
-        command = "nice -n 10 /usr/bin/python3 -B - " + shlex.join([str(root), name, mode])
+        command = "nice -n 10 /usr/bin/python3 -B - " + shlex.join([str(root), name, mode, revision])
         code, output, _ = run_remote(client, command, timeout=540, input_text=COLLECT)
         if code:
             raise RuntimeError(f"could not collect profiling snapshot from {host}")
@@ -105,7 +110,8 @@ def export(host, stamp, snapshot=True):
 if __name__ == "__main__":
     arguments = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
     stamp = uuid.uuid4().hex[:8]
+    revision, _ = assist_identity(arguments)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(export, host, stamp) for host in arguments["hosts"]]
+        futures = [pool.submit(export, host, stamp, True, revision) for host in arguments["hosts"]]
         for future in futures:
             print(json.dumps(future.result(), separators=(",", ":")), flush=True)

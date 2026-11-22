@@ -9,13 +9,13 @@ import tempfile
 
 from deploy import deploy
 from stage_sources import download, stage
-from tail_queue import AB_NAMESPACE, ASSIST_NAMESPACE, start as start_queue
+from tail_queue import AB_NAMESPACE, ASSIST_REVISION, assist_identity, start as start_queue
 
 
 def main():
     args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
     assist = args.get("assist", False)
-    namespace = ASSIST_NAMESPACE if assist else AB_NAMESPACE
+    revision, namespace = assist_identity(args) if assist else (None, AB_NAMESPACE)
     branch = "codex/ubx-dispatch-tail-e4a9e4c2"
     revisions = {
         "tail-base": {"commit": "7616bf763477a54e87d38cb414b4e0dffe8bc307", "branch": branch,
@@ -26,9 +26,9 @@ def main():
              "program": "build_node.sh", "interpreter": "/bin/bash",
              "argv": ["dispatch-tail"], "unit": "build"}
     if assist:
-        revisions = {"tail-reviewed": {"branch": branch,
-                                      "commit": "e8ee4fffc2da1dfdf1acf7f67ac9a71129de868b"}}
-        build["files"].append("restore_expert_copy.patch")
+        revisions = {"tail-reviewed": {"branch": branch, "commit": revision}}
+        if revision == ASSIST_REVISION:
+            build["files"].append("restore_expert_copy.patch")
         build["argv"] = ["dispatch-tail-assist"]
     hosts = args["hosts"]
     if args.get("rebuild_reviewed"):

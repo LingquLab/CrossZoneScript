@@ -8,7 +8,7 @@ import shlex
 import sys
 
 from stage_sources import connect, run_remote
-from tail_queue import AB_NAMESPACE, ASSIST_NAMESPACE
+from tail_queue import AB_NAMESPACE, assist_identity
 
 
 COLLECT = r'''
@@ -52,6 +52,8 @@ for case in read("matrix.json"):
     folder = Path("runs", name)
     timing = read(folder / "timing.json")
     if timing:
+        if sys.argv[4] and f"revision={sys.argv[4]}" not in timing["provenance"]:
+            raise ValueError("report provenance differs from the requested commit")
         inputs.setdefault(bs, set()).add(timing["route_sha256"])
         result = {"native_us": timing["native_task_us"]["round_slowest_rank"],
                   "abi": timing["abi"], "backend": timing["backend"]}
@@ -93,13 +95,13 @@ print(json.dumps(answer, separators=(",", ":")))
 
 def collect(args):
     assist = args.get("assist", False)
-    namespace = ASSIST_NAMESPACE if assist else AB_NAMESPACE
-    filename = ("TileXR-UBX-EP32-Dispatch-assist-e8ee4fff.zip" if assist else
+    revision, namespace = assist_identity(args) if assist else ("", AB_NAMESPACE)
+    filename = (f"TileXR-UBX-EP32-Dispatch-assist-{revision[:8]}.zip" if assist else
                 "TileXR-UBX-EP32-Dispatch-tail-AB.zip")
     with connect(args["host"]) as client, client.open_sftp() as transfer:
         root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / namespace
         mode = "pack" if args.get("pack") else "status"
-        cmd = "/usr/bin/python3 -B - " + shlex.join([str(root), mode, filename])
+        cmd = "/usr/bin/python3 -B - " + shlex.join([str(root), mode, filename, revision])
         code, out, _ = run_remote(client, cmd, timeout=200, input_text=COLLECT)
         if code:
             raise RuntimeError("could not verify Dispatch A/B evidence")

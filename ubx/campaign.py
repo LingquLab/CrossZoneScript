@@ -327,7 +327,7 @@ def run_pair(peer, coordinator_ip, case):
                 bounded_output(process(host, ["systemctl", "stop", unit]))
 
 
-def run_campaign(coordinator, peer):
+def run_campaign(coordinator, peer, pair=run_pair):
     (BASE / "runs").mkdir(exist_ok=True)
     completed, failed = 0, 0
     for case in CASES:
@@ -359,7 +359,7 @@ def run_campaign(coordinator, peer):
             time.sleep(5)
         write_status(phase="running", case=name, coordinator=own, peer=other_status)
         try:
-            run_pair(peer, coordinator, case)
+            pair(peer, coordinator, case)
         except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
             case_dir.mkdir(exist_ok=True)
             failure = {"case": name, "reason": str(exc)}
@@ -386,7 +386,11 @@ if __name__ == "__main__":
         run_node(int(index), capture, rendezvous, case)
     elif mode == "campaign":
         try:
-            run_campaign(*sys.argv[2:])
+            if (BASE / "detached-rank-services").is_file():
+                from retry_remaining import run_pair as run_detached
+                run_campaign(*sys.argv[2:], pair=run_detached)
+            else:
+                run_campaign(*sys.argv[2:])
         except BaseException as error:
             write_status(phase="failed", reason=str(error))
             raise
