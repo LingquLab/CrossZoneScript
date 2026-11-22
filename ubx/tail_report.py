@@ -51,7 +51,7 @@ def packet_summary(report):
 
 
 def summarize(case, peer):
-    branch, _, _, mode = case
+    branch, _, _, mode = case[:4]
     folder = BASE / "runs" / case_name(case)
     result = json.loads((folder / "report.json").read_text())
     peer_files = folder / "peer-analysis-inputs"
@@ -80,7 +80,8 @@ def summarize(case, peer):
         summaries = {}
         for path in sorted(output.glob("*-round-*.json")):
             label = path.name.split("-round-", 1)[0]
-            summaries[label] = packet_summary(json.loads(path.read_text()))
+            if label != "min":
+                summaries[label] = packet_summary(json.loads(path.read_text()))
         if summaries.keys() != {"max", "median_low", "median_high"}:
             raise ValueError("expected packet output for the peak and two median rounds")
         if branch in ABC_BRANCHES:
