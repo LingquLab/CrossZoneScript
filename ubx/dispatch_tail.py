@@ -13,6 +13,7 @@ from decimal import Decimal
 import json
 import math
 from pathlib import Path
+import re
 import sys
 
 root = Path(sys.argv[1])
@@ -48,10 +49,13 @@ def timebase(paths, frequency, lanes):
             float((max(starts) - origin) / scale))
 
 
-def round_metrics(paths, frequency, mapping, native, tag, round_id):
+def round_metrics(folder, paths, frequency, mapping, native, tag, round_id, compare_lane=None):
     run = load_profile_run(mapping, list(paths.values()))
     assert run.status == "complete" and len(run.launches) == 1
-    lanes = [lane for lane in run.launches[0].lanes if lane.core < 56]
+    all_lanes = run.launches[0].lanes
+    lanes = [lane for lane in all_lanes if lane.core < 56]
+    counters = {(lane.rank, lane.core - 56): lane.samples for lane in all_lanes
+                if 56 <= lane.core < 112}
     assert sorted((lane.rank, lane.core) for lane in lanes) == [
         (rank, core) for rank in RANKS for core in range(56)
     ]
@@ -74,16 +78,25 @@ def round_metrics(paths, frequency, mapping, native, tag, round_id):
         if not entries:
             return None
         lane, stages, ready, done = max(entries, key=lambda row: tick(row[0].rank, row[3].raw_end))
+        stages.update({sample.name: sample for sample in counters[lane.rank, lane.core]})
         clock = lambda event: round(tick(lane.rank, event), 3)
         values = {"rank_core": [lane.rank, lane.core], "ready": clock(ready.raw_start),
                   "done": clock(done.raw_end),
                   "after_ready_us": round((done.raw_end - ready.raw_start) / frequency, 3)}
         for key in ("recv_index", "recv_progress", "first_record_ready", "role_drain",
-                    "recv_probe_sum", "recv_load_sum", "recv_copyout_sum", "recv_wait_sum"):
+                    "recv_probe_sum", "recv_load_sum", "recv_copyout_sum", "recv_wait_sum", "recv_control_sum"):
             if key in stages:
                 sample = stages[key]
                 values[key] = (clock(sample.raw_start) if sample.kind == "instant" else
                                round(sample.duration_us, 3))
+        log = rank_dir(folder, lane.rank) / "stdout.log"
+        if log.is_file():
+            prefix = f"UBX_CORE rank={lane.rank} round={round_id} core={lane.core} "
+            with log.open() as lines:
+                for line in lines:
+                    if line.startswith(prefix):
+                        values["records"] = int(re.search(r"completed=(\d+)", line)[1])
+                        break
         if bound is not None:
             same_host = lane.rank // 16
             for key in ("last_forward_complete", "last_packet_detected", "last_batch_forward_submit_end",
@@ -108,6 +121,9 @@ def round_metrics(paths, frequency, mapping, native, tag, round_id):
         global_recv = critical_recv(recv)
         if global_recv and global_recv != result["slow_rank_recv"]:
             result["latest_recv"] = global_recv
+    if compare_lane is not None:
+        other = [row for row in recv if (row[0].rank, row[0].core) == tuple(compare_lane)]
+        result["same_peak_recv_lane"] = critical_recv(other)
     return result
 
 
@@ -120,10 +136,12 @@ for bs in (64, 128):
     mapping = capture_mapping(case, frequency)
     rounds = captures(folder)
     raw = {rank: native_rounds(rank_dir(folder, rank), OPERATOR["dispatch", "dispatch"]) for rank in RANKS}
-    values = {"revision": sys.argv[2], "bs": bs, "rounds": [
-        round_metrics(rounds[summary["typical_rounds"][tag]], frequency, mapping, raw, tag,
-                      summary["typical_rounds"][tag]) for tag in ("middle_high", "max")
-    ]}
+    peak_id = summary["typical_rounds"]["max"]
+    peak = round_metrics(folder, rounds[peak_id], frequency, mapping, raw, "max", peak_id)
+    med_id = summary["typical_rounds"]["middle_high"]
+    peak_lane = peak["slow_rank_recv"]["rank_core"]
+    middle = round_metrics(folder, rounds[med_id], frequency, mapping, raw, "middle_high", med_id, peak_lane)
+    values = {"revision": sys.argv[2], "bs": bs, "rounds": [middle, peak]}
     print(json.dumps(values, separators=(",", ":")), flush=True)
 '''
 
