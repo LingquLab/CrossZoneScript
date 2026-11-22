@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -245,6 +246,14 @@ def finalize_case(peer, case):
                             check=True, capture_output=True, timeout=25, text=True)
     all_ranks.update(json.loads(remote.stdout))
     report = summarize(case, all_ranks)
+    if case[0] in TAIL_BRANCHES:
+        route = directory / "routes.bin"
+        route_sha = hashlib.sha256(route.read_bytes()).hexdigest()
+        peer_checksum = subprocess.run(process(peer, ["sha256sum", str(route)]),
+                                       check=True, capture_output=True, timeout=25, text=True)
+        if peer_checksum.stdout.split()[0] != route_sha:
+            raise ValueError("generated route input differs between nodes")
+        report["route_sha256"] = route_sha
     temporary = directory / "report.part"
     temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
     temporary.replace(directory / "report.json")

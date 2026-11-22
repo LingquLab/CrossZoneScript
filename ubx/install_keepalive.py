@@ -28,7 +28,7 @@ def install(args):
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", name) or not re.fullmatch(r"[-\w]+@[\d.]+", endpoint):
         raise ValueError("invalid deployment arguments")
     stage(peer, name, ["campaign.py"])
-    root = stage(coordinator, name, ["campaign.py", "report.py", "keepalive.py"])
+    root = stage(coordinator, name, ["campaign.py", "report.py", "keepalive.py", *args.get("report_files", [])])
     unit = "tilexr-" + name + "-recovery"
     if not re.fullmatch(r"[-\w./]+", str(root)):
         raise ValueError("invalid installation path")
