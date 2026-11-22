@@ -11,10 +11,10 @@ import tarfile
 import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-ep16"
+case = root / "combine-memory-cast-c266-ep16-reference-net"
 reference = root / "lr8-source/lr8-8p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast-ep16"
+name = "tilexr-cpu-b4f4660a-combine-cast-ep16-ref"
 container_case = "/work/" + case.name
 
 
@@ -46,15 +46,11 @@ def main(result):
     assert all(sha(case / f) == digest for f, digest in IDENTITY["objects"].items())
     for directory in ("v310_config", "UBusSim_config"):
         shutil.copytree(reference / directory, case / directory)
-    for filename, key, baseline in (
-        ("UBusSim_simulator_config.yml", "host_num", 512),
-        ("UBusSim_simulator_config_topo.yml", "host_num_per_pod", 64),
-    ):
-        config = case / "UBusSim_config" / filename
-        updated, count = re.subn(rf"(?m)^(\s*{key}:\s*){baseline}(?=\s|$)", rf"\g<1>16", config.read_text())
-        assert count == 1, key
-        config.write_text(updated)
-    result["topology_hosts"] = 16
+    network = (case / "UBusSim_config" / "UBusSim_simulator_config.yml").read_text()
+    result["configured_network_hosts"] = int(re.search(r"(?m)^\s*host_num:\s*(\d+)", network).group(1))
+    workload = json.loads((case / "workload.yml").read_text())["workload_config"]
+    assert set(workload) == {f"chip{rank}" for rank in range(16)}
+    result["workload_ranks"] = len(workload)
     for file in ("test_UBusSim.py", "installed_model.py", "environment.snapshot.json"):
         shutil.copyfile(platform / file, case / file)
     shutil.copyfile(case / "workload.yml", case / "v310_config/workload_config.yml")
@@ -78,7 +74,13 @@ def main(result):
                          stdout=log, stderr=subprocess.STDOUT, timeout=780)
         result["sst_wall_seconds"] = round(time.monotonic() - started, 3)
         result["sst_exit"] = run.returncode
-        tail = (case / "sim.log").read_bytes()[-65536:]
+        with (case / "sim.log").open("rb") as log:
+            log.seek(0, 2)
+            log.seek(max(0, log.tell() - 65536))
+            tail = log.read()
+        if run.returncode:
+            result["log_bytes"] = (case / "sim.log").stat().st_size
+            result["last_log_lines"] = [line[:145] for line in tail.decode(errors="replace").splitlines()[-3:]]
         complete = re.search(rb"Simulation is complete, simulated time: ([0-9.]+) (ns|us|ms|s)", tail)
         result["simulated_time"] = [part.decode("ascii") for part in complete.groups()] if complete else None
         result["dump_files"] = len(list((case / "bin").glob("*.bin")))
