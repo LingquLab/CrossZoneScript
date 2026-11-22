@@ -38,46 +38,41 @@ def recover():
         shutil.copyfile(case / "workload.yml", work / "workload.yml")
         import os
         invocation_env = dict(os.environ, PYTHONPATH=str(case / "profile_sdk.zip"))
-        export = subprocess.run([sys.executable, str(case / "adapter/profile_trace.py"), str(work), "1650"],
+        adapter = work / "profile_trace.py"
+        code = (case / "adapter/profile_trace.py").read_text()
+        load_stream = "        streams.extend(pack_stream(rank, owner, data) for owner in range(OWNERS))"
+        single_stream = """        for owner in range(OWNERS):
+            try:
+                streams.append(pack_stream(rank, owner, data))
+            except ValueError:
+                invalid.append([rank, owner])
+    (case / "invalid-streams.json").write_text(json.dumps(invalid))
+    if not streams:
+        raise ValueError("No complete owner streams")
+"""
+        assert code.count(load_stream) == 1 and code.count("    streams = []") == 1
+        code = code.replace("    streams = []", "    streams = []\n    invalid = []")
+        code = code.replace(load_stream, single_stream)
+        before = '    if pairs[0][1] != 1 or pairs[-1][1] != 2:'
+        checks = ('    if any(event not in {edge for stage in STAGES for edge in stage[2:]} for _, event in pairs):\n'
+                  '        raise ValueError("Unknown profile event")\n'
+                  '    if any(a[0] > b[0] for a, b in zip(pairs, pairs[1:])):\n'
+                  '        raise ValueError("Timestamps misordered")\n')
+        assert code.count(before) == 1
+        adapter.write_text(code.replace(before, checks + before))
+        invocation_env["PYTHONPATH"] = str(case / "adapter") + os.pathsep + str(case / "profile_sdk.zip")
+        export = subprocess.run([sys.executable, str(adapter), str(work), "1650"],
                                 env=invocation_env, capture_output=True, timeout=75)
         if export.returncode:
             errors = export.stderr.decode(errors="replace").splitlines()
-            message = errors[-1] if errors else ""
-            match = re.fullmatch(r"ValueError: Incomplete profile stream rank=(\d+) owner=(\d+): count=(\d+), lost=(\d+), state=(\d+)", message)
-            report["error_type"] = message.split(":", 1)[0]
-            if match:
-                report["first_stream"] = [int(value) for value in match.groups()]
-            report["decoder_sha256"] = sha(decoder)
-            error_categories = {
-                "missing_dump_bytes": "Missing dump bytes",
-                "conflicting_records": "Conflicting dump records",
-                "truncated_dump": "Truncated addressed-512",
-                "missing_kernel_endpoints": "Missing kernel endpoints",
-                "incomplete_stream": "Incomplete profile stream",
-                "invalid_range": "Need a nonempty chip-local output range",
-                "decoder_identity": "decoder identity differs",
-            }
-            report["reason"] = next((key for key, value in error_categories.items()
-                                     if value in message), "other")
-            ids = re.search(r"rank=(\d+) owner=(\d+)", message)
-            if ids:
-                report["first_rank_owner"] = [int(value) for value in ids.groups()]
-            if report["reason"] == "missing_kernel_endpoints":
-                diagnostic = work / "diagnose.py"
-                code = (case / "adapter/profile_trace.py").read_text()
-                lead = '        raise ValueError(f"Missing kernel endpoints for rank={rank} owner={owner}")'
-                code = code.replace(lead, '        print("ENDPOINTS", rank, owner, count, pairs[0][1], pairs[-1][1]); raise SystemExit(3)')
-                sys.path.insert(0, str(case / "adapter"))
-                diagnostic.write_text(code)
-                env_with_adapter = dict(invocation_env, PYTHONPATH=str(case / "adapter") + os.pathsep + str(case / "profile_sdk.zip"))
-                debug = subprocess.run([sys.executable, str(diagnostic), str(work), "1650"],
-                                       env=env_with_adapter, capture_output=True, timeout=75)
-                endpoint = re.fullmatch(rb"ENDPOINTS (\d+) (\d+) (\d+) (\d+) (\d+)\s*", debug.stdout)
-                if endpoint:
-                    report["endpoint_values"] = [int(value) for value in endpoint.groups()]
+            report["error_type"] = errors[-1].split(":", 1)[0] if errors else "Unknown"
             report["status"] = "records_export_failed"
             return report
         report["streams"] = int(export.stdout)
+        invalid = json.loads((work / "invalid-streams.json").read_text())
+        report["invalid_stream_count"] = len(invalid)
+        report["invalid_stream_sample"] = invalid[:8]
+        assert report["streams"] + len(invalid) == 1024
         render = subprocess.run([sys.executable, "-m", "tilexr_profiling", "--mapping",
                                  str(work / "profile.mapping.json"), "--records",
                                  str(work / "profile.records.bin"), "--output-dir",
@@ -93,6 +88,7 @@ def recover():
             report["rendered_json_files"] = len(list((work / "profile-report").glob("*.json")))
             return report
         output = case / "profile-recovered"
-        output.mkdir(exist_ok=False)
+        output.mkdir(exist_ok=True)
         shutil.copyfile(artifact, output / artifact.name)
+        shutil.copyfile(work / "invalid-streams.json", output / "invalid-streams.json")
         return dict(report, status="rendered", stages=compact(artifact), sha256=sha(artifact))
