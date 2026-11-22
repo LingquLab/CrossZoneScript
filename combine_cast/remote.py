@@ -8,12 +8,13 @@ import re
 import shutil
 import subprocess
 import tarfile
+import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-b1"
+case = root / "combine-memory-cast-c266-b2"
 reference = root / "lr8-source/lr8-8p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast"
+name = "tilexr-cpu-b4f4660a-combine-cast-8h"
 container_case = "/work/" + case.name
 
 
@@ -45,6 +46,15 @@ def main(result):
     assert all(sha(case / f) == digest for f, digest in IDENTITY["objects"].items())
     for directory in ("v310_config", "UBusSim_config"):
         shutil.copytree(reference / directory, case / directory)
+    for filename, key, baseline in (
+        ("UBusSim_simulator_config.yml", "host_num", 512),
+        ("UBusSim_simulator_config_topo.yml", "host_num_per_pod", 64),
+    ):
+        config = case / "UBusSim_config" / filename
+        updated, count = re.subn(rf"(?m)^(\s*{key}:\s*){baseline}(?=\s|$)", rf"\g<1>8", config.read_text())
+        assert count == 1, key
+        config.write_text(updated)
+    result["topology_hosts"] = 8
     for file in ("test_UBusSim.py", "installed_model.py", "environment.snapshot.json"):
         shutil.copyfile(platform / file, case / file)
     shutil.copyfile(case / "workload.yml", case / "v310_config/workload_config.yml")
@@ -62,9 +72,11 @@ def main(result):
         result["status"] = "sst_running"
         (case / "result.json").write_text(json.dumps(result))
         command = 'cd "$1"; source /opt/sim/sst-env.sh; exec /opt/sim/local/sstcore/bin/sst -n 8 ./test_UBusSim.py'
+        started = time.monotonic()
         with (case / "sim.log").open("wb") as log:
             run = docker("exec", identity, "bash", "-c", command, "bash", container_case,
                          stdout=log, stderr=subprocess.STDOUT, timeout=780)
+        result["sst_wall_seconds"] = round(time.monotonic() - started, 3)
         result["sst_exit"] = run.returncode
         tail = (case / "sim.log").read_bytes()[-65536:]
         complete = re.search(rb"Simulation is complete, simulated time: ([0-9.]+) (ns|us|ms|s)", tail)
@@ -101,4 +113,12 @@ except (OSError, ValueError, AssertionError, subprocess.SubprocessError) as erro
         (case / "failure.log").write_text(traceback.format_exc())
 if case.is_dir():
     (case / "result.json").write_text(json.dumps(result, indent=2))
-print(json.dumps(result, separators=(",", ":")))
+compact = dict(result)
+if "cases" in result:
+    compact["cases"] = [
+        [row["rank"], [[key, data.get("tested"), data.get("bitwise_differences"), data.get("mismatches"),
+                       data.get("guards_ok"), data.get("export_error"), data.get("first", [])[:2]]
+                      for key, data in row.items() if isinstance(data, dict)]]
+        for row in result["cases"]
+    ]
+print(json.dumps(compact, separators=(",", ":")))
