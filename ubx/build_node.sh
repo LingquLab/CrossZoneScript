@@ -22,6 +22,9 @@ elif [[ "$kind" = dispatch-tail ]]; then
 elif [[ "$kind" = dispatch-tail-assist ]]; then
     branches=(tail-reviewed)
     configs=(tail-reviewed-off tail-reviewed-on)
+elif [[ "$kind" = dispatch-tail-abc ]]; then
+    branches=(tail-a tail-b tail-c)
+    configs=(tail-a-off tail-b-off tail-c-off tail-a-on tail-b-on tail-c-on)
 fi
 exec >> "$PWD/build.log" 2>&1
 exec 9>"$PWD/build.lock"
@@ -80,6 +83,16 @@ for config in "${configs[@]}"; do
         packet_trace=ON
         packet_records=4096
     fi
+    topk_flags=()
+    if [[ "$kind" = dispatch-tail-abc ]]; then
+        recv_topk=OFF
+        intra_fanout=OFF
+        [[ "$branch" = tail-a ]] || recv_topk=ON
+        [[ "$branch" != tail-c ]] || intra_fanout=ON
+        topk_flags=(-DTILEXR_EP_UBX_FANOUT_COPIES=OFF
+                    -DTILEXR_EP_UBX_RECV_TOPK="$recv_topk"
+                    -DTILEXR_EP_UBX_INTRA_FANOUT="$intra_fanout")
+    fi
     tree="$base/trees/$branch$tree_suffix"
     build="$base/builds/$config"
     install="$base/installs/$config"
@@ -99,7 +112,7 @@ for config in "${configs[@]}"; do
         cmake -S "$tree" -B "$runtime" -G "$generator" -DBUILD_TESTING=OFF \
             -DTILEXR_BUILD_UNITEST=OFF -DTILEXR_BUILD_EP=ON -DTILEXR_BUILD_DIAGNOSTICS=ON \
             -DTILEXR_EP_ENABLE_PROFILING="$profiling" -DTILEXR_EP_UBX_PACKET_TRACE="$packet_trace" \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
+            "${topk_flags[@]}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$install"
         cmake --build "$runtime" --parallel 8
         cmake --install "$runtime"
         fixture=ubx_full_intra
@@ -118,6 +131,9 @@ for config in "${configs[@]}"; do
             printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode" "packet_records=$packet_records"
             if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed && -f "$base/restore_expert_copy.patch" ]]; then
                 printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/restore_expert_copy.patch" | cut -d' ' -f1)"
+            fi
+            if [[ "$kind" = dispatch-tail-abc ]]; then
+                printf '%s\n' "recv_topk=$recv_topk" "intra_fanout=$intra_fanout"
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
             printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"

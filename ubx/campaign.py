@@ -16,7 +16,8 @@ import time
 import uuid
 
 BASE = Path(__file__).resolve().parent
-TAIL_BRANCHES = ("tail-base", "tail-reviewed")
+ABC_BRANCHES = ("tail-a", "tail-b", "tail-c")
+TAIL_BRANCHES = ("tail-base", "tail-reviewed", *ABC_BRANCHES)
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
        "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
@@ -208,7 +209,10 @@ def run_node(index, capture, rendezvous, case):
             traces = list((directory / f"rank-{rank:02}").glob("*.records.bin"))
             if len(traces) != 25:
                 raise RuntimeError(f"rank {rank} has {len(traces)} of 25 captures")
-    (directory / f"node-{index}.json").write_text(json.dumps(rounds), encoding="utf-8")
+    node = directory / f"node-{index}.json"
+    partial = node.with_suffix(".part")
+    partial.write_text(json.dumps(rounds), encoding="utf-8")
+    partial.replace(node)
 
 
 def summarize(case, all_ranks):
@@ -298,6 +302,10 @@ def recover_case(peer, case):
     return False
 
 
+class TransportError(RuntimeError):
+    pass
+
+
 def run_pair(peer, coordinator_ip, case):
     name = case_name(case)
     unit = "tilexr-" + BASE.name + "-" + name
@@ -317,6 +325,8 @@ def run_pair(peer, coordinator_ip, case):
             codes = [child.poll() for child in tasks]
             if codes == [0, 0]:
                 break
+            if case[0] in ABC_BRANCHES and codes[1] == 255:
+                raise TransportError(f"per-node services failed: {codes}")
             if any(code not in (0, None) for code in codes) or time.monotonic() >= deadline:
                 raise RuntimeError(f"per-node services failed: {codes}")
             time.sleep(1)
@@ -342,40 +352,67 @@ def run_campaign(coordinator, peer):
         if recover_case(peer, case):
             completed += 1
             continue
-        ready = str(BASE / "ready" / case_package(case).name)
+        retry_marker = BASE / f"{name}.transport-retried"
         while True:
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                remote = pool.submit(bounded_output, remote_python(peer, "probe", ready))
-                own = occupancy()
-                other = remote.result().split()
-            peer_ready, other_status = other if len(other) == 2 else ("0", "?" * 16)
-            if Path(ready).is_file() and peer_ready == "1":
-                phase = "checking_occupancy"
-                if own == other_status == "I" * 16:
-                    break
+            ready = str(BASE / "ready" / case_package(case).name)
+            if case[0] in ABC_BRANCHES:
+                ready = str(BASE / "build.exit")
+            while True:
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    remote = pool.submit(bounded_output, remote_python(peer, "probe", ready))
+                    own = occupancy()
+                    other = remote.result().split()
+                peer_ready, other_status = other if len(other) == 2 else ("0", "?" * 16)
+                local_ready = ready_file(Path(ready))
+                if local_ready < 0 or peer_ready == "-1":
+                    write_status(phase="build_failed", case=name, local_build=local_ready,
+                                 peer_build=peer_ready)
+                    time.sleep(30)
+                    continue
+                if local_ready == 1 and peer_ready == "1":
+                    phase = "checking_occupancy"
+                    if own == other_status == "I" * 16:
+                        break
+                else:
+                    phase = "waiting_for_build"
+                write_status(phase=phase, case=name, coordinator=own, peer=other_status)
+                time.sleep(5)
+            write_status(phase="running", case=name, coordinator=own, peer=other_status)
+            try:
+                run_pair(peer, coordinator, case)
+            except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+                if isinstance(exc, TransportError) and not retry_marker.exists():
+                    retry_marker.touch()
+                    write_status(phase="retrying_transport", case=name)
+                    if recover_case(peer, case):
+                        completed += 1
+                        break
+                    continue
+                case_dir.mkdir(exist_ok=True)
+                failure = {"case": name, "reason": str(exc)}
+                (case_dir / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
+                failed += 1
+                write_status(phase="case_failed", case=name, completed=completed, failed=failed)
             else:
-                phase = "waiting_for_build"
-            write_status(phase=phase, case=name, coordinator=own, peer=other_status)
-            time.sleep(5)
-        write_status(phase="running", case=name, coordinator=own, peer=other_status)
-        try:
-            run_pair(peer, coordinator, case)
-        except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
-            case_dir.mkdir(exist_ok=True)
-            failure = {"case": name, "reason": str(exc)}
-            (case_dir / "failure.json").write_text(json.dumps(failure, indent=2), encoding="utf-8")
-            failed += 1
-            write_status(phase="case_failed", case=name, completed=completed, failed=failed)
-        else:
-            completed += 1
-            write_status(phase="case_completed", case=name, completed=completed, failed=failed)
+                completed += 1
+                write_status(phase="case_completed", case=name, completed=completed, failed=failed)
+            break
     write_status(phase="completed", cases=len(CASES), completed=completed, failed=failed)
+
+
+def ready_file(path):
+    if path.name == "build.exit":
+        try:
+            return 1 if path.read_text().strip() == "0" else -1
+        except FileNotFoundError:
+            return 0
+    return int(path.is_file())
 
 
 if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "probe":
-        print(f"{int(Path(sys.argv[2]).is_file())} {occupancy()}")
+        print(f"{ready_file(Path(sys.argv[2]))} {occupancy()}")
     elif mode == "inspect-case":
         print(json.dumps(inspect_case(sys.argv[2], int(sys.argv[3]))))
     elif mode == "archive-case":

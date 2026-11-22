@@ -1,13 +1,14 @@
 """Collect native timings and run the pinned Dispatch per-route analyzer."""
 
 from collections import Counter
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
 import time
 
-from campaign import BASE, CASES, case_name, case_package
+from campaign import ABC_BRANCHES, BASE, CASES, case_name, case_package
 from report import MEASURED, OPERATOR, RANKS, atomic_json, copy_peer_inputs, native_rounds, rank_dir, stats
 
 
@@ -61,6 +62,12 @@ def summarize(case, peer):
     result.update(native_task_us={"round_slowest_rank": stats(list(per_round.values()))},
                   native_task_round_slowest_rank_us=per_round,
                   provenance=(case_package(case) / "provenance.txt").read_text().splitlines())
+    if branch in ABC_BRANCHES:
+        ordered = sorted(per_round, key=lambda step: (per_round[step], step))
+        result["typical_rounds"] = dict(zip(
+            ("min", "median_low", "median_high", "max"), (ordered[i] for i in (0, 9, 10, 19))))
+        result["native_task_us"]["rank_round"] = stats(
+            [rank[step] for rank in per_rank for step in MEASURED])
     if mode == "on":
         analyzer = BASE / "trees" / branch / "tests/ep/ubx_full_intra/analyze_tail.py"
         output = folder / "tail-report"
@@ -76,8 +83,50 @@ def summarize(case, peer):
             summaries[label] = packet_summary(json.loads(path.read_text()))
         if summaries.keys() != {"max", "median_low", "median_high"}:
             raise ValueError("expected packet output for the peak and two median rounds")
+        if branch in ABC_BRANCHES:
+            spec = importlib.util.spec_from_file_location("analyze_tail", analyzer)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            paths = {step: [rank_dir(folder, rank) / f"rank-{rank}-round-{step}.records.bin"
+                            for rank in RANKS] for step in MEASURED}
+            step = result["typical_rounds"]["min"]
+            minimum = module.analyze_round(paths[step], per_rank, step)
+            atomic_json(output / f"min-round-{step}.json", minimum)
+            summaries["min"] = packet_summary(minimum)
+            result["stages"] = abc_stages(module, paths, result["typical_rounds"], folder)
         result["packet_diagnostics"] = summaries
     atomic_json(folder / "timing.json", result)
+
+
+def abc_stages(module, paths, selected, folder):
+    # Summarize per-round maxima of same-core stages, independent of clock alignment.
+    samples = {}
+    for step, rank_paths in paths.items():
+        maxima, events = {}, []
+        labels = [label for label, round_id in selected.items() if round_id == step]
+        for rank, (path, capture) in enumerate(zip(rank_paths, module.load_record_files(rank_paths))):
+            clock = path.with_suffix("").with_suffix(".clock.json")
+            frequency = json.loads(clock.read_text())["cycles_per_second"] / 1e6
+            decoded = module.analyze(capture, module.CORES, rank, frequency)
+            if decoded["status"] != "complete":
+                raise ValueError(f"failed packet trace on rank {rank} round {step}")
+            origin = min(edge["tick"] for edge in decoded["edges"])
+            for interval in decoded["intervals"]:
+                core, stage = interval["core"], interval["stage"]
+                role = ("SEND", "RECV", "RELAY", "INTRA_SEND")[core // 16]
+                key = (role, stage)
+                duration = interval["duration_us"]
+                maxima[key] = max(maxima.get(key, 0), duration)
+                if labels:
+                    events.append(dict(name=stage, cat=role, ph="X", pid=rank, tid=core,
+                                       ts=(interval["begin_tick"] - origin) / frequency, dur=duration))
+        for key, value in maxima.items():
+            samples.setdefault(key, []).append(value)
+        for label in labels:
+            atomic_json(folder / f"{label}-round-{step}.perfetto.json",
+                        dict(traceEvents=events, round=step, time_origin="independent per rank"))
+    return [dict(role=role, stage=stage, rounds=len(values), round_slowest_core_us=stats(values))
+            for (role, stage), values in sorted(samples.items())]
 
 
 def follow(peer):
