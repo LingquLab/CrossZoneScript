@@ -42,7 +42,7 @@ def download(root, revisions):
         commit = item["commit"]
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise ValueError("invalid pinned commit")
-        ref = "refs/heads/" + item["branch"]
+        ref = commit if item.get("fetch_commit") else "refs/heads/" + item["branch"]
         target = "refs/heads/" + label
         git(source, "fetch", "--quiet", "--no-tags",
             "--depth=2" if item.get("fetch_parent") else "--depth=1", REPO, ref + ":" + target)

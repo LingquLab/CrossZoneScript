@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-from campaign import ABC_BRANCHES, BASE, CASES, case_name, case_package
+from campaign import TAIL_MATRIX_BRANCHES, BASE, CASES, case_name, case_package
 from report import MEASURED, OPERATOR, RANKS, atomic_json, copy_peer_inputs, native_rounds, rank_dir, stats
 
 
@@ -62,7 +62,7 @@ def summarize(case, peer):
     result.update(native_task_us={"round_slowest_rank": stats(list(per_round.values()))},
                   native_task_round_slowest_rank_us=per_round,
                   provenance=(case_package(case) / "provenance.txt").read_text().splitlines())
-    if branch in ABC_BRANCHES:
+    if branch in TAIL_MATRIX_BRANCHES:
         ordered = sorted(per_round, key=lambda step: (per_round[step], step))
         result["typical_rounds"] = dict(zip(
             ("min", "median_low", "median_high", "max"), (ordered[i] for i in (0, 9, 10, 19))))
@@ -84,7 +84,7 @@ def summarize(case, peer):
                 summaries[label] = packet_summary(json.loads(path.read_text()))
         if summaries.keys() != {"max", "median_low", "median_high"}:
             raise ValueError("expected packet output for the peak and two median rounds")
-        if branch in ABC_BRANCHES:
+        if branch in TAIL_MATRIX_BRANCHES:
             module = load_tail_analyzer(analyzer)
             paths = {step: [rank_dir(folder, rank) / f"rank-{rank}-round-{step}.records.bin"
                             for rank in RANKS] for step in MEASURED}

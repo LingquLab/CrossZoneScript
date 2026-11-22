@@ -19,13 +19,13 @@ MATRIX = [(variant, "dispatch", batch, mode, tokens)
           for variant in ABC_BRANCHES for mode in ("off", "on")]
 
 
-def stage_matrix(host):
+def stage_matrix(host, namespace=NAMESPACE, matrix=MATRIX):
     with connect(host) as client, client.open_sftp() as transfer:
         transfer.get_channel().settimeout(30)
-        root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / NAMESPACE
+        root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / namespace
         target = str(root / "matrix.json")
         with transfer.file(target + ".part", "w") as output:
-            output.write(json.dumps(MATRIX))
+            output.write(json.dumps(matrix))
         transfer.posix_rename(target + ".part", target)
 
 

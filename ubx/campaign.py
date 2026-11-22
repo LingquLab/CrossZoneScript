@@ -17,7 +17,9 @@ import uuid
 
 BASE = Path(__file__).resolve().parent
 ABC_BRANCHES = ("tail-a", "tail-b", "tail-c")
-TAIL_BRANCHES = ("tail-base", "tail-reviewed", *ABC_BRANCHES)
+RELAY_BRANCHES = ("tail-relay-base", "tail-relay-ub", "tail-relay-vector", "tail-relay-align")
+TAIL_MATRIX_BRANCHES = (*ABC_BRANCHES, *RELAY_BRANCHES)
+TAIL_BRANCHES = ("tail-base", "tail-reviewed", *TAIL_MATRIX_BRANCHES)
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
        "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
@@ -168,7 +170,7 @@ def rank_records(folder, case, rank):
             raise ValueError(f"rank {rank} reported wrong identity")
         if len(case) == 5:
             effective = item.get("effective_max_tokens")
-            if branch in ABC_BRANCHES and effective is None:
+            if branch in TAIL_MATRIX_BRANCHES and effective is None:
                 # This pinned RDMA fixture reports the configured value. Its 32768-byte
                 # budget leaves both the 1- and 2-token FP8 packets unclamped.
                 payload_bytes = item["hidden"] + 4 * item["topk"] + 64
@@ -177,12 +179,12 @@ def rank_records(folder, case, rank):
                 raise ValueError(f"rank {rank} has inconsistent configured/effective packet cap")
         if branch in TAIL_BRANCHES:
             expected_capture = case[3] == "on"
-            expected_tokens = case[4] if branch in ABC_BRANCHES else 2
+            expected_tokens = case[4] if branch in TAIL_MATRIX_BRANCHES else 2
             if (item.get("max_tokens") != expected_tokens or item.get("dtype") != "fp8e4m3"
                     or item.get("packet_trace") is not expected_capture
                     or item.get("packet_trace_records") != (4096 if expected_capture else 0)):
                 raise ValueError(f"rank {rank} has inconsistent Dispatch trace settings")
-            if branch in ABC_BRANCHES and (item["hidden"], item["topk"], item["experts"], item["rank_size"]) != (3584, 8, 384, 32):
+            if branch in TAIL_MATRIX_BRANCHES and (item["hidden"], item["topk"], item["experts"], item["rank_size"]) != (3584, 8, 384, 32):
                 raise ValueError(f"rank {rank} has inconsistent Dispatch input size")
         round_id = item["round"]
         if round_id in records or item["warmup"] != (round_id < 5):
@@ -345,7 +347,7 @@ def run_pair(peer, coordinator_ip, case):
             codes = [child.poll() for child in tasks]
             if codes == [0, 0]:
                 break
-            if case[0] in ABC_BRANCHES and codes[1] == 255:
+            if case[0] in TAIL_MATRIX_BRANCHES and codes[1] == 255:
                 raise TransportError(f"per-node services failed: {codes}")
             if any(code not in (0, None) for code in codes) or time.monotonic() >= deadline:
                 raise RuntimeError(f"per-node services failed: {codes}")
@@ -375,7 +377,7 @@ def run_campaign(coordinator, peer):
         retry_marker = BASE / f"{name}.transport-retried"
         while True:
             ready = str(BASE / "ready" / case_package(case).name)
-            if case[0] in ABC_BRANCHES:
+            if case[0] in TAIL_MATRIX_BRANCHES:
                 ready = str(BASE / "build.exit")
             while True:
                 with ThreadPoolExecutor(max_workers=2) as pool:

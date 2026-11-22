@@ -25,6 +25,10 @@ elif [[ "$kind" = dispatch-tail-assist ]]; then
 elif [[ "$kind" = dispatch-tail-abc ]]; then
     branches=(tail-a tail-b tail-c)
     configs=(tail-a-off tail-b-off tail-c-off tail-a-on tail-b-on tail-c-on)
+elif [[ "$kind" = dispatch-tail-relay ]]; then
+    branches=(tail-relay)
+    configs=(tail-relay-base-off tail-relay-ub-off tail-relay-vector-off tail-relay-align-off
+             tail-relay-base-on tail-relay-ub-on tail-relay-vector-on tail-relay-align-on)
 fi
 exec >> "$PWD/build.log" 2>&1
 exec 9>"$PWD/build.lock"
@@ -93,6 +97,21 @@ for config in "${configs[@]}"; do
                     -DTILEXR_EP_UBX_RECV_TOPK="$recv_topk"
                     -DTILEXR_EP_UBX_INTRA_FANOUT="$intra_fanout")
     fi
+    if [[ "$kind" = dispatch-tail-relay ]]; then
+        relay_ub=OFF
+        relay_vector=OFF
+        relay_align=OFF
+        case "$branch" in
+            tail-relay-ub) relay_ub=ON ;;
+            tail-relay-vector) relay_vector=ON ;;
+            tail-relay-align) relay_align=ON ;;
+        esac
+        topk_flags=(-DTILEXR_EP_UBX_FANOUT_COPIES=OFF -DTILEXR_EP_UBX_RECV_TOPK=OFF
+                    -DTILEXR_EP_UBX_INTRA_FANOUT=OFF -DTILEXR_EP_UBX_RELAY_UB="$relay_ub"
+                    -DTILEXR_EP_UBX_RELAY_VECTOR="$relay_vector"
+                    -DTILEXR_EP_UBX_RELAY_TOKEN_ALIGN="$relay_align")
+        ln -sfn tail-relay "$base/trees/$branch"
+    fi
     tree="$base/trees/$branch$tree_suffix"
     build="$base/builds/$config"
     install="$base/installs/$config"
@@ -134,6 +153,9 @@ for config in "${configs[@]}"; do
             fi
             if [[ "$kind" = dispatch-tail-abc ]]; then
                 printf '%s\n' "recv_topk=$recv_topk" "intra_fanout=$intra_fanout"
+            fi
+            if [[ "$kind" = dispatch-tail-relay ]]; then
+                printf '%s\n' "recv_topk=OFF" "intra_fanout=OFF" "relay_ub=$relay_ub"                     "relay_vector=$relay_vector" "relay_token_align=$relay_align"
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
             printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"
