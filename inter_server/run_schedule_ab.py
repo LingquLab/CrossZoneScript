@@ -18,6 +18,10 @@ identity = json.loads((inputs / "fixture-identity.json").read_text())
 assert identity["tokens"] == 96 and identity["hidden"] == 256
 request = {"mode": mode, "identity": identity, "variants": {}}
 if mode == "run":
+    request["metadata_variants"] = [
+        json.loads((resource / variant / "build-record.json").read_text())
+        for variant in ("forward_page", "range_cache")
+    ]
     archive = (inputs / "fixture-images.tar.gz").read_bytes()
     assert hashlib.sha256(archive).hexdigest() == identity["input_archive_sha256"]
     request["archive"] = base64.b64encode(archive).decode("ascii")
@@ -42,7 +46,7 @@ compile(source, "<schedule_runner>", "exec")
 command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
            "-o", "ConnectTimeout=10", "root@141.61.94.58", "python3", "-"]
 proc = subprocess.run(command, input=source.encode("utf-8"), capture_output=True,
-                      timeout=8250 if mode == "run" else 45)
+                      timeout=12400 if mode == "run" else 45)
 if proc.returncode:
     print(json.dumps({"remote_exit_code": proc.returncode, "stderr_bytes": len(proc.stderr)}))
     raise SystemExit(1)
