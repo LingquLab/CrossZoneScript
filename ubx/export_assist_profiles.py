@@ -36,7 +36,7 @@ if sys.argv[3] == "snapshot":
 entries = []
 with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:
     for relative in ("matrix.json", "status.json", "report-status.json", "retry-status.json",
-                     "retry-remaining.json", "restore_expert_copy.patch",
+                     "retry-remaining.json", "restore_expert_copy.patch", "fix_route_vector_counter.patch",
                      provenance):
         path = root / relative
         if path.is_file():

@@ -78,7 +78,8 @@ if sys.argv[2] == "pack" and state.get("phase") == "completed" and len(results) 
                 if file.is_file():
                     archive.write(file, file.relative_to(root))
         for name in ("matrix.json", "status.json", "report-status.json", "retry-status.json",
-                     "retry-remaining.json", "retry-host-barrier.json", "restore_expert_copy.patch"):
+                     "retry-remaining.json", "retry-host-barrier.json", "restore_expert_copy.patch",
+                     "fix_route_vector_counter.patch"):
             if (root / name).is_file():
                 archive.write(root / name, name)
         archive.writestr("comparison.json", json.dumps(answer, indent=2) + "\n")

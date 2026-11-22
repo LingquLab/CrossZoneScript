@@ -51,11 +51,13 @@ for branch in "${branches[@]}"; do
         git --git-dir="$PWD/upstream/tilexr.git" worktree add --detach "$tree" "$expected"
     fi
     [[ $(git -C "$tree" rev-parse HEAD) = "$expected" ]]
-    if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed && -f "$PWD/restore_expert_copy.patch" ]]; then
-        patch="$PWD/restore_expert_copy.patch"
-        if ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
-            git -C "$tree" apply "$patch"
-        fi
+    if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed ]]; then
+        for patch_name in restore_expert_copy.patch fix_route_vector_counter.patch; do
+            patch="$PWD/$patch_name"
+            if [[ -f "$patch" ]] && ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
+                git -C "$tree" apply "$patch"
+            fi
+        done
     fi
     for module in spdlog picojson tilelang-ascend; do
         revision=$(git -C "$tree" ls-tree HEAD "3rdparty/$module" | awk '{print $3}')
@@ -116,8 +118,13 @@ for config in "${configs[@]}"; do
         test -x "$install/bin/$fixture"
         {
             printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode" "packet_records=$packet_records"
-            if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed && -f "$base/restore_expert_copy.patch" ]]; then
-                printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/restore_expert_copy.patch" | cut -d' ' -f1)"
+            if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed ]]; then
+                for patch_name in restore_expert_copy.patch fix_route_vector_counter.patch; do
+                    if [[ -f "$base/$patch_name" ]]; then
+                        printf 'source_patch=%s\n' "$patch_name"
+                        printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/$patch_name" | cut -d' ' -f1)"
+                    fi
+                done
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum
             printf '%s\n' "fixture_revision=$(git -C "$fixture_tree" rev-parse HEAD)"

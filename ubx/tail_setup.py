@@ -34,9 +34,14 @@ def main():
     if args.get("rebuild_reviewed"):
         if not assist:
             build["files"].append("restore_expert_copy.patch")
+        if args.get("fix_vector_counter"):
+            if revision != "b2dea4e8570d3ae2afc0cfd258881102f67ae2e5":
+                raise ValueError("the vector counter patch is bound to b2dea4e8")
+            build["files"].append("fix_route_vector_counter.patch")
         with ThreadPoolExecutor(max_workers=2) as pool:
             states = list(pool.map(lambda host: deploy(host, build), hosts))
-        print(json.dumps({"namespace": namespace, "build": states, "restored_helper": "UBXExpertCopyDirectory"}))
+        print(json.dumps({"namespace": namespace, "build": states,
+                          "patches": [name for name in build["files"] if name.endswith(".patch")]}))
         return
     phase = "fetch"
     try:
