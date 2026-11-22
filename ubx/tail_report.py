@@ -24,6 +24,13 @@ def packet_summary(report):
             stage = phase["stage"]
             prefix[stage] = max(prefix.get(stage, 0), phase["duration_us"])
     tokens = report["relay_tokens"]
+    role_rows = Counter()
+    for row in report["routes"]:
+        core = row["consumer"][1]
+        role = "SEND" if core < 16 else "RECV" if core < 32 else "INTRA_SEND" if core >= 48 else "RELAY"
+        if role == "RELAY":
+            raise ValueError("unexpected copyout on a RELAY core")
+        role_rows[role] += 1
     def token_group(group):
         return {
             "tokens": len(group),
@@ -36,7 +43,7 @@ def packet_summary(report):
         "native_us": report["native_us"], "tail": {key: tail[key] for key in keys},
         "last_ready": report["last_ready_on_slowest_rank"]["detected_us"],
         "same_core_records": sum(row["consumer"] == tail["consumer"] for row in report["routes"]),
-        "routes": len(report["routes"]), "slow_rank_prefix_us": prefix,
+        "routes": len(report["routes"]), "copyout_rows_by_role": dict(role_rows), "slow_rank_prefix_us": prefix,
         "single_route": token_group([token for token in tokens if token["routes"] == 1]),
         "multi_route": token_group([token for token in tokens if token["routes"] > 1]),
     }

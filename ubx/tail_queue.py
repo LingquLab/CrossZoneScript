@@ -9,12 +9,17 @@ from install_keepalive import install
 from stage_sources import connect, run_remote
 
 
-def main():
-    inputs = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-    namespace = "ep32-tail-ab-377fbe6d"
+AB_NAMESPACE = "ep32-tail-ab-377fbe6d"
+ASSIST_NAMESPACE = "ep32-assist-e8ee4fff-377fbe6d"
+
+
+def start(inputs):
+    assist = inputs.get("assist", False)
+    namespace = ASSIST_NAMESPACE if assist else AB_NAMESPACE
+    branches = ("tail-reviewed",) if assist else ("tail-base", "tail-reviewed")
     cases = [(branch, "dispatch", batch, mode)
              for batch in (128, 64, 32) for mode in ("off", "on")
-             for branch in ("tail-base", "tail-reviewed")]
+             for branch in branches]
     for host in inputs["hosts"]:
         with connect(host) as client, client.open_sftp() as transfer:
             root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / namespace
@@ -29,4 +34,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    start(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")))

@@ -19,6 +19,9 @@ elif [[ "$kind" = dispatch-baseline ]]; then
 elif [[ "$kind" = dispatch-tail ]]; then
     branches=(tail-base tail-reviewed)
     configs=(tail-base-off tail-reviewed-off tail-base-on tail-reviewed-on)
+elif [[ "$kind" = dispatch-tail-assist ]]; then
+    branches=(tail-reviewed)
+    configs=(tail-reviewed-off tail-reviewed-on)
 fi
 exec >> "$PWD/build.log" 2>&1
 exec 9>"$PWD/build.lock"
@@ -48,7 +51,7 @@ for branch in "${branches[@]}"; do
         git --git-dir="$PWD/upstream/tilexr.git" worktree add --detach "$tree" "$expected"
     fi
     [[ $(git -C "$tree" rev-parse HEAD) = "$expected" ]]
-    if [[ "$kind" = dispatch-tail && "$branch" = tail-reviewed && -f "$PWD/restore_expert_copy.patch" ]]; then
+    if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed && -f "$PWD/restore_expert_copy.patch" ]]; then
         patch="$PWD/restore_expert_copy.patch"
         if ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
             git -C "$tree" apply "$patch"
@@ -73,7 +76,7 @@ for config in "${configs[@]}"; do
     profiling=${mode^^}
     packet_trace=OFF
     packet_records=0
-    if [[ "$kind" = dispatch-tail && "$mode" = on ]]; then
+    if [[ "$kind" = dispatch-tail* && "$mode" = on ]]; then
         packet_trace=ON
         packet_records=4096
     fi
@@ -113,7 +116,7 @@ for config in "${configs[@]}"; do
         test -x "$install/bin/$fixture"
         {
             printf '%s\n' "revision=$(git -C "$tree" rev-parse HEAD)" "cann=$ASCEND_HOME_PATH" "kernel_profiling=$mode" "packet_records=$packet_records"
-            if [[ "$kind" = dispatch-tail && "$branch" = tail-reviewed && -f "$base/restore_expert_copy.patch" ]]; then
+            if [[ "$kind" = dispatch-tail* && "$branch" = tail-reviewed && -f "$base/restore_expert_copy.patch" ]]; then
                 printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/restore_expert_copy.patch" | cut -d' ' -f1)"
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum

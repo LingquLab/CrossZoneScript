@@ -8,6 +8,7 @@ import shlex
 import sys
 
 from stage_sources import connect, run_remote
+from tail_queue import AB_NAMESPACE, ASSIST_NAMESPACE
 
 
 COLLECT = r'''
@@ -35,6 +36,7 @@ def compact(packet):
         "copies_before_detect": tail["other_copyouts_after_producer_drain_before_detect"],
         "detect_to_load_us": tail["detected_to_load"], "load_to_issue_us": tail["load_to_copyout_issue"],
         "same_core_records": packet["same_core_records"], "prefix_us": packet["slow_rank_prefix_us"],
+        "copyout_rows_by_role": packet.get("copyout_rows_by_role", {}),
         "relay_token_totals": [packet["single_route"]["tokens"], packet["multi_route"]["tokens"],
                                packet["multi_route"]["split_tokens"]],
     }
@@ -66,7 +68,7 @@ if any(len(hashes) != 1 for hashes in inputs.values()):
 answer = {"phase": state.get("phase"), "case": state.get("case"), "report_state": progress,
           "results": results}
 if sys.argv[2] == "pack" and state.get("phase") == "completed" and len(results) + len(progress["failed_cases"]) == state["cases"]:
-    target = root / "TileXR-UBX-EP32-Dispatch-tail-AB.zip"
+    target = root / sys.argv[3]
     temporary = target.with_suffix(".part")
     with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=3) as archive:
         for path in (root / "runs").glob("*"):
@@ -90,10 +92,14 @@ print(json.dumps(answer, separators=(",", ":")))
 
 def main():
     args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+    assist = args.get("assist", False)
+    namespace = ASSIST_NAMESPACE if assist else AB_NAMESPACE
+    filename = ("TileXR-UBX-EP32-Dispatch-assist-e8ee4fff.zip" if assist else
+                "TileXR-UBX-EP32-Dispatch-tail-AB.zip")
     with connect(args["host"]) as client, client.open_sftp() as transfer:
-        root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx/ep32-tail-ab-377fbe6d"
+        root = PurePosixPath(transfer.normalize(".")) / ".local/state/tilexr-ubx" / namespace
         mode = "pack" if args.get("pack") else "status"
-        cmd = "/usr/bin/python3 -B - " + shlex.join([str(root), mode])
+        cmd = "/usr/bin/python3 -B - " + shlex.join([str(root), mode, filename])
         code, out, _ = run_remote(client, cmd, timeout=200, input_text=COLLECT)
         if code:
             raise RuntimeError("could not verify Dispatch A/B evidence")
