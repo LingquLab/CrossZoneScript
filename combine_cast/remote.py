@@ -11,10 +11,10 @@ import tarfile
 import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-ep16-reference-net"
-reference = root / "lr8-source/lr8-8p-512b"
+case = root / "combine-memory-cast-c266-ep16-synced"
+reference = root / "lr8-source/lr8-64p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast-ep16-ref"
+name = "tilexr-cpu-b4f4660a-combine-cast-ep16-sync"
 container_case = "/work/" + case.name
 
 
@@ -65,6 +65,13 @@ def main(result):
         cpu = "import glob; assert not any(glob.glob(p) for p in ('/dev/davinci*','/dev/devmm*','/dev/hisi_hdc*'))"
         docker("exec", identity, "python3", "-c", cpu, capture_output=True, check=True)
         result["cpu_only"] = True
+        configure = docker("exec", identity, "python3", container_case + "/sync_rank_config.py",
+                           container_case, capture_output=True, timeout=30)
+        if configure.returncode:
+            (case / "failure.log").write_bytes(configure.stdout + configure.stderr)
+            result.update(status="configuration_error", configuration_exit=configure.returncode)
+            return
+        result.update(json.loads(configure.stdout))
         result["status"] = "sst_running"
         (case / "result.json").write_text(json.dumps(result))
         command = 'cd "$1"; source /opt/sim/sst-env.sh; exec /opt/sim/local/sstcore/bin/sst -n 8 ./test_UBusSim.py'
