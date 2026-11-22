@@ -45,7 +45,7 @@ def on_evidence(directory, timing):
     intervals = defaultdict(list)
     last = []
     fanout_order = Counter()
-    for label in ("median_low", "median_high", "max"):
+    for label in ("median_high", "max"):
         info = timing["packet_diagnostics"][label]
         step = info["round"]
         worst_rank = info["native_slowest_rank"]

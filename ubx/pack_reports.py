@@ -108,7 +108,7 @@ def fetch(args, pack=PACK, command_timeout=75):
             home = Path(os.environ["USERPROFILE"])
             downloads = home / "Downloads"
             folder = downloads if downloads.is_dir() else home
-            target = folder / (f"TileXR-UBX-{namespace}.zip")
+            target = folder / args.get("output_name", f"TileXR-UBX-{namespace}.zip")
             temporary = target.with_suffix(".part")
             transfer.get(summary["bundle"], str(temporary))
             with temporary.open("rb") as handle:
