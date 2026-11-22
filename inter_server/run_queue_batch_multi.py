@@ -12,7 +12,7 @@ root = Path(__file__).resolve().parent
 resource = root / "resources"
 mode = args["mode"]
 variant = args.get("variant", "queue_batch")
-assert mode in {"run", "status"} and variant in {"queue_batch", "hotpath"}
+assert mode in {"run", "status"} and variant in {"queue_batch", "hotpath", "batch_cqe"}
 build = json.loads((resource / variant / "build-record.json").read_text())
 request = {"mode": mode, "build": build, "variant": variant}
 if mode == "run":
