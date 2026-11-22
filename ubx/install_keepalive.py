@@ -21,8 +21,7 @@ def stage(host, namespace, files):
         return root
 
 
-if __name__ == "__main__":
-    args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+def install(args):
     name = args["namespace"]
     coordinator, peer = args["hosts"]
     endpoint = args["peer"]
@@ -55,3 +54,7 @@ systemctl show {unit}.timer -p ActiveState -p SubState -p UnitFileState
         if code:
             raise SystemExit(code)
         print(out)
+
+
+if __name__ == "__main__":
+    install(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")))

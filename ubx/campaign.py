@@ -25,6 +25,9 @@ CONFIGS += [(branch, op, bs) for bs in (64, 128)
             for branch, op in (("stages", "write"), ("stages", "read"), ("sleep", "write"))]
 CASES = [(branch, op, bs, variant) for branch, op, bs in CONFIGS
          for variant in ("off", "on")]
+matrix_file = BASE / "matrix.json"
+if matrix_file.is_file():
+    CASES = [tuple(case) for case in json.loads(matrix_file.read_text(encoding="utf-8"))]
 ENV = {
     "RANK_SIZE": "32", "TILEXR_ENABLE_IPC": "1", "TILEXR_IPC_SCOPE": "local",
     "TILEXR_ENABLE_RDMA": "1", "TILEXR_ENABLE_UDMA": "0", "TILEXR_ENABLE_SDMA": "0",
@@ -89,17 +92,25 @@ def write_status(**values):
 
 
 def case_name(case):
-    branch, op, bs, variant = case
-    return f"{branch}-{op}-bs{bs}-{variant}"
+    branch, op, bs, variant = case[:4]
+    token = f"-max{case[4]}" if len(case) == 5 else ""
+    return f"{branch}-{op}-bs{bs}{token}-{variant}"
 
 
-def package(branch, variant):
-    return BASE / "installs" / f"{branch}-{variant}"
+def package(branch, variant, max_tokens=None):
+    key = f"{branch}-one-{variant}" if branch == "stages" and max_tokens == 1 else f"{branch}-{variant}"
+    return BASE / "installs" / key
+
+
+def case_package(case):
+    return package(case[0], case[3], case[4] if len(case) == 5 else None)
 
 
 def start_rank(rank, directory, case, rendezvous, capture, route):
-    branch, op, bs, variant = case
-    install = package(branch, variant)
+    branch, op, bs, variant = case[:4]
+    max_tokens = case[4] if len(case) == 5 else (4 if branch == "sleep" else 2)
+    install = case_package(case)
+    runtime = package(branch, variant)
     device = rank % 16
     records = directory / f"rank-{rank:02}"
     records.mkdir()
@@ -108,10 +119,11 @@ def start_rank(rank, directory, case, rendezvous, capture, route):
         RANK=str(rank), DEVICE_ID=str(device), TILEXR_COMM_ID=rendezvous,
         TILEXR_RDMA_DEVICE=f"hrn5_{device // 2}", TILEXR_UBX_BS=str(bs),
         TILEXR_UBX_CAPTURE=str(int(variant == "on")),
-        TILEXR_UBX_MAX_TOKENS="4" if branch == "sleep" else "2",
+        TILEXR_UBX_MAX_TOKENS=str(max_tokens),
         TILEXR_UBX_CLOCK_START=str(int(branch != "stages")),
         TILEXR_UBX_ROUTES_FILE=str(route),
-        LD_LIBRARY_PATH=str(install / "lib") + ":" + env.get("LD_LIBRARY_PATH", ""),
+        LD_LIBRARY_PATH=os.pathsep.join([str(install / "lib"), str(runtime / "lib"),
+                                        env.get("LD_LIBRARY_PATH", "")]),
     )
     if branch == "sleep":
         application = [str(install / "bin/ubx_combine_write"), "combine-only", str(records)]
@@ -132,7 +144,7 @@ def start_rank(rank, directory, case, rendezvous, capture, route):
 
 
 def rank_records(folder, case, rank):
-    branch, op, _, _ = case
+    branch, op, _, _ = case[:4]
     if branch == "dispatch":
         candidates = folder.glob("*.summary.json")
     elif branch == "stages":
@@ -148,6 +160,9 @@ def rank_records(folder, case, rank):
             raise ValueError(f"rank {rank} reported invalid correctness or native status")
         if item["rank"] != rank or item["batch"] != case[2]:
             raise ValueError(f"rank {rank} reported wrong identity")
+        if len(case) == 5 and (item.get("max_tokens") != case[4] or
+                               item.get("effective_max_tokens") != case[4]):
+            raise ValueError(f"rank {rank} has inconsistent configured/effective packet cap")
         round_id = item["round"]
         if round_id in records or item["warmup"] != (round_id < 5):
             raise ValueError(f"rank {rank} reported bad warmup/round identity")
@@ -158,7 +173,7 @@ def rank_records(folder, case, rank):
 
 
 def run_node(index, capture, rendezvous, case):
-    branch, _, bs, variant = case
+    branch, _, bs, variant = case[:4]
     directory = BASE / "runs" / case_name(case)
     directory.mkdir(parents=True, exist_ok=False)
     route = directory / "routes.bin"
@@ -186,7 +201,7 @@ def run_node(index, capture, rendezvous, case):
 
 
 def summarize(case, all_ranks):
-    branch, _, _, _ = case
+    branch, _, _, _ = case[:4]
     time_key = {"dispatch": "dispatch_event_us", "stages": "combine_stream_us", "sleep": "combine_us"}[branch]
     byte_key = {"dispatch": "rdma_data_bytes", "stages": "return_bytes", "sleep": "rdma_wire_bytes"}[branch]
     all_samples = [all_ranks[str(rank)][str(round_id)] for rank in range(32) for round_id in range(5, 25)]
@@ -200,6 +215,7 @@ def summarize(case, all_ranks):
     sample = all_samples[0]
     return {
         "case": case_name(case), "unit": unit, "samples": len(all_samples),
+        **({"max_tokens": case[4], "effective_max_tokens": case[4]} if len(case) == 5 else {}),
         "backend": sample["backend"], "native": sample["native"],
         "abi": sample.get("kernel_abi", sample.get("abi")),
         "rank_round": stats([row[time_key] for row in all_samples]),
@@ -305,7 +321,7 @@ def run_campaign(coordinator, peer):
         if recover_case(peer, case):
             completed += 1
             continue
-        ready = str(BASE / "ready" / (case[0] + "-" + case[3]))
+        ready = str(BASE / "ready" / case_package(case).name)
         while True:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 remote = pool.submit(bounded_output, remote_python(peer, "probe", ready))
@@ -344,8 +360,9 @@ if __name__ == "__main__":
     elif mode == "archive-case":
         archive_case(*sys.argv[2:])
     elif mode == "run-node":
-        index, capture, rendezvous, branch, op, bs, variant = sys.argv[2:]
-        run_node(int(index), capture, rendezvous, (branch, op, int(bs), variant))
+        index, capture, rendezvous, branch, op, bs, variant, *max_tokens = sys.argv[2:]
+        case = (branch, op, int(bs), variant, *(int(value) for value in max_tokens))
+        run_node(int(index), capture, rendezvous, case)
     elif mode == "campaign":
         try:
             run_campaign(*sys.argv[2:])

@@ -12,7 +12,7 @@ import sys
 import tarfile
 import time
 
-from campaign import BASE, CASES, case_name, package, process
+from campaign import BASE, CASES, case_name, case_package, process
 
 COMBINE = ("run", "init", "scatter", "scatter_ready", "prepare", "submit",
            "remote_reduce", "contributions", "progress", "readiness_tail",
@@ -87,7 +87,7 @@ def native_rounds(rank_folder, operator):
 
 
 def capture_mapping(case, cycles_per_us):
-    branch, op, _, _ = case
+    branch, op, _, _ = case[:4]
     if branch == "dispatch":
         document = (BASE / "trees" / "dispatch" / "docs" / "ep-ubx-profiling.md").read_text(encoding="utf-8")
         mapping = json.loads(document.split("```json\n", 1)[1].split("```", 1)[0])
@@ -116,7 +116,7 @@ def captures(case_dir):
 
 
 def stage_role(case, core):
-    branch, op, _, _ = case
+    branch, op, _, _ = case[:4]
     if branch == "dispatch":
         return ("SEND", "RECV", "RELAY", "INTRA_SEND")[min(core // 16, 3)]
     if op == "read":
@@ -128,7 +128,8 @@ def profiler_frequency(case_dir, case):
     branch = case[0]
     source = case_dir
     if branch == "stages":
-        source = BASE / "runs" / "dispatch-dispatch-bs64-on"
+        previous = BASE / "prior" if (BASE / "prior").is_dir() else BASE
+        source = previous / "runs" / "dispatch-dispatch-bs64-on"
     nodes = (source, source / "peer-analysis-inputs")
     values = set()
     for index, root in enumerate(nodes):
@@ -200,8 +201,8 @@ def report_case(case, peer):
     report["native_task_round_slowest_rank_us"] = tail
     report["typical_rounds"] = dict(zip(("min", "middle_low", "middle_high", "max"),
                                         [ordered[i] for i in (0, 9, 10, 19)]))
-    info = package(case[0], case[3]) / "provenance.txt"
-    report["provenance"] = info.read_text().splitlines()[:3]
+    info = case_package(case) / "provenance.txt"
+    report["provenance"] = info.read_text().splitlines()
     report["capture_mode"] = {"kernel_profiling": case[3], "native_profiler": True, "stage_barrier": True}
     if case[3] == "on":
         report["stages"] = analyze_stages(case_dir, case, report["typical_rounds"])
@@ -219,6 +220,12 @@ def write_markdown(reports, failures):
         lines.append(f"| {report['case']} | {report['backend']} | {report['native']} | {report['abi']} "
                      f"| {native['min']:.3f} | {native['median']:.3f} | {native['max']:.3f} "
                      f"| {report['rdma_bytes']['median']:.0f} | {report['rdma_GBps']['median']:.3f} |")
+    if (BASE / "matrix.json").is_file():
+        lines.extend(["", "## RDMA 聚包配置", "",
+                      "max1 和 max2 分别表示每个 RDMA 返回包最多包含 1 和 2 个 token。",
+                      "沿用上轮 stages-1-7 Combine 读 max2 的 6 个完整结果，其余项目本轮实测。",
+                      "stages-1-7 用例关闭 sleep_at。第 6、10、14、18、22 轮为空路由轮，最小值可能来自这些轮次。",
+                      "sleep-tests 使用夹具自带的 sleep_at。两种模式的框架 profiler 和屏障均开启。"])
     if failures:
         lines.extend(["", "## 未通过的用例", ""])
         lines.extend(f"- {case}。{reason}" for case, reason in failures.items())
