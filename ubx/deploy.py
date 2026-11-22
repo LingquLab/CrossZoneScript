@@ -32,8 +32,11 @@ def deploy(host, args):
         paths = [shlex.quote(value) for value in args.get("argv", [])]
         program = shlex.quote(str(anchor / args["program"]))
         unit = shlex.quote("tilexr-" + namespace + "-" + args["unit"])
+        restart = ""
+        if args.get("restart"):
+            restart = "if systemctl is-active --quiet " + unit + "; then systemctl stop " + unit + "; fi; "
         command = (
-            "set -eu; if ! systemctl is-active --quiet " + unit + "; then "
+            "set -eu; " + restart + "if ! systemctl is-active --quiet " + unit + "; then "
             + "systemd-run --quiet --collect --property=Type=exec --unit=" + unit
             + " " + args["interpreter"] + " " + program + " " + " ".join(paths)
             + "; fi; systemctl show -p ActiveState -p SubState -p MainPID " + unit

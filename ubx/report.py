@@ -96,7 +96,7 @@ def capture_mapping(case, cycles_per_us):
                 stage.pop("parent", None)
     else:
         mapping = {"schema": "tilexr_profiling_mapping.v1", "operator": OPERATOR[branch, op],
-                   "stages": [{"name": name, "category": "phase", "critical": index == 0,
+                   "stages": [{"name": name, "category": "compute" if index else "total", "critical": index == 0,
                                "begin": 2 * index + 1, "end": 2 * index + 2}
                               for index, name in enumerate(COMBINE)]}
     mapping["cycles_per_us"] = cycles_per_us

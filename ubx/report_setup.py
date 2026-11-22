@@ -14,7 +14,7 @@ if __name__ == "__main__":
     host = args["hosts"][0]
     launch = {"namespace": args["namespace"], "files": ["report.py"],
               "program": "report.py", "interpreter": "/usr/bin/python3",
-              "argv": [args["peer"]], "unit": "report"}
+              "argv": [args["peer"]], "unit": "report", "restart": args.get("restart", False)}
     if not args.get("status_only"):
         print(json.dumps({"report_service": deploy(host, launch)}))
     with ThreadPoolExecutor(max_workers=len(args["hosts"])) as pool:
