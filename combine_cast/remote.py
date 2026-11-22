@@ -11,10 +11,10 @@ import tarfile
 import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-b2"
+case = root / "combine-memory-cast-c266-ep16"
 reference = root / "lr8-source/lr8-8p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast-8h"
+name = "tilexr-cpu-b4f4660a-combine-cast-ep16"
 container_case = "/work/" + case.name
 
 
@@ -35,7 +35,7 @@ def main(result):
     case.mkdir(exist_ok=False)
     with tarfile.open(fileobj=io.BytesIO(package), mode="r:gz") as stream:
         members = stream.getmembers()
-        assert len(members) < 128 and sum(m.size for m in members) < 40 * 1024 * 1024
+        assert len(members) < 256 and sum(m.size for m in members) < 40 * 1024 * 1024
         for member in members:
             rel = PurePosixPath(member.name)
             assert member.isfile() and not rel.is_absolute() and ".." not in rel.parts
@@ -51,10 +51,10 @@ def main(result):
         ("UBusSim_simulator_config_topo.yml", "host_num_per_pod", 64),
     ):
         config = case / "UBusSim_config" / filename
-        updated, count = re.subn(rf"(?m)^(\s*{key}:\s*){baseline}(?=\s|$)", rf"\g<1>8", config.read_text())
+        updated, count = re.subn(rf"(?m)^(\s*{key}:\s*){baseline}(?=\s|$)", rf"\g<1>16", config.read_text())
         assert count == 1, key
         config.write_text(updated)
-    result["topology_hosts"] = 8
+    result["topology_hosts"] = 16
     for file in ("test_UBusSim.py", "installed_model.py", "environment.snapshot.json"):
         shutil.copyfile(platform / file, case / file)
     shutil.copyfile(case / "workload.yml", case / "v310_config/workload_config.yml")
@@ -115,10 +115,21 @@ if case.is_dir():
     (case / "result.json").write_text(json.dumps(result, indent=2))
 compact = dict(result)
 if "cases" in result:
-    compact["cases"] = [
-        [row["rank"], [[key, data.get("tested"), data.get("bitwise_differences"), data.get("mismatches"),
-                       data.get("guards_ok"), data.get("export_error"), data.get("first", [])[:2]]
-                      for key, data in row.items() if isinstance(data, dict)]]
-        for row in result["cases"]
-    ]
+    groups = {}
+    for row in result["cases"]:
+        for name, data in row.items():
+            if not isinstance(data, dict):
+                continue
+            label = "/".join((row["mode"], row["dtype"], name))
+            group = groups.setdefault(label, {"tests": 0, "values": 0, "bit_diffs": 0,
+                                             "mismatches": 0, "guards_failed": 0, "export_errors": 0})
+            group["tests"] += 1
+            group["values"] += data.get("tested", 0)
+            group["bit_diffs"] += data.get("bitwise_differences", 0)
+            group["mismatches"] += data.get("mismatches", 0)
+            group["guards_failed"] += data.get("guards_ok") is False
+            group["export_errors"] += "export_error" in data
+            if data.get("first") and "first" not in group:
+                group["first"] = [row["rank"], *data["first"][0]]
+    compact["cases"] = groups
 print(json.dumps(compact, separators=(",", ":")))
