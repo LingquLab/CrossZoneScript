@@ -1,6 +1,10 @@
 def baseline_name(build, tokens):
-    variant = ("sst-mte-queue-batch" if build["variant"] == "sst-mte-batch-cqe"
-               else "sst-mte-bulk-forward-hotpath")
+    variants = {
+        "sst-mte-batch-cqe": "sst-mte-queue-batch",
+        "sst-mte-forward-page": "sst-mte-drain-count-cache",
+        "sst-mte-range-cache": "sst-mte-drain-count-cache",
+    }
+    variant = variants.get(build["variant"], "sst-mte-bulk-forward-hotpath")
     return f"t{tokens}-{variant}-{build['baseline_kernel_sha256'][:8]}"
 
 
