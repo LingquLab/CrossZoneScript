@@ -37,7 +37,7 @@ print(json.dumps({
     "retry": retry.get("phase"), "case": state.get("case"),
     "finished": len(list((root / "runs").glob("*/report.json"))),
     "reported": reports.get("reports", 0),
-    "expected": reports.get("expected", state.get("cases", 22)),
+    "expected": reports.get("expected", state.get("cases", len(read(root / "matrix.json") or range(22)))),
     "failed_cases": len(list((root / "runs").glob("*/failure.json"))),
     "build": [int(file.read_text()) if file.is_file() else None for file in (base, profile)],
 }))

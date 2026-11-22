@@ -98,7 +98,7 @@ def case_name(case):
 
 
 def package(branch, variant, max_tokens=None):
-    key = f"{branch}-one-{variant}" if branch == "stages" and max_tokens == 1 else f"{branch}-{variant}"
+    key = f"{branch}-one-{variant}" if branch in ("stages", "dispatch") and max_tokens == 1 else f"{branch}-{variant}"
     return BASE / "installs" / key
 
 

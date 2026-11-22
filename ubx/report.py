@@ -222,10 +222,14 @@ def write_markdown(reports, failures):
                      f"| {report['rdma_bytes']['median']:.0f} | {report['rdma_GBps']['median']:.3f} |")
     if (BASE / "matrix.json").is_file():
         lines.extend(["", "## RDMA 聚包配置", "",
-                      "max1 和 max2 分别表示每个 RDMA 返回包最多包含 1 和 2 个 token。",
-                      "沿用上轮 stages-1-7 Combine 读 max2 的 6 个完整结果，其余项目本轮实测。",
-                      "stages-1-7 用例关闭 sleep_at。第 6、10、14、18、22 轮为空路由轮，最小值可能来自这些轮次。",
-                      "sleep-tests 使用夹具自带的 sleep_at。两种模式的框架 profiler 和屏障均开启。"])
+                      "max1 和 max2 分别表示每个 RDMA 包最多包含 1 和 2 个 token。"])
+        if CASES[0][0] == "dispatch":
+            lines.extend(["沿用上轮 FP8 Dispatch max2 的 4 个完整结果。max1 在 Combine 完成后实测。",
+                          "两版均使用同形状、同路由、sleep_at、框架 profiler 和生产屏障。"])
+        else:
+            lines.extend(["沿用上轮 stages-1-7 Combine 读 max2 的 6 个完整结果，其余项目本轮实测。",
+                          "stages-1-7 用例关闭 sleep_at。第 6、10、14、18、22 轮为空路由轮，最小值可能来自这些轮次。",
+                          "sleep-tests 使用夹具自带的 sleep_at。两种模式的框架 profiler 和屏障均开启。"])
     if failures:
         lines.extend(["", "## 未通过的用例", ""])
         lines.extend(f"- {case}。{reason}" for case, reason in failures.items())

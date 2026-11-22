@@ -30,6 +30,20 @@ def ensure(suffix, script, args):
 
 if __name__ == "__main__":
     coordinator, peer = sys.argv[1:]
+    prerequisite = ROOT / "start-after"
+    if prerequisite.is_file():
+        predecessor = prerequisite.read_text(encoding="utf-8").strip()
+        status_file = ROOT.parent / predecessor / "status.json"
+        try:
+            earlier = json.loads(status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            earlier = {}
+        if earlier.get("phase") != "completed":
+            state_file = ROOT / "status.part"
+            state_file.write_text(json.dumps({"phase": "waiting_for_combine",
+                                             "case": "dispatch-dispatch-bs64-max1-off"}), encoding="utf-8")
+            state_file.replace(ROOT / "status.json")
+            raise SystemExit(0)
     status = read("status.json")
     report = read("report-status.json")
     pending = status.get("phase") != "completed"
