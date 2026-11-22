@@ -85,9 +85,7 @@ def summarize(case, peer):
         if summaries.keys() != {"max", "median_low", "median_high"}:
             raise ValueError("expected packet output for the peak and two median rounds")
         if branch in ABC_BRANCHES:
-            spec = importlib.util.spec_from_file_location("analyze_tail", analyzer)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            module = load_tail_analyzer(analyzer)
             paths = {step: [rank_dir(folder, rank) / f"rank-{rank}-round-{step}.records.bin"
                             for rank in RANKS] for step in MEASURED}
             step = result["typical_rounds"]["min"]
@@ -99,13 +97,27 @@ def summarize(case, peer):
     atomic_json(folder / "timing.json", result)
 
 
+
+def load_tail_analyzer(analyzer):
+    path = str(analyzer.parent)
+    sys.path.insert(0, path)
+    try:
+        spec = importlib.util.spec_from_file_location("analyze_tail", analyzer)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.remove(path)
+
+
 def abc_stages(module, paths, selected, folder):
     # Summarize per-round maxima of same-core stages, independent of clock alignment.
     samples = {}
     for step, rank_paths in paths.items():
-        maxima, events = {}, []
+        maxima, events, tracks = {}, [], {}
         labels = [label for label, round_id in selected.items() if round_id == step]
-        for rank, (path, capture) in enumerate(zip(rank_paths, module.load_record_files(rank_paths))):
+        for rank, path in enumerate(rank_paths):
+            capture, = module.load_record_files([path])
             clock = path.with_suffix("").with_suffix(".clock.json")
             frequency = json.loads(clock.read_text())["cycles_per_second"] / 1e6
             decoded = module.analyze(capture, module.CORES, rank, frequency)
@@ -119,8 +131,14 @@ def abc_stages(module, paths, selected, folder):
                 duration = interval["duration_us"]
                 maxima[key] = max(maxima.get(key, 0), duration)
                 if labels:
-                    events.append(dict(name=stage, cat=role, ph="X", pid=rank, tid=core,
-                                       ts=(interval["begin_tick"] - origin) / frequency, dur=duration))
+                    # Derived packet intervals overlap milestones. Give stages separate tracks.
+                    lane = core, stage
+                    if lane not in tracks:
+                        tracks[lane] = len(tracks)
+                    track = tracks[lane]
+                    events.append(dict(name=stage, cat=role, ph="X", pid=rank, tid=track,
+                                       ts=(interval["begin_tick"] - origin) / frequency, dur=duration,
+                                       args={"core": core}))
         for key, value in maxima.items():
             samples.setdefault(key, []).append(value)
         for label in labels:
@@ -142,7 +160,7 @@ def follow(peer):
                 if not (folder / "timing.json").is_file():
                     try:
                         summarize(case, peer)
-                    except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
+                    except (OSError, ValueError, RuntimeError, KeyError, ImportError, subprocess.SubprocessError) as exc:
                         errors[name] = str(exc)
                 reports += int((folder / "timing.json").is_file())
             atomic_json(BASE / "report-status.json", {
