@@ -254,7 +254,10 @@ def follow(peer):
             directory = BASE / "runs" / case_name(case)
             failure = directory / "failure.json"
             if failure.is_file():
-                failures[case_name(case)] = json.loads(failure.read_text(encoding="utf-8"))["reason"]
+                try:
+                    failures[case_name(case)] = json.loads(failure.read_text(encoding="utf-8"))["reason"]
+                except json.JSONDecodeError:
+                    continue
             if (directory / "report.json").is_file() and not (directory / "timing.json").is_file():
                 try:
                     report_case(case, peer)

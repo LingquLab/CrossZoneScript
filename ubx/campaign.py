@@ -210,6 +210,57 @@ def summarize(case, all_ranks):
     }
 
 
+def finalize_case(peer, case):
+    directory = BASE / "runs" / case_name(case)
+    all_ranks = json.loads((directory / "node-0.json").read_text(encoding="utf-8"))
+    remote = subprocess.run(process(peer, ["cat", str(directory / "node-1.json")]),
+                            check=True, capture_output=True, timeout=25, text=True)
+    all_ranks.update(json.loads(remote.stdout))
+    report = summarize(case, all_ranks)
+    temporary = directory / "report.part"
+    temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    temporary.replace(directory / "report.json")
+
+
+def inspect_case(case, index):
+    directory = BASE / "runs" / case
+    unit = "tilexr-" + BASE.name + "-" + case
+    service = subprocess.run(["systemctl", "show", "-p", "ActiveState", "--value", unit],
+                             capture_output=True, timeout=8, text=True)
+    return {"exists": directory.is_dir(), "done": (directory / f"node-{index}.json").is_file(),
+            "active": service.stdout.strip() not in ("inactive", "failed")}
+
+
+def archive_case(case, attempt):
+    directory = BASE / "runs" / case
+    if directory.is_dir():
+        archive = BASE / "attempts" / attempt
+        archive.mkdir(parents=True, exist_ok=True)
+        directory.replace(archive / case)
+
+
+def recover_case(peer, case):
+    name = case_name(case)
+    while True:
+        statuses = [bounded_output(remote_python(host, "inspect-case", name, str(index)))
+                    for index, host in enumerate((None, peer))]
+        if all(statuses):
+            local, other = map(json.loads, statuses)
+            if not local["active"] and not other["active"]:
+                break
+        write_status(phase="recovering_previous_attempt", case=name)
+        time.sleep(5)
+    if local["done"] and other["done"]:
+        finalize_case(peer, case)
+        return True
+    if local["exists"] or other["exists"]:
+        attempt = "interrupted-" + uuid.uuid4().hex
+        for host in (peer, None):
+            subprocess.run(remote_python(host, "archive-case", name, attempt),
+                           timeout=15, check=True)
+    return False
+
+
 def run_pair(peer, coordinator_ip, case):
     name = case_name(case)
     unit = "tilexr-" + BASE.name + "-" + name
@@ -232,15 +283,7 @@ def run_pair(peer, coordinator_ip, case):
             if any(code not in (0, None) for code in codes) or time.monotonic() >= deadline:
                 raise RuntimeError(f"per-node services failed: {codes}")
             time.sleep(1)
-        directory = BASE / "runs" / name
-        all_ranks = json.loads((directory / "node-0.json").read_text(encoding="utf-8"))
-        remote = subprocess.run(process(peer, ["cat", str(directory / "node-1.json")]),
-                                check=True, capture_output=True, timeout=25, text=True)
-        all_ranks.update(json.loads(remote.stdout))
-        report = summarize(case, all_ranks)
-        temporary = directory / "report.part"
-        temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        temporary.replace(directory / "report.json")
+        finalize_case(peer, case)
     finally:
         for host, task in zip((None, peer), tasks):
             if task.poll() != 0:
@@ -259,8 +302,9 @@ def run_campaign(coordinator, peer):
         if (case_dir / "failure.json").is_file():
             failed += 1
             continue
-        if case_dir.exists():
-            raise RuntimeError(f"{name} has unfinished results")
+        if recover_case(peer, case):
+            completed += 1
+            continue
         ready = str(BASE / "ready" / (case[0] + "-" + case[3]))
         while True:
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -295,6 +339,10 @@ if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "probe":
         print(f"{int(Path(sys.argv[2]).is_file())} {occupancy()}")
+    elif mode == "inspect-case":
+        print(json.dumps(inspect_case(sys.argv[2], int(sys.argv[3]))))
+    elif mode == "archive-case":
+        archive_case(*sys.argv[2:])
     elif mode == "run-node":
         index, capture, rendezvous, branch, op, bs, variant = sys.argv[2:]
         run_node(int(index), capture, rendezvous, (branch, op, int(bs), variant))
