@@ -10,10 +10,13 @@ import sys
 
 
 root = Path(__file__).resolve().parent
-resources = root / "resources" / "queue_batch"
-build = json.loads((resources / "build-record.json").read_text(encoding="utf-8"))
 assert sys.argv[1:2] == ["--args-file"] and len(sys.argv) == 3
-mode = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")).get("mode", "run")
+args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+mode = args.get("mode", "run")
+variant = args.get("variant", "queue_batch")
+assert variant in {"queue_batch", "drain_count_cache"}
+resources = root / "resources" / variant
+build = json.loads((resources / "build-record.json").read_text(encoding="utf-8"))
 assert mode in ("run", "status")
 request = {"build": build, "mode": mode}
 if mode == "run":

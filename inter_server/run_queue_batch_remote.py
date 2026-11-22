@@ -68,7 +68,7 @@ def case_status(path):
 
 def run_queue_batch(request):
     build = request["build"]
-    name = "sst-mte-queue-batch-" + build["kernel_sha256"][:8]
+    name = build["variant"] + "-" + build["kernel_sha256"][:8]
     VARIANTS[build["kernel_sha256"]] = "t4-" + name
     if request["mode"] == "status":
         return {f"t{tokens}": case_status(MOUNT / f"t{tokens}-{name}") for tokens in (4, 8)}
