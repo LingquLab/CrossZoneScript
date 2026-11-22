@@ -73,7 +73,7 @@ for branch in "${branches[@]}"; do
         fi
     fi
     if [[ "$kind" = dispatch-tail-relay* ]]; then
-        for patch_name in relay_cann_compat.patch relay_align_shift_compat.patch; do
+        for patch_name in relay_cann_compat.patch relay_align_shift_compat.patch intra_reuse_cann_namespace.patch; do
             patch="$PWD/$patch_name"
             if [[ -f "$patch" ]] && ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
                 git -C "$tree" apply "$patch"
@@ -183,6 +183,9 @@ for config in "${configs[@]}"; do
             fi
             if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
                 printf '%s\n' "intra_token_reuse=$intra_reuse"
+                if [[ -f "$base/intra_reuse_cann_namespace.patch" ]]; then
+                    printf 'intra_patch_sha256=%s\n' "$(sha256sum "$base/intra_reuse_cann_namespace.patch" | cut -d' ' -f1)"
+                fi
             fi
             if [[ "$kind" = dispatch-tail-relay* && "$relay_align" = ON && -f "$base/relay_align_shift_compat.patch" ]]; then
                 printf 'align_patch_sha256=%s\n' "$(sha256sum "$base/relay_align_shift_compat.patch" | cut -d' ' -f1)"

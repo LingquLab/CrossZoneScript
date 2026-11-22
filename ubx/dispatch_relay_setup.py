@@ -39,7 +39,8 @@ def main(args):
     monitor = dict(args, namespace=namespace, report_files=["tail_report.py"])
     if revision == REUSE_REVISION:
         build["argv"] = ["dispatch-tail-relay-reuse"]
-        build["files"].extend(("relay_cann_compat.patch", "relay_align_shift_compat.patch"))
+        build["files"].extend(("relay_cann_compat.patch", "relay_align_shift_compat.patch",
+                               "intra_reuse_cann_namespace.patch"))
         monitor["start_after"] = NAMESPACE
     phase = "fetch"
     try:

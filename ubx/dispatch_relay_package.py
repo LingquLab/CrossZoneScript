@@ -45,6 +45,10 @@ align_patch = root / "relay_align_shift_compat.patch"
 align_digest = hashlib.sha256(align_patch.read_bytes()).hexdigest() if align_patch.is_file() else None
 if align_digest:
     files.append(align_patch)
+intra_patch = root / "intra_reuse_cann_namespace.patch"
+intra_digest = hashlib.sha256(intra_patch.read_bytes()).hexdigest() if intra_patch.is_file() else None
+if intra_digest:
+    files.append(intra_patch)
 summaries = {}
 baselines = {}
 route_hashes = {}
@@ -68,6 +72,10 @@ if compat_digest:
 
 if align_digest:
     markdown[7:7] = ["TOKEN_ALIGN 的 CANN 编译补丁将标量移位量显式转换为 int16_t。", f"`{align_digest}`", ""]
+
+if intra_digest:
+    markdown[7:7] = ["INTRA 分组模板的 CANN 编译补丁明确指定 ClearSpr 和 GatherMaskMode 所属的 MicroAPI。",
+                    f"`{intra_digest}`", ""]
 
 with stage_file.open("w", encoding="utf-8", newline="") as stream:
     stages = csv.writer(stream)
@@ -98,6 +106,8 @@ with stage_file.open("w", encoding="utf-8", newline="") as stream:
             raise ValueError("missing compile compatibility patch provenance")
         if align_digest and variant == "align" and provenance.get("align_patch_sha256") != align_digest:
             raise ValueError("missing token-alignment compatibility patch provenance")
+        if intra_digest and provenance.get("intra_patch_sha256") != intra_digest:
+            raise ValueError("missing INTRA namespace compatibility patch provenance")
         if route_hashes.setdefault(batch, timing["route_sha256"]) != timing["route_sha256"]:
             raise ValueError("route fixtures differ across builds")
         native = timing["native_task_us"]["round_slowest_rank"]
