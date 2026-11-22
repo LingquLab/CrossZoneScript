@@ -24,7 +24,7 @@ def read(path):
         return {}
 
 
-def retry(coordinator, peer, name):
+def retry(coordinator, peer, name, pair=run_pair):
     case = next(item for item in CASES if case_name(item) == name)
     directory = BASE / "runs" / name
     status("waiting_for_main_queue", case=name)
@@ -69,7 +69,7 @@ def retry(coordinator, peer, name):
         time.sleep(5)
     status("running", case=name, archive=attempt)
     try:
-        run_pair(peer, coordinator, case)
+        pair(peer, coordinator, case)
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as error:
         directory.mkdir(exist_ok=True)
         (directory / "failure.json").write_text(json.dumps({"case": name, "reason": str(error)}),

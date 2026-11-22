@@ -15,6 +15,12 @@ def main():
     case = "tail-reviewed-dispatch-bs128-on"
     args.update(namespace=ASSIST_NAMESPACE, case=case)
     hosts = args["hosts"]
+    if args.get("remaining"):
+        config = {"namespace": ASSIST_NAMESPACE, "files": ["retry_remaining.py", "retry_transport.py"],
+                  "program": "retry_remaining.py", "interpreter": "/usr/bin/python3",
+                  "unit": "retry-remaining", "argv": [hosts[0], args["peer"]]}
+        print(json.dumps({"remaining": deploy(hosts[0], config)}, separators=(",", ":")))
+        return
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(inspect, host, args, i == 0) for i, host in enumerate(hosts)]
         observations = [future.result() for future in futures]
