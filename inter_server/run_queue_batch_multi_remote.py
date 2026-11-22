@@ -11,7 +11,7 @@ def prepare_bulk(request, case, container_case):
     data = base64.b64decode(request["archive"], validate=True)
     assert hashlib.sha256(data).hexdigest() == identity["input_archive_sha256"]
     assert identity["tokens"] == request["tokens"] == 257
-    assert identity["hidden"] == request["hidden"] == 16
+    assert identity["hidden"] == request["hidden"] and identity["hidden"] in (16, 256)
     template = MOUNT / "t4-sst-mte-bulk-forward-hotpath-1a2f3549"
     template_manifest = json.loads((template / "case-manifest.json").read_text())
     assert template_manifest["kernel_sha256"].startswith("1a2f3549")
@@ -42,7 +42,7 @@ def prepare_bulk(request, case, container_case):
                                   for chip in chips.values())
     fixture = case / "fixture-data"
     fixture_manifest = json.loads((fixture / "manifest.json").read_text())
-    assert fixture_manifest["tokens"] == 257 and fixture_manifest["hidden"] == 16 and fixture_manifest["chunks"] == 5
+    assert fixture_manifest["tokens"] == 257 and fixture_manifest["hidden"] == request["hidden"] and fixture_manifest["chunks"] == 5
 
     for name, expected in template_manifest["files"].items():
         rel = Path(name)
@@ -113,9 +113,11 @@ def run_multichunk(request):
         return result
     build = request["build"]
     name = "t257-" + request["variant"] + "-" + build["kernel_sha256"][:8]
-    if request["memory_retry"]:
+    if request["focused"]:
+        name += "-focused"
+    elif request["memory_retry"]:
         name += "-32g"
     VARIANTS[build["kernel_sha256"]] = name
     if request["mode"] == "status":
         return case_status(MOUNT / name)
-    return main(dict(request, tokens=257, hidden=16, forward_images=True))
+    return main(dict(request, tokens=257, hidden=request["identity"]["hidden"], forward_images=True))

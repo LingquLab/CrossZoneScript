@@ -14,10 +14,11 @@ mode = args["mode"]
 variant = args.get("variant", "queue_batch")
 assert mode in {"run", "status", "matrix"} and variant in {"queue_batch", "hotpath", "batch_cqe"}
 build = json.loads((resource / variant / "build-record.json").read_text())
-request = {"mode": mode, "build": build, "variant": variant, "memory_retry": bool(args.get("memory_retry"))}
+request = {"mode": mode, "build": build, "variant": variant, "memory_retry": bool(args.get("memory_retry")), "focused": bool(args.get("focused"))}
 if mode in {"run", "matrix"}:
-    request["identity"] = json.loads((resource / "queue_batch_multi/fixture-identity.json").read_text())
-    request["archive"] = base64.b64encode((resource / "queue_batch_multi/fixture-images.tar.gz").read_bytes()).decode("ascii")
+    inputs = resource / ("queue_batch_focused" if request["focused"] else "queue_batch_multi")
+    request["identity"] = json.loads((inputs / "fixture-identity.json").read_text())
+    request["archive"] = base64.b64encode((inputs / "fixture-images.tar.gz").read_bytes()).decode("ascii")
     request["object"] = base64.b64encode((resource / variant / "inter_server_send.o.gz").read_bytes()).decode("ascii")
 if mode == "matrix":
     request["variants"] = {}
