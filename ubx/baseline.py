@@ -42,6 +42,25 @@ for path in files[:12]:
     except (OSError, ValueError):
         continue
 LINUX
+printf '%s\n' '=== qualification files ==='
+for top in "$HOME"/tilexr-ubx-validation-* "$HOME"/ubx-ep32-* "$HOME"/crosszone; do
+    test -d "$top" || continue
+    timeout 5 find "$top" -maxdepth 4 -type f \( -iname '*hccl*baseline*' -o -iname '*hccl*qualification*' -o -iname '*all*reduce*.log' -o -path '*/qualification-*/*' \) -print 2>/dev/null
+done | sort -u | head -65
+for directory in "$HOME"/tilexr-ubx-validation-*/qualification-*; do
+    test -d "$directory" || continue
+    printf 'qualification=%s\n' "$directory"
+    timeout 7 find "$directory" -maxdepth 2 -type f -size -2M -print0 | xargs -0 -r grep -hEi '(^|[[:space:]])(mpirun|all_reduce_test)([[:space:]]|$)|aiv_only|rank[_ ]?size|errors in test|out of bounds|test[_ ]?result|CANN|firmware' 2>/dev/null | cut -c1-220 | awk '!seen[$0]++' | head -15
+done
+tool=/usr/local/Ascend/cann/tools/hccl_test/bin/all_reduce_test
+if test -x "$tool"; then
+    (
+        source /usr/local/Ascend/cann/set_env.sh >/dev/null 2>&1
+        printf 'mpi=%s\n' "$(command -v mpirun || true)"
+        timeout 6 "$tool" --help 2>&1 | grep -E -- 'aiv_only|--npus|--ranks|--device|--check|--ranktable' | head -10
+        sha256sum "$tool" | cut -d' ' -f1
+    )
+fi
 for root in /usr/local/Ascend/cann /usr/local/Ascend/ascend-toolkit; do
     if [ -d "$root" ]; then
         resolved=$(readlink -f "$root")
