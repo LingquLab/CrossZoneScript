@@ -11,10 +11,10 @@ import tarfile
 import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-v310-local-fp16"
+case = root / IDENTITY.get("case_dir", "combine-memory-cast-c266-v310-local-fp16")
 reference = root / "lr8-source/lr8-64p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast-v310-local"
+name = IDENTITY.get("container_name", "tilexr-cpu-b4f4660a-combine-cast-v310-local")
 container_case = "/work/" + case.name
 
 

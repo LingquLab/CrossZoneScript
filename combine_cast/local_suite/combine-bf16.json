@@ -1,0 +1,9 @@
+{
+  "revision": "c266c4f980244d7a034879ddabf14fc9d3a6f745",
+  "archive_sha256": "10040d2cd44b6fcaeef615f7dbed59346097a3b4064aedd34fcaacf889c9ed10",
+  "objects": {
+    "tilexr_ep_combine_memory_kernel.o": "6c62f40d081857f12f0c2b1ed876694821bc084708cd6e75c50bee64388c9a42"
+  },
+  "case_dir": "combine-memory-cast-c266-combine-bf16-v310-local",
+  "container_name": "tilexr-cpu-b4f4660a-cast-combine-bf16"
+}

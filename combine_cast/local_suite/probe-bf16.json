@@ -1,0 +1,9 @@
+{
+  "revision": "c266c4f980244d7a034879ddabf14fc9d3a6f745",
+  "archive_sha256": "fdba0eabd8754bfb792f9f9b028e428d4d913d89266e582080db856daaee4c91",
+  "objects": {
+    "probe.o": "8f2a73ece19eea44fd50625d7bfee5177ae48bef2f1ec5dbfd0f2c9270bd4fb8"
+  },
+  "case_dir": "combine-memory-cast-c266-probe-bf16-v310-local",
+  "container_name": "tilexr-cpu-b4f4660a-cast-probe-bf16"
+}
