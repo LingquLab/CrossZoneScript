@@ -47,7 +47,8 @@ if header not in old:
     temp = result.with_suffix(".part")
     temp.write_text(old.rstrip() + "\n\n" + context + "\n", encoding="utf-8")
     temp.replace(result)
-print(json.dumps({"reports": counts["reports"], "failed_cases": len(counts["failed_cases"]),
+print(json.dumps({"phase": "completed", "reported": counts["reports"],
+                  "finished": counts["reports"], "failed_cases": len(counts["failed_cases"]),
                   "retry": retry["phase"], "services": "inactive"}))
 '''
 
