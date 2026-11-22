@@ -1,0 +1,30 @@
+--- a/src/ep/kernels/tilexr_ep_ubx_expert_recv.h
++++ b/src/ep/kernels/tilexr_ep_ubx_expert_recv.h
+@@ -35,5 +35,27 @@
+         }
+     }
+ }
++
++__aicore__ inline void UBXExpertCopyDirectory(
++    LocalTensor<uint32_t> input, LocalTensor<uint32_t> output, uint32_t count, uint32_t outputRow)
++{
++    auto src = reinterpret_cast<__ubuf__ uint32_t *>(input.GetPhyAddr());
++    auto dst = reinterpret_cast<__ubuf__ uint32_t *>(output.GetPhyAddr());
++    const uint16_t vectors = (count * 4U + 63U) / 64U;
++    __VEC_SCOPE__
++    {
++        using namespace MicroAPI;
++        RegTensor<int32_t> lane;
++        RegTensor<uint32_t> data, index;
++        Arange(lane, 0);
++        for (uint16_t g = 0; g < vectors; ++g) {
++            uint32_t n = count * 4U - uint32_t(g) * 64U;
++            auto valid = UpdateMask<uint32_t>(n);
++            DataCopy(data, src + uint32_t(g) * 64U);
++            Adds(index, reinterpret_cast<RegTensor<uint32_t> &>(lane), outputRow * 4U + uint32_t(g) * 64U, valid);
++            Scatter(dst, data, index, valid);
++        }
++    }
++}
+ } // namespace TileXREp
+ #endif

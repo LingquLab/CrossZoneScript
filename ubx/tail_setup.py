@@ -18,13 +18,18 @@ def main():
     revisions = {
         "tail-base": {"commit": "7616bf763477a54e87d38cb414b4e0dffe8bc307", "branch": branch,
                       "fetch_parent": True},
-        "tail-reviewed": {"commit": "5874d0542a3136303c145c59a755a91a19553a03", "branch": branch,
-                          },
+        "tail-reviewed": {"commit": "5874d0542a3136303c145c59a755a91a19553a03", "branch": branch},
     }
     build = {"namespace": namespace, "files": ["build_node.sh"],
              "program": "build_node.sh", "interpreter": "/bin/bash",
              "argv": ["dispatch-tail"], "unit": "build"}
     hosts = args["hosts"]
+    if args.get("rebuild_reviewed"):
+        build["files"].append("restore_expert_copy.patch")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            states = list(pool.map(lambda host: deploy(host, build), hosts))
+        print(json.dumps({"namespace": namespace, "build": states, "restored_helper": "UBXExpertCopyDirectory"}))
+        return
     phase = "fetch"
     try:
         with tempfile.TemporaryDirectory(prefix="tilexr-ubx-tail-") as temp, ThreadPoolExecutor(max_workers=2) as pool:
