@@ -27,7 +27,9 @@ def deploy(host, args):
             transfer.put(str(Path(__file__).with_name(name)), remote + ".part", confirm=True)
             transfer.chmod(remote + ".part", 0o600)
             transfer.posix_rename(remote + ".part", remote)
-        paths = [shlex.quote(str(anchor / name)) for name in args.get("program_args", [])]
+        if host != args.get("start_host", host):
+            return {"path": str(anchor), "state": "files staged"}
+        paths = [shlex.quote(value) for value in args.get("argv", [])]
         program = shlex.quote(str(anchor / args["program"]))
         unit = shlex.quote("tilexr-" + namespace + "-" + args["unit"])
         command = (
