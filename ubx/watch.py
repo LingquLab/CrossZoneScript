@@ -27,10 +27,12 @@ def read(path):
 
 state = read(root / "status.json") or {}
 reports = read(root / "report-status.json") or {}
+retry = read(root / "retry-status.json") or {}
 base = root / "build.exit"
 profile = root.with_name(root.name + "-profile") / "build.exit"
 print(json.dumps({
-    "phase": state.get("phase"), "case": state.get("case"),
+    "phase": state.get("phase"),
+    "retry": retry.get("phase"), "case": state.get("case"),
     "finished": len(list((root / "runs").glob("*/report.json"))),
     "reported": reports.get("reports", 0),
     "failed_cases": len(list((root / "runs").glob("*/failure.json"))),

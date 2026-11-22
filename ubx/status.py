@@ -22,7 +22,7 @@ for unit in "$2-build" "$2-profile-build" "$2-queue" "$2-report"; do
     printf '%s %s\n' "$unit" "$state"
 done
 cd "$1" || exit 2
-for file in build.exit ../"${1##*/}"-profile/build.exit status.json report-status.json; do
+for file in build.exit ../"${1##*/}"-profile/build.exit status.json report-status.json retry-status.json; do
     if [[ -s "$file" ]]; then printf '%s %s\n' "$file" "$(head -c 1600 "$file")"; fi
 done
 if [[ -d ready ]]; then printf 'ready '; ls -1 ready | paste -sd ' ' -; fi
