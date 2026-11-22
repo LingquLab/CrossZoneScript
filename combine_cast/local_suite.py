@@ -7,7 +7,9 @@ from pathlib import Path
 import subprocess
 
 root = Path(__file__).resolve().parent
-cases = root / "local_suite"
+import sys
+
+cases = root / ("aligned_suite" if "--aligned" in sys.argv else "local_suite")
 remote = (root / "remote.py").read_text()
 ssh = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
        "-o", "ConnectTimeout=10", "root@141.61.94.58", "python3", "-"]
