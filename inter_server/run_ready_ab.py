@@ -10,8 +10,12 @@ assert sys.argv[1:2] == ["--args-file"] and len(sys.argv) == 3
 args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 mode = args["mode"]
 assert mode in {"run", "status"}
-request = {"mode": mode, "variants": {}}
-for variant in ("ready_watermark", "ready_stagger_base", "ready_stagger_cache"):
+combined = args.get("combined", False)
+assert isinstance(combined, bool)
+request = {"mode": mode, "combined": combined, "variants": {}}
+variants = ("ready_combined", "ready_stagger_combined") if combined else (
+    "ready_watermark", "ready_stagger_base", "ready_stagger_cache")
+for variant in variants:
     resources = root / "resources" / variant
     candidate = {"build": json.loads((resources / "build-record.json").read_text())}
     if mode == "run":
