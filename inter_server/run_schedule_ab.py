@@ -12,11 +12,13 @@ assert sys.argv[1:2] == ["--args-file"] and len(sys.argv) == 3
 args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
 mode = args["mode"]
 assert mode in {"run", "status"}
+forward_only = args.get("forward_only", False)
+assert isinstance(forward_only, bool)
 resource = root / "resources"
 inputs = resource / "dense_schedule"
 identity = json.loads((inputs / "fixture-identity.json").read_text())
 assert identity["tokens"] == 96 and identity["hidden"] == 256
-request = {"mode": mode, "identity": identity, "variants": {}}
+request = {"mode": mode, "identity": identity, "variants": {}, "forward_only": forward_only}
 if mode == "run":
     request["metadata_variants"] = [
         json.loads((resource / variant / "build-record.json").read_text())
@@ -25,7 +27,8 @@ if mode == "run":
     archive = (inputs / "fixture-images.tar.gz").read_bytes()
     assert hashlib.sha256(archive).hexdigest() == identity["input_archive_sha256"]
     request["archive"] = base64.b64encode(archive).decode("ascii")
-for tag in ("drain_count_cache", "batch16", "visit4", "lane_balanced"):
+variants = ("forward_page",) if forward_only else ("drain_count_cache", "batch16", "visit4", "lane_balanced")
+for tag in variants:
     folder = resource / tag
     entry = {"build": json.loads((folder / "build-record.json").read_text())}
     if mode == "run":

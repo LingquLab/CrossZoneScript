@@ -20,8 +20,32 @@ def wait_for_metadata(candidates):
 
 
 def run_schedule(request):
-    if request["mode"] == "run" and not wait_for_metadata(request["metadata_variants"]):
-        return {"prerequisite": {"run": {"status": "metadata_receipt_missing"}}}
+    global NAME, ID
+    if request["mode"] == "status":
+        return schedule_cases(request)
+    if not request["forward_only"]:
+        if not wait_for_metadata(request["metadata_variants"]):
+            return {"prerequisite": {"run": {"status": "metadata_receipt_missing"}}}
+        return schedule_cases(request)
+    previous = NAME, ID
+    NAME = "tilexr-cpu-b4f4660a-ht-dense-forward"
+    image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
+    ID = docker("create", "--name", NAME, "--runtime=runc", "--network=none",
+                "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=8",
+                "--memory=16g", "--pids-limit=1024", "--shm-size=64m",
+                "--ulimit", "nofile=524288:524288",
+                "--mount", f"type=bind,src={MOUNT.parent},dst=/work",
+                image, "/bin/bash", "-lc", "exec sleep infinity").stdout.decode("ascii").strip()
+    try:
+        result = schedule_cases(request)
+    finally:
+        docker("rm", ID)
+        NAME, ID = previous
+    result["forward_page"]["private_container_removed"] = True
+    return result
+
+
+def schedule_cases(request):
     result = {}
     for tag, candidate in request["variants"].items():
         build = candidate["build"]
