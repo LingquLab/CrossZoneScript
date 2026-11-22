@@ -11,10 +11,10 @@ import tarfile
 import time
 
 root = Path("/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54")
-case = root / "combine-memory-cast-c266-ep16-v310"
+case = root / "combine-memory-cast-c266-ep16-v310-1t"
 reference = root / "lr8-source/lr8-64p-512b"
 platform = root / "inter-server-native/t4-sst-mte-drain-count-cache-38d743f7"
-name = "tilexr-cpu-b4f4660a-combine-cast-ep16-v310"
+name = "tilexr-cpu-b4f4660a-combine-cast-v310-1t"
 container_case = "/work/" + case.name
 
 
@@ -72,13 +72,14 @@ def main(result):
             result.update(status="configuration_error", configuration_exit=configure.returncode)
             return
         result.update(json.loads(configure.stdout))
+        result["sst_threads"] = 1
         result["status"] = "sst_running"
         (case / "result.json").write_text(json.dumps(result))
-        command = 'cd "$1"; source /opt/sim/sst-env.sh; exec /opt/sim/local/sstcore/bin/sst -n 8 ./test_UBusSim.py'
+        command = 'cd "$1"; source /opt/sim/sst-env.sh; exec /opt/sim/local/sstcore/bin/sst -n 1 ./test_UBusSim.py'
         started = time.monotonic()
         with (case / "sim.log").open("wb") as log:
             run = docker("exec", identity, "bash", "-c", command, "bash", container_case,
-                         stdout=log, stderr=subprocess.STDOUT, timeout=780)
+                         stdout=log, stderr=subprocess.STDOUT, timeout=240)
         result["sst_wall_seconds"] = round(time.monotonic() - started, 3)
         result["sst_exit"] = run.returncode
         with (case / "sim.log").open("rb") as log:
@@ -87,7 +88,10 @@ def main(result):
             tail = log.read()
         if run.returncode:
             result["log_bytes"] = (case / "sim.log").stat().st_size
-            result["last_log_lines"] = [line[:145] for line in tail.decode(errors="replace").splitlines()[-3:]]
+            lines = tail.decode(errors="replace").splitlines()
+            result["last_log_lines"] = [
+                re.sub(r"0x[0-9a-f]+", "<address>", line)[:170] for line in lines[-15:]
+            ]
         complete = re.search(rb"Simulation is complete, simulated time: ([0-9.]+) (ns|us|ms|s)", tail)
         result["simulated_time"] = [part.decode("ascii") for part in complete.groups()] if complete else None
         result["dump_files"] = len(list((case / "bin").glob("*.bin")))
