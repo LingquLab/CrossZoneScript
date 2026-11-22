@@ -91,12 +91,18 @@ def inspect(host):
         code, output, errors = run_remote(client, "/usr/bin/python3 - " + shlex.quote(str(root)),
                                           timeout=85, input_text=PROBE)
         if code:
-            raise RuntimeError("device evidence unavailable")
+            kind = re.search(r"(?m)^([A-Z][A-Za-z]+(?:Error|Exception)):", errors)
+            return dict(host=host, exit_code=code, error=kind[1] if kind else "unclassified")
     return dict(host=host, **json.loads(output))
 
 
 if __name__ == "__main__":
     args = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
     with ThreadPoolExecutor(max_workers=2) as pool:
-        for report in pool.map(inspect, args["hosts"]):
+        results = {host: pool.submit(inspect, host) for host in args["hosts"]}
+        for host, result in results.items():
+            try:
+                report = result.result()
+            except (OSError, ValueError, RuntimeError) as error:
+                report = dict(host=host, error=type(error).__name__)
             print(json.dumps(report, separators=(",", ":")))
