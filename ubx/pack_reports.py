@@ -23,17 +23,20 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 root = Path(sys.argv[1])
 queue = json.loads((root / "status.json").read_text())
-retry = json.loads((root / "retry-status.json").read_text())
+retry_file = root / "retry-status.json"
+retry = json.loads(retry_file.read_text()) if retry_file.is_file() else None
 state = json.loads((root / "report-status.json").read_text())
 if (queue["phase"] != "completed" or
-        retry.get("phase") not in {"case_passed", "case_failed", "already_passed",
-                                   "no_transport_failure", "retry_error"} or
+        (retry is not None and retry.get("phase") not in {
+            "case_passed", "case_failed", "already_passed", "no_transport_failure", "retry_error"
+        }) or
         state["reports"] + len(state["failed_cases"]) != state["expected"]):
     print(json.dumps({"ready": False, "phase": queue.get("phase"),
                       "retry": retry, "report_state": state}))
     raise SystemExit(0)
 
-files = [root / "report.md", root / "report-status.json", root / "retry-status.json"]
+files = [root / "report.md", root / "report-status.json"]
+files.extend(file for file in (retry_file, root / "matrix.json") if file.is_file())
 summaries = {}
 trace_count = 0
 for directory in sorted((root / "runs").iterdir()):
@@ -60,6 +63,14 @@ for directory in sorted((root / "runs").iterdir()):
             trace_count += 1
     summaries[directory.name] = dict(native_us=native, abi=report["abi"],
                                      backend=report["backend"], stages=phase_count)
+if (root / "matrix.json").is_file():
+    for name in summaries:
+        cap = int(name.split("-max")[1].split("-")[0])
+        metadata = json.loads((root / "runs" / name / "timing.json").read_text())
+        if metadata["max_tokens"] != cap or metadata["effective_max_tokens"] != cap:
+            raise ValueError("packet cap differs from reported configuration")
+        summaries[name]["effective_max_tokens"] = cap
+        summaries[name]["reused"] = "reused_from" in metadata
 if len(summaries) != state["reports"]:
     raise ValueError("report coverage does not match counters")
 
