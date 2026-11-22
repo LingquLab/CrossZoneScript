@@ -25,10 +25,18 @@ elif [[ "$kind" = dispatch-tail-assist ]]; then
 elif [[ "$kind" = dispatch-tail-abc ]]; then
     branches=(tail-a tail-b tail-c)
     configs=(tail-a-off tail-b-off tail-c-off tail-a-on tail-b-on tail-c-on)
-elif [[ "$kind" = dispatch-tail-relay ]]; then
+elif [[ "$kind" = dispatch-tail-relay* ]]; then
     branches=(tail-relay)
-    configs=(tail-relay-base-off tail-relay-ub-off tail-relay-vector-off tail-relay-align-off
-             tail-relay-base-on tail-relay-ub-on tail-relay-vector-on tail-relay-align-on)
+    variants=(base ub vector align)
+    if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
+        variants=(base vector align reuse)
+    fi
+    configs=()
+    for mode in off on; do
+        for variant in "${variants[@]}"; do
+            configs+=("tail-relay-$variant-$mode")
+        done
+    done
 fi
 exec >> "$PWD/build.log" 2>&1
 exec 9>"$PWD/build.lock"
@@ -64,7 +72,7 @@ for branch in "${branches[@]}"; do
             git -C "$tree" apply "$patch"
         fi
     fi
-    if [[ "$kind" = dispatch-tail-relay ]]; then
+    if [[ "$kind" = dispatch-tail-relay* ]]; then
         for patch_name in relay_cann_compat.patch relay_align_shift_compat.patch; do
             patch="$PWD/$patch_name"
             if [[ -f "$patch" ]] && ! git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
@@ -105,19 +113,24 @@ for config in "${configs[@]}"; do
                     -DTILEXR_EP_UBX_RECV_TOPK="$recv_topk"
                     -DTILEXR_EP_UBX_INTRA_FANOUT="$intra_fanout")
     fi
-    if [[ "$kind" = dispatch-tail-relay ]]; then
+    if [[ "$kind" = dispatch-tail-relay* ]]; then
         relay_ub=OFF
         relay_vector=OFF
         relay_align=OFF
+        intra_reuse=OFF
         case "$branch" in
             tail-relay-ub) relay_ub=ON ;;
             tail-relay-vector) relay_vector=ON ;;
             tail-relay-align) relay_align=ON ;;
+            tail-relay-reuse) intra_reuse=ON ;;
         esac
         topk_flags=(-DTILEXR_EP_UBX_FANOUT_COPIES=OFF -DTILEXR_EP_UBX_RECV_TOPK=OFF
                     -DTILEXR_EP_UBX_INTRA_FANOUT=OFF -DTILEXR_EP_UBX_RELAY_UB="$relay_ub"
                     -DTILEXR_EP_UBX_RELAY_VECTOR="$relay_vector"
                     -DTILEXR_EP_UBX_RELAY_TOKEN_ALIGN="$relay_align")
+        if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
+            topk_flags+=(-DTILEXR_EP_UBX_INTRA_TOKEN_REUSE="$intra_reuse")
+        fi
         ln -sfn tail-relay "$base/trees/$branch"
     fi
     tree="$base/trees/$branch$tree_suffix"
@@ -162,13 +175,16 @@ for config in "${configs[@]}"; do
             if [[ "$kind" = dispatch-tail-abc ]]; then
                 printf '%s\n' "recv_topk=$recv_topk" "intra_fanout=$intra_fanout"
             fi
-            if [[ "$kind" = dispatch-tail-relay ]]; then
+            if [[ "$kind" = dispatch-tail-relay* ]]; then
                 printf '%s\n' "recv_topk=OFF" "intra_fanout=OFF" "relay_ub=$relay_ub" "relay_vector=$relay_vector" "relay_token_align=$relay_align"
                 if [[ -f "$base/relay_cann_compat.patch" && ( "$relay_ub" = ON || "$relay_vector" = ON ) ]]; then
                     printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/relay_cann_compat.patch" | cut -d' ' -f1)"
                 fi
             fi
-            if [[ "$kind" = dispatch-tail-relay && "$relay_align" = ON && -f "$base/relay_align_shift_compat.patch" ]]; then
+            if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
+                printf '%s\n' "intra_token_reuse=$intra_reuse"
+            fi
+            if [[ "$kind" = dispatch-tail-relay* && "$relay_align" = ON && -f "$base/relay_align_shift_compat.patch" ]]; then
                 printf 'align_patch_sha256=%s\n' "$(sha256sum "$base/relay_align_shift_compat.patch" | cut -d' ' -f1)"
             fi
             find "$install/lib" -type f \( -name '*.so*' -o -path '*/tilexr/kernels/*ubx*' -o -path '*/tilexr/kernels/*clock*' \) -print0 | sort -z | xargs -0 sha256sum

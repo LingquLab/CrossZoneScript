@@ -18,7 +18,8 @@ import uuid
 BASE = Path(__file__).resolve().parent
 ABC_BRANCHES = ("tail-a", "tail-b", "tail-c")
 RELAY_BRANCHES = ("tail-relay-base", "tail-relay-ub", "tail-relay-vector", "tail-relay-align")
-TAIL_MATRIX_BRANCHES = (*ABC_BRANCHES, *RELAY_BRANCHES)
+REUSE_BRANCHES = ("tail-relay-base", "tail-relay-vector", "tail-relay-align", "tail-relay-reuse")
+TAIL_MATRIX_BRANCHES = (*ABC_BRANCHES, *dict.fromkeys((*RELAY_BRANCHES, *REUSE_BRANCHES)))
 TAIL_BRANCHES = ("tail-base", "tail-reviewed", *TAIL_MATRIX_BRANCHES)
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
        "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",

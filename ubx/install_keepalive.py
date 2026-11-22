@@ -38,9 +38,17 @@ def install(args):
     timer = "[Unit]\nDescription=Check the TileXR EP32 queue every thirty seconds\n\n"
     timer += "[Timer]\nOnBootSec=30s\nOnUnitActiveSec=30s\nAccuracySec=1s\n\n"
     timer += "[Install]\nWantedBy=timers.target\n"
+    dependency = ""
+    if "start_after" in args:
+        predecessor = args["start_after"]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", predecessor):
+            raise ValueError("invalid preceding benchmark namespace")
+        dependency = (f"printf '%s\\n' {predecessor} > {root}/start-after\n"
+                      f"printf '%s\\n' waiting_for_previous_benchmark > {root}/start-after-phase\n")
     setup = f"""
 set -eu
 umask 022
+{dependency}
 cat > /etc/systemd/system/{unit}.service <<'SERVICE'
 {service}SERVICE
 cat > /etc/systemd/system/{unit}.timer <<'TIMER'

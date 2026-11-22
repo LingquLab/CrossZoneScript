@@ -42,8 +42,10 @@ if __name__ == "__main__":
             override = ROOT / "start-after-phase"
             phase = override.read_text(encoding="utf-8").strip() if override.is_file() else "waiting_for_combine"
             state_file = ROOT / "status.part"
-            state_file.write_text(json.dumps({"phase": phase,
-                                             "case": "dispatch-dispatch-bs64-max1-off"}), encoding="utf-8")
+            case = None
+            if phase != "waiting_for_previous_benchmark":
+                case = "dispatch-dispatch-bs64-max1-off"
+            state_file.write_text(json.dumps({"phase": phase, "case": case}), encoding="utf-8")
             state_file.replace(ROOT / "status.json")
             raise SystemExit(0)
     status = read("status.json")
