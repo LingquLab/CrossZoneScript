@@ -12,7 +12,7 @@ import tarfile
 import time
 from common import HOSTS,ROOT,REMOTE_ROOT,REVISION,remote_python,json_rows,ssh
 
-run='trace-mixed-001'
+run='trace-mixed-align-002'
 dest=ROOT/run
 dest.mkdir(exist_ok=False)
 manifest=json.loads((ROOT/'ep32-build-result.json').read_text())
