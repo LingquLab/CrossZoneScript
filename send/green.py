@@ -8,7 +8,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import shlex
 import subprocess
 import sys
@@ -19,7 +18,7 @@ WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 def main(args):
     assert args["ssh_target"] == "root@141.61.94.26"
-    assert args["action"] in ("mte-trial", "trial-result", "outline")
+    assert args["action"] in ("mte-trial", "trial-result", "outline", "compiler-inspect", "compiler-result")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]
@@ -35,13 +34,16 @@ def main(args):
         return r.stdout
 
     call(["mkdir", "-p", WORK])
-    names = ("host_trial.py", "trial.py", "mte_state.h", "simd_wqe_interleave.h") if args["action"] == "mte-trial" else ("evidence.py",)
+    if args["action"] == "mte-trial":
+        names, entry, budget = ("host_trial.py", "trial.py", "mte_state.h", "simd_wqe_interleave.h"), "host_trial.py", 430
+    elif args["action"] in ("compiler-inspect", "compiler-result"):
+        names, entry, budget = ("compiler_inspect.py",), "compiler_inspect.py", 210
+    else:
+        names, entry, budget = ("evidence.py",), "evidence.py", 40
     for name in names:
         source = Path(__file__).with_name(name).read_bytes()
         call(["python3", "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
               WORK + "/" + name], source)
-    entry = "host_trial.py" if args["action"] == "mte-trial" else "evidence.py"
-    budget = 430 if args["action"] == "mte-trial" else 40
     output = call(["timeout", "--kill-after=10", str(budget), "python3", WORK + "/" + entry, json.dumps(args)],
                   timeout=budget + 30)
     result = json.loads(output)
