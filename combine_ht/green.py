@@ -82,11 +82,26 @@ def main(args):
             procs = remote(["docker", "top", container, "-eo", "pid,comm,stat"], 30).decode().splitlines()[1:]
             if any(line.split()[1] in ("sst", "sstsim.x") and not line.split()[2].startswith("Z") for line in procs):
                 raise RuntimeError("SST already active in the diagnostic container")
+            if args.get("ptrace_container"):
+                diagnostic = container + "-ptrace"
+                image = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
+                remote(["docker", "run", "-dt", "--name", diagnostic, "--label", "crosszone.session=" + SESSION,
+                        "--network=none", "--runtime=ascend", "--ipc=shareable", "--shm-size=64m",
+                        "--ulimit", "nofile=524288:524288", "--cap-add", "SYS_PTRACE",
+                        "--mount", "type=bind,src=" + WORK + ",dst=/work", image, "/bin/bash", "-l"], 75)
+                info = json.loads(remote(["docker", "inspect", "--format", "{{json .}}", diagnostic], 30))
+                if (info["Image"] != image or info["Config"]["Labels"].get("crosszone.session") != SESSION
+                        or info["HostConfig"]["NetworkMode"] != "none"
+                        or "SYS_PTRACE" not in info["HostConfig"]["CapAdd"]
+                        or not any(m["Source"] == WORK and m["Destination"] == "/work" for m in info["Mounts"])):
+                    raise ValueError("ptrace diagnostic container identity mismatch")
+                container = diagnostic
             for name in (("send_fault.py", "native_trace.c") if stage == "send-fault" else ("debug_fault.py",)):
                 upload(Path(__file__).with_name(name))
             output = remote(["timeout", "--kill-after=25", "510", "docker", "exec", container,
                              "python3", "/work/" + ("send_fault.py" if stage == "send-fault" else "debug_fault.py")], 565)
             result = json.loads(output)
+            result["container"] = container
             receipt.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
             print(json.dumps(result, ensure_ascii=True))
             return 0
