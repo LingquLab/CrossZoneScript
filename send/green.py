@@ -40,6 +40,9 @@ def main(args):
             budget = 850
         if args["action"] == "store-controls":
             budget = 1260
+            if args.get("controls") == "ub-gather":
+                names += ("vf_ir.py", "vf_inspect.py")
+                budget = 880
     elif args["action"] == "padding-probes":
         names = ("padding_probe.py", "trial.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "store_controls.py")
         entry, budget = "padding_probe.py", 640

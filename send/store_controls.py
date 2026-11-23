@@ -5,7 +5,8 @@ POINTER_KINDS = ("pointer64", "pointer256")
 COMPENSATION_KINDS = ("pointer1024", "store_post_compensated", "interleave_post_compensated")
 RUNTIME_KINDS = ("pointer_runtime64", "store_post_runtime", "interleave_post_runtime")
 VECTOR_KINDS = ("store_post_runtime_hi", "store_post_runtime_vector")
-KINDS = BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS + RUNTIME_KINDS + VECTOR_KINDS
+GATHER_KINDS = ("store_post_runtime_gather", "interleave_post_runtime_gather")
+KINDS = BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS + RUNTIME_KINDS + VECTOR_KINDS + GATHER_KINDS
 
 
 def pointer_strides(kind):
@@ -28,6 +29,11 @@ def generate(interleave_source, kind):
     duplicates = "".join(f"        Duplicate(v{i}, base + {i}U);\n" for i in range(16))
     if kind.endswith("_vector"):
         duplicates = "        Duplicate(v0, base);\n" + "".join(
+            f"        Adds(v{i}, v0, {i}U, mask);\n" for i in range(1, 16))
+    if kind in GATHER_KINDS:
+        duplicates = ("        RegTensor<uint32_t> indices;\n"
+                      "        Duplicate(indices, 0U);\n"
+                      "        DataCopyGather(v0, output, indices, mask);\n") + "".join(
             f"        Adds(v{i}, v0, {i}U, mask);\n" for i in range(1, 16))
     if base_kind == "interleave_explicit":
         stores = "".join(
@@ -78,6 +84,10 @@ __aicore__ inline void ProbeOperation(__ubuf__ uint32_t *output)
 """.replace("EXPECTED", expected)
     if runtime:
         source, setup = runtime_stride(source, setup)
+    if kind in GATHER_KINDS:
+        declaration = "    const uint32_t base = output[0];\n"
+        assert source.count(declaration) == 1 and "base +" not in source
+        source = source.replace(declaration, "")
     if kind.endswith("_hi"):
         expression = "0xd0000000U | (index << 16U) | (actual & 0xffffU)"
         assert setup.count(expression) == 1
@@ -196,5 +206,6 @@ def summarize_batch(value):
             "controls": value.get("controls", "full-tile"), "simulation_only": True,
             "artifacts": value.get("artifacts", []),
             "contract": value.get("contract"), "host_errors": value.get("host_errors", []),
+            "compiler_artifacts": value.get("compiler_artifacts"),
             "results": [{key: row[key] for key in keys if key in row}
                         for row in value.get("results", [])]}

@@ -156,10 +156,35 @@ def inside_container():
     print(json.dumps(out, separators=(",", ":")))
 
 
+def inventory():
+    """Describe retained compiler outputs without recompiling or exporting them."""
+    report = Path("/work/vf-ir-inspection-1")
+    saved = json.loads(Path("/work/vf-ir-result.json").read_text())
+    assert saved["source_modified"] is False and saved["simulation_started"] is False
+    files = sorted(path for path in report.rglob("*") if path.is_file())
+    out = {"read_only": True, "recompiled": False, "simulation_started": False,
+           "file_count": len(files), "files": []}
+    for path in files[:12]:
+        with path.open("rb") as stream:
+            magic = stream.read(8)
+        kind = ("ELF" if magic.startswith(b"\x7fELF") else
+                "LLVM_bitcode" if magic.startswith(b"BC\xc0\xde") else "other")
+        out["files"].append({"file": str(path.relative_to(report)), "bytes": path.stat().st_size,
+                             "format": kind, "magic_hex": magic.hex()})
+    snapshot = json.loads(Path("/baseline/environment.snapshot.json").read_text())
+    compiler = Path(snapshot["settings"]["compiler"]).resolve()
+    out["llvm_dis_exists"] = (compiler.parent / "llvm-dis").is_file()
+    print(json.dumps(out, separators=(",", ":")))
+
+
 if __name__ == "__main__":
     try:
-        inside_container() if sys.argv[1] == "--container" else host(
-            json.loads(sys.argv[1]), entry="vf_ir.py", directory="vf-ir-inspection-1", timeout=480)
+        if sys.argv[1] == "--inventory":
+            inventory()
+        elif sys.argv[1] == "--container":
+            inside_container()
+        else:
+            host(json.loads(sys.argv[1]), entry="vf_ir.py", directory="vf-ir-inspection-1", timeout=480)
     except Exception as error:
         print(json.dumps({"error": type(error).__name__, "detail": str(error)[:100]}))
         sys.exit(1)
