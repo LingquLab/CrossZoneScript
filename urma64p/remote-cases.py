@@ -100,6 +100,11 @@ failed = False
 deadline = args["deadline"]
 try:
     for schedule in args["schedules"]:
+        if schedule == "clock" and deadline == 0:
+            print(json.dumps({"stage": "skip", "schedule": schedule, "size": size,
+                              "reason": "no verified SyncAll timing for the clock deadline"}), flush=True)
+            failed = True
+            continue
         case_path = f"/run-cases/{schedule}"
         record = dict(
             contract=contract, schedule=schedule, kind=kind, case=case_path,
@@ -130,7 +135,7 @@ try:
             result["report_keys"] = sorted(report)
         sim_logs = sorted(case.glob("runs/*/sim.log"))
         elapsed_pattern = re.compile(rb"Simulated time:\s*(\d+(?:\.\d+)?)\s*(ps|ns|us|ms|s)\b", re.I)
-        if sim_logs:
+        if sim_logs and result.get("run_status") == "simulation_outputs_verified":
             with sim_logs[-1].open("rb") as stream:
                 stream.seek(max(0, sim_logs[-1].stat().st_size - 65536))
                 matches = elapsed_pattern.findall(stream.read())
@@ -157,8 +162,6 @@ try:
         (case / "candidate-result.json").write_text(json.dumps(result) + "\n")
         print(json.dumps(result), flush=True)
         failed |= status != 0
-        if status and schedule == "syncall" and args.get("auto_clock"):
-            break
 finally:
     cleanup = command(["docker", "stop", "-t", "10", name], "cleanup.log", 35)
     print(json.dumps({"stage":"cleanup","exit":cleanup,"run_dir":str(run)}), flush=True)
