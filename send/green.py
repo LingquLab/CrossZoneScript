@@ -34,12 +34,14 @@ def main(args):
         return r.stdout
 
     call(["mkdir", "-p", WORK])
-    names = ("host_trial.py", "trial.py", "mte_state.h") if args["action"] == "mte-trial" else ("inspect.py",)
+    call(["python3", "-c", "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.unlink() if p.exists() else None",
+          WORK + "/inspect.py"])
+    names = ("host_trial.py", "trial.py", "mte_state.h") if args["action"] == "mte-trial" else ("evidence.py",)
     for name in names:
         source = Path(__file__).with_name(name).read_bytes()
         call(["python3", "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
               WORK + "/" + name], source)
-    entry = "host_trial.py" if args["action"] == "mte-trial" else "inspect.py"
+    entry = "host_trial.py" if args["action"] == "mte-trial" else "evidence.py"
     budget = 430 if args["action"] == "mte-trial" else 40
     output = call(["timeout", "--kill-after=10", str(budget), "python3", WORK + "/" + entry, json.dumps(args)],
                   timeout=budget + 30)
