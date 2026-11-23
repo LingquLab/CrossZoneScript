@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from store_controls import KINDS as STORE_KINDS, summarize_batch
+from store_controls import BASE_KINDS, POINTER_KINDS, summarize_batch
 from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract_contract
 
 SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
@@ -57,7 +57,7 @@ def main(args):
     assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave", "scalar_store_post", "scalar_interleave_post", "scalar_interleave_explicit")
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in BASE_KINDS + POINTER_KINDS)
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -125,9 +125,11 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer")
+    kinds = POINTER_KINDS if args.get("controls") == "pointer" else BASE_KINDS
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "store_controls_already_attempted"
-    for offset, kind in enumerate(STORE_KINDS):
+    for offset, kind in enumerate(kinds):
         assert not (WORK / f"mte-scalar_{kind}-{args['attempt'] + offset}").exists()
     out = {"ok": False, "diagnostic_only": True, "results": []}
     source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
@@ -136,7 +138,7 @@ def run_store_controls(args):
     assert (functions and functions[0]["destination_by_reference"]
             and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
     out["contract"] = {"functions": functions[:2], "source_snippets": snippets}
-    for offset, kind in enumerate(STORE_KINDS):
+    for offset, kind in enumerate(kinds):
         child = {**args, "action": "mte-trial", "builder": "scalar_" + kind,
                  "attempt": args["attempt"] + offset, "capture": True,
                  "force_inline": False, "stop_boundary": "before_sq_publish"}
@@ -162,7 +164,7 @@ def run_store_controls(args):
         # Continue only after an observed terminal simulator exit, never a timeout.
         if not result["ok"] and result.get("returncode") not in (0, 255):
             break
-    out["ok"] = (len(out["results"]) == len(STORE_KINDS) and all(row["ok"] for row in out["results"])
+    out["ok"] = (len(out["results"]) == len(kinds) and all(row["ok"] for row in out["results"])
                  and not out.get("host_errors"))
     path.write_text(json.dumps(out, indent=2))
     (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
