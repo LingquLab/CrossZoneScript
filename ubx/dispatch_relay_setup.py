@@ -16,12 +16,15 @@ REVISION = "70f1e52ad9b6f86cf3f72aaa97b7f734215704e5"
 NAMESPACE = "ep32-relay-70f1e52a-c7d172ab"
 REUSE_REVISION = "4e2275c3003543dee60bacf071fc7ce1c717986f"
 REUSE_NAMESPACE = "ep32-relay-4e2275c3-c7d172ab"
+UB_ONLY_NAMESPACE = "ep32-relay-4e2275c3-ub-c7d172ab"
 
 
-def benchmark_revision(value):
+def benchmark_revision(value, only_ub=False):
     if value == REUSE_REVISION[:8]:
+        if only_ub:
+            return REUSE_REVISION, UB_ONLY_NAMESPACE, ("tail-relay-ub",)
         return REUSE_REVISION, REUSE_NAMESPACE, REUSE_BRANCHES
-    if value == REVISION[:8]:
+    if value == REVISION[:8] and not only_ub:
         return REVISION, NAMESPACE, RELAY_BRANCHES
     raise ValueError("unsupported RELAY benchmark revision")
 
@@ -32,16 +35,17 @@ def matrix_for(variants):
 
 
 def main(args):
-    revision, namespace, variants = benchmark_revision(args.get("revision", REVISION[:8]))
+    only_ub = args.get("only_ub", False)
+    revision, namespace, variants = benchmark_revision(args.get("revision", REVISION[:8]), only_ub)
     matrix = matrix_for(variants)
     build = dict(namespace=namespace, files=["build_node.sh"], program="build_node.sh",
                  interpreter="/bin/bash", argv=["dispatch-tail-relay"], unit="build")
     monitor = dict(args, namespace=namespace, report_files=["tail_report.py"])
     if revision == REUSE_REVISION:
-        build["argv"] = ["dispatch-tail-relay-reuse"]
+        build["argv"] = ["dispatch-tail-relay-reuse-ub" if only_ub else "dispatch-tail-relay-reuse"]
         build["files"].extend(("relay_cann_compat.patch", "relay_align_shift_compat.patch",
                                "intra_reuse_cann_namespace.patch"))
-        monitor["start_after"] = NAMESPACE
+        monitor["start_after"] = REUSE_NAMESPACE if only_ub else NAMESPACE
     phase = "fetch"
     try:
         with TemporaryDirectory(prefix="tilexr-relay-") as temp, ThreadPoolExecutor(max_workers=2) as pool:

@@ -28,9 +28,10 @@ elif [[ "$kind" = dispatch-tail-abc ]]; then
 elif [[ "$kind" = dispatch-tail-relay* ]]; then
     branches=(tail-relay)
     variants=(base ub vector align)
-    if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
-        variants=(base vector align reuse)
-    fi
+    case "$kind" in
+        dispatch-tail-relay-reuse) variants=(base vector align reuse) ;;
+        dispatch-tail-relay-reuse-ub) variants=(ub) ;;
+    esac
     configs=()
     for mode in off on; do
         for variant in "${variants[@]}"; do
@@ -128,7 +129,7 @@ for config in "${configs[@]}"; do
                     -DTILEXR_EP_UBX_INTRA_FANOUT=OFF -DTILEXR_EP_UBX_RELAY_UB="$relay_ub"
                     -DTILEXR_EP_UBX_RELAY_VECTOR="$relay_vector"
                     -DTILEXR_EP_UBX_RELAY_TOKEN_ALIGN="$relay_align")
-        if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
+        if [[ "$kind" = dispatch-tail-relay-reuse* ]]; then
             topk_flags+=(-DTILEXR_EP_UBX_INTRA_TOKEN_REUSE="$intra_reuse")
         fi
         ln -sfn tail-relay "$base/trees/$branch"
@@ -181,7 +182,7 @@ for config in "${configs[@]}"; do
                     printf 'source_patch_sha256=%s\n' "$(sha256sum "$base/relay_cann_compat.patch" | cut -d' ' -f1)"
                 fi
             fi
-            if [[ "$kind" = dispatch-tail-relay-reuse ]]; then
+            if [[ "$kind" = dispatch-tail-relay-reuse* ]]; then
                 printf '%s\n' "intra_token_reuse=$intra_reuse"
                 if [[ -f "$base/intra_reuse_cann_namespace.patch" ]]; then
                     printf 'intra_patch_sha256=%s\n' "$(sha256sum "$base/intra_reuse_cann_namespace.patch" | cut -d' ' -f1)"
