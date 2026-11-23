@@ -1,0 +1,8 @@
+{
+  "commit": "b8c5375a3c5a199ca0ef5199e29e5c55f938d940",
+  "tree": "ec77d089ffc7bb5d6838ca07a8b34e0fb23d693d",
+  "case_name": "ht-t4-reduce-out-bank-c02ddda0",
+  "object": "tilexr_ep_ht_final_reduce_sst_kernel.o",
+  "object_sha256": "c02ddda07b98e5cf8dfa77d5dfdfb4b9e80984c00f5eb21e8d180b6db1c2ef23",
+  "archive_sha256": "0ba1a2b1f5305dd1aa46a40f54b49d319340383997709c609be434f926ba05db"
+}
