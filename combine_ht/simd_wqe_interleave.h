@@ -127,40 +127,42 @@ __aicore__ inline void BuildPutWqes(LocalTensor<uint8_t> wqes, LocalTensor<uint8
             Interleave(v12, v13, v12, v13);
             Interleave(v14, v15, v14, v15);
             uint32_t remainingWords = (rows - row) * kWqeU32Words;
+            // A single post-increment pointer avoids passing sixteen separate
+            // destination addresses through the vector-function interface.
             auto *destination = out + row * kWqeU32Words;
             MaskReg storeMask;
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 0U * lanes, v0, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v0, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 1U * lanes, v1, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v1, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 2U * lanes, v2, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v2, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 3U * lanes, v3, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v3, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 4U * lanes, v4, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v4, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 5U * lanes, v5, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v5, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 6U * lanes, v6, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v6, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 7U * lanes, v7, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v7, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 8U * lanes, v8, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v8, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 9U * lanes, v9, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v9, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 10U * lanes, v10, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v10, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 11U * lanes, v11, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v11, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 12U * lanes, v12, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v12, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 13U * lanes, v13, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v13, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 14U * lanes, v14, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v14, lanes, storeMask);
             storeMask = UpdateMask<uint32_t>(remainingWords);
-            DataCopy<uint32_t>(destination + 15U * lanes, v15, storeMask);
+            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v15, lanes, storeMask);
         }
     }
 }
