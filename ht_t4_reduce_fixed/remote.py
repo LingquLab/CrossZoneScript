@@ -83,6 +83,23 @@ def run_point(identity, mode):
 
 
 def main(result):
+    diagnostic = shared / "ht-t4-reduce-scalar-ready-a1999862" / "result.json"
+    deadline = time.monotonic() + 55
+    while time.monotonic() < deadline:
+        if diagnostic.is_file():
+            try:
+                previous = json.loads(diagnostic.read_text())
+            except ValueError:
+                previous = {}
+            if previous.get("container_removed") is True:
+                probe = previous.get("cases", {}).get("ready", {})
+                result["scalar_diagnostic"] = {key: probe.get(key) for key in
+                    ("status", "mismatches", "simulated_time", "first")}
+                break
+        time.sleep(3)
+    else:
+        result["blocked"] = "scalar_diagnostic_terminal_receipt_missing"
+        return
     stage()
     result["archive_and_object_verified"] = True
     create = docker("create", "--name", name, "--runtime=runc", "--network=none", "--cap-drop=ALL",
