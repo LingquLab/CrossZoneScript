@@ -72,16 +72,18 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert after.count("writer, detailed};") == 1
     after = after.replace("writer, detailed};", "writer, detailed, queueRead, queueWrite};")
     header = before + after
-    if builder == "interleave":
+    if builder in ("interleave", "scalar_control"):
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
-        header = header[:begin] + '#include "simd_wqe_interleave.h"\n' + header[end:]
-        builder_text = (WORK / "simd_wqe_interleave.h").read_text()
+        builder_name = "simd_wqe_interleave.h" if builder == "interleave" else "scalar_wqe_control.h"
+        header = header[:begin] + '#include "' + builder_name + '"\n' + header[end:]
+        builder_text = (WORK / builder_name).read_text()
         if force_inline:
+            assert builder == "interleave"
             marker = "__aicore__ inline void BuildPutWqes("
             assert builder_text.count(marker) == 1
             builder_text = builder_text.replace(marker, "__attribute__((always_inline)) inline __aicore__ void BuildPutWqes(")
-        (folder / "simd_wqe_interleave.h").write_text(builder_text)
+        (folder / builder_name).write_text(builder_text)
     else:
         assert builder == "original" and not force_inline
     assert "TileXR::UDMARingDoorbell(head, sq);" in header
@@ -216,7 +218,7 @@ def main(args):
     folder = WORK / ("mte-" + builder + "-" + str(args["attempt"]))
     folder.mkdir()
     result = {"ok": False, "baseline_commit": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
-              "variant": "mte_queue_state_" + builder + "_simd", "source_ranks": 64,
+              "variant": "mte_queue_state_" + builder, "source_ranks": 64,
               "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder),
               "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none"),
               "mte_status": args.get("mte_status", False)}
