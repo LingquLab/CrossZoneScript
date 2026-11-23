@@ -88,9 +88,11 @@ def inspect_object(folder, report, env, sst):
                                 capture_output=True, timeout=25)
         (report / ("disassembly-" + str(index) + ".log")).write_bytes(result.stdout + b"\nSTDERR\n" + result.stderr)
         lines = result.stdout.decode(errors="replace").splitlines()
-        instructions = [line.strip() for line in lines if re.match(r"^\s*[0-9a-f]+:\s", line, re.I)]
+        addressed = [line.strip() for line in lines if re.match(r"^\s*[0-9a-f]+:\s", line, re.I)]
+        instructions = [line for line in addressed if not re.search(r"<not available>|<unknown>", line, re.I)]
         out["disassembler_queries"].append({"tool": tool.name, "returncode": result.returncode,
-                                           "instruction_count": len(instructions)})
+                                           "instruction_count": len(instructions),
+                                           "undecoded_address_count": len(addressed) - len(instructions)})
         if result.returncode == 0 and instructions:
             out["disassembly_available"] = True
             out["instruction_count"] = len(instructions)

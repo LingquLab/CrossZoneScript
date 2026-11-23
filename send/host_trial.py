@@ -5,6 +5,7 @@ The old task directory is mounted read-only at /baseline. Detailed process
 captures and all new artifacts stay in this session's separate /work directory.
 """
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
 import shutil
 import socket
@@ -46,6 +47,9 @@ def main(args):
     assert any(m["Source"] == str(WORK) and m["Destination"] == "/work" and m["RW"] for m in info["Mounts"])
     assert type(args.get("force_inline", False)) is bool
     assert type(args.get("capture", False)) is bool
+    boundary = args.get("stop_boundary", "none")
+    assert boundary in ("none", "before_builder", "before_sq_publish")
+    assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
     assert builder in ("original", "interleave")
@@ -69,9 +73,41 @@ def main(args):
     print(json.dumps(result, separators=(",", ":")))
 
 
+def probe_boundaries(args):
+    path = WORK / "boundary-result.json"
+    assert not path.exists(), "boundary_probe_already_attempted"
+    out = {"ok": False, "diagnostic_only": True, "results": []}
+    for offset, boundary in enumerate(("before_builder", "before_sq_publish")):
+        child = {**args, "action": "mte-trial", "attempt": args["attempt"] + offset,
+                 "capture": True, "force_inline": False, "stop_boundary": boundary}
+        try:
+            with (WORK / "boundary-host.log").open("a") as log, redirect_stdout(log):
+                main(child)
+        except Exception as error:
+            out["host_error"] = type(error).__name__
+        current = WORK / "trial-result.json"
+        expected = "/work/mte-" + child["builder"] + "-" + str(child["attempt"])
+        if current.is_file() and json.loads(current.read_text()).get("report") == expected:
+            result = json.loads(current.read_text())
+            out["results"].append(result)
+            if not result["ok"] or "host_error" in out:
+                break
+        else:
+            out["missing_report"] = boundary
+            break
+        path.write_text(json.dumps(out, indent=2))
+    out["ok"] = len(out["results"]) == 2 and all(result["ok"] for result in out["results"]) and "host_error" not in out
+    path.write_text(json.dumps(out, indent=2))
+    print(json.dumps(out, separators=(",", ":")))
+    return out["ok"]
+
+
 if __name__ == "__main__":
     try:
-        main(json.loads(sys.argv[1]))
+        args = json.loads(sys.argv[1])
+        if args["action"] == "boundary-probe":
+            sys.exit(0 if probe_boundaries(args) else 1)
+        main(args)
     except Exception as e:
         print(json.dumps({"ok": False, "error": type(e).__name__, "detail": str(e)[:150]}))
         sys.exit(1)

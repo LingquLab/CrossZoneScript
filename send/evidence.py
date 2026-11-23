@@ -27,6 +27,9 @@ def summary(value):
 
 def main(args):
     assert socket.gethostname().split(".")[0] == args["hostname"]
+    if args["action"] == "boundary-result":
+        print(json.dumps(json.loads((Path(__file__).resolve().parent / "boundary-result.json").read_text()), separators=(",", ":")))
+        return
     if args["action"] in ("trial-result", "outline"):
         work = Path(__file__).resolve().parent
         file = work / "trial-result.json"
@@ -44,7 +47,8 @@ def main(args):
             return
         out = {k: value[k] for k in ("ok", "variant", "build_completed", "send_verified", "verified_ranks",
                "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure",
-               "force_inline", "outlined_builders") if k in value}
+               "force_inline", "outlined_builders", "stop_boundary", "boundary_verified",
+               "checked_status_words", "nonzero_status_words", "untouched_snapshots") if k in value}
         out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
                          for s in value.get("stages", [])]
         folder = work / Path(value["report"]).relative_to("/work")

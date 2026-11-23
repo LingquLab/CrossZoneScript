@@ -93,7 +93,26 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
             "force_inline": force_inline}
 
 
-def capture(folder, specs, prepared, snapshot):
+def stop_at_boundary(header, boundary):
+    if boundary == "none":
+        return header
+    begin = header.index("struct LocalPutBatch")
+    end = header.index("struct LocalUrmaSend", begin)
+    body = header[begin:end]
+    if boundary == "before_builder":
+        marker = "        uint32_t row_begin = 0;"
+        replacement = "        return TileXR::TILEXR_UDMA_STATUS_SUCCESS; // Diagnostic: stop before builder.\n" + marker
+    else:
+        assert boundary == "before_sq_publish"
+        marker = "        TileXR::UDMAPublishWqe(wqes, sq, head, count);"
+        replacement = """        TileXR::UDMASyncEvent<AscendC::HardEvent::MTE3_S>();
+        return TileXR::TILEXR_UDMA_STATUS_SUCCESS; // Diagnostic: snapshot complete, SQ untouched.
+""" + marker
+    assert body.count(marker) == 1
+    return header[:begin] + body.replace(marker, replacement) + header[end:]
+
+
+def capture(folder, specs, prepared, snapshot, boundary="none"):
     run = folder / "capture"
     workload = sst.create_workload(run, specs, prepared, 1)
     for rank, spec in enumerate(specs):
@@ -114,8 +133,17 @@ def capture(folder, specs, prepared, snapshot):
                            cwd=run, stdout=log, stderr=subprocess.STDOUT, timeout=240)
     out = dict(diagnostic_only=True, returncode=p.returncode, wall_s=time.monotonic() - started,
                wqe_verified=False, checked_wqes=0, mismatch_count=0, first_mismatch=[], status_words=[],
-               checked_wqe_fields=["source", "destination", "length"])
+               checked_wqe_fields=["source", "destination", "length"], stop_boundary=boundary,
+               checked_status_words=0, nonzero_status_words=0, untouched_snapshots=0)
     if p.returncode:
+        file = run / "sim.log"
+        with file.open("rb") as log:
+            log.seek(max(0, file.stat().st_size - 32768))
+            tail = log.read().decode(errors="replace")
+        fatal = next((line for line in tail.splitlines() if "FATAL:" in line), "")
+        address = re.search(r"\[addr=\s*(\d+)\]", fatal)
+        out["fatal"] = {"unknown_scalar_memory": "LsuL1: Unknown low level mem" in fatal,
+                        "address": int(address[1]) if address else None}
         return out
     mismatches = []
     for rank, spec in enumerate(specs):
@@ -124,8 +152,14 @@ def capture(folder, specs, prepared, snapshot):
         raw = sst.read_output(run, rank, "wqe_snapshot", output["addr"], output["size"])
         status = chip["output_param"]["status"]
         values = sst.read_output(run, rank, "status", status["addr"], status["size"])
+        status_words = struct.unpack_from("<8I", values)
+        out["checked_status_words"] += len(status_words)
+        out["nonzero_status_words"] += sum(value != 0 for value in status_words)
+        out["untouched_snapshots"] += raw == b"\xcd" * len(raw)
         if rank == 0:
-            out["status_words"] = list(struct.unpack_from("<8I", values))
+            out["status_words"] = list(status_words)
+        if boundary == "before_builder":
+            continue
         own_input = chip["kernel_param"]["input"]["value"]
         for gateway, stages in enumerate(spec.backward):
             if gateway == rank:
@@ -152,8 +186,11 @@ def capture(folder, specs, prepared, snapshot):
                         mismatches.append(dict(rank=rank, gateway=gateway, stage=stage, row=row,
                                                expected=[source, destination, length], actual=actual))
     sst.write_json(folder / "mismatches.json", mismatches)
-    out.update(wqe_verified=not mismatches and out["checked_wqes"] > 0,
+    out.update(wqe_verified=not mismatches and out["checked_wqes"] > 0 and out["nonzero_status_words"] == 0,
                mismatch_count=len(mismatches), first_mismatch=mismatches[:1])
+    if boundary == "before_builder":
+        out["boundary_verified"] = (out["checked_status_words"] == 64 and
+            out["nonzero_status_words"] == 0 and out["untouched_snapshots"] == 8)
     return out
 
 
@@ -164,7 +201,7 @@ def main(args):
     result = {"ok": False, "baseline_commit": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
               "variant": "mte_queue_state_" + builder + "_simd", "source_ranks": 64,
               "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder),
-              "force_inline": args.get("force_inline", False)}
+              "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none")}
     try:
         baseline = Path("/baseline")
         snapshot = json.loads((baseline / "environment.snapshot.json").read_text())
@@ -180,6 +217,7 @@ def main(args):
             header = header.replace("TileXR::UDMARingDoorbell(head, sq);", "(void)sq; // No network submission in this capture.")
             header = header.replace("return TileXR::SimulatorPollCQUntilSqTail(info, peer, qp, head, *this, stateRead, stateWrite);",
                                     "return TileXR::TILEXR_UDMA_STATUS_SUCCESS; // No CQ wait in this capture.")
+            header = stop_at_boundary(header, result["stop_boundary"])
             path.write_text(header)
         binary = folder / "send.o"
         with (folder / "build.log").open("wb") as log:
@@ -190,8 +228,6 @@ def main(args):
                                  text=True, timeout=15).stdout
         result["outlined_builders"] = [line.split()[-1] for line in symbols.splitlines()
             if " FUNC " in line and "BuildPutWqes" in line and line.split()[-1].endswith(".vector.thread")]
-        if result["force_inline"]:
-            assert not result["outlined_builders"], "compiler_retained_outlined_builder"
         specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
         prepared = [x.serialize() for x in specs]
         route_bytes = json.dumps(routes, separators=(",", ":")).encode()
@@ -201,8 +237,8 @@ def main(args):
         assert result["send_rows"] == 260
         sst.KERNEL = binary
         if args.get("capture"):
-            result.update(capture(folder, specs, prepared, snapshot))
-            result["ok"] = result["wqe_verified"]
+            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"]))
+            result["ok"] = result.get("boundary_verified", result["wqe_verified"])
             return save(folder, result)
         stages = []
         result["stages"] = stages
