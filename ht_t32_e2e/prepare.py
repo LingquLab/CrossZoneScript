@@ -10,7 +10,7 @@ def prepare_bulk(request, case, container_case):
     build = request["build"]
     data = base64.b64decode(request["archive"], validate=True)
     assert hashlib.sha256(data).hexdigest() == identity["input_archive_sha256"]
-    assert identity["tokens"] == request["tokens"] == 32
+    assert identity["tokens"] == request["tokens"] and identity["tokens"] in (4, 32)
     assert identity["hidden"] == request["hidden"] and identity["hidden"] in (16, 256)
     template = MOUNT / "t4-sst-mte-bulk-forward-hotpath-1a2f3549"
     template_manifest = json.loads((template / "case-manifest.json").read_text())
@@ -43,7 +43,9 @@ def prepare_bulk(request, case, container_case):
                                   for chip in chips.values())
     fixture = case / "fixture-data"
     fixture_manifest = json.loads((fixture / "manifest.json").read_text())
-    assert fixture_manifest["tokens"] == 32 and fixture_manifest["hidden"] == request["hidden"] and fixture_manifest["chunks"] == 4
+    assert fixture_manifest["tokens"] == identity["tokens"]
+    assert fixture_manifest["hidden"] == identity["hidden"]
+    assert fixture_manifest["chunks"] == identity["chunks"]
 
     adapter = "adapter/run.py"
     exporter = "adapter/exports.py"

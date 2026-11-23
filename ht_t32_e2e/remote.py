@@ -3,7 +3,9 @@ def run_e2e(request):
     global NAME, ID
     build = request["build"]
     digest = build["kernel_sha256"]
-    variant = "t32-combine-fp32-" + digest[:8]
+    tokens = request["identity"]["tokens"]
+    assert tokens in (4, 32)
+    variant = f"t{tokens}-combine-fp32-{digest[:8]}"
     case = MOUNT / variant
     result = {"kernel_sha256": digest, "entry": build["entry"], "case": variant}
     if case.exists():
@@ -19,7 +21,7 @@ def run_e2e(request):
                         "runner_exit_code", "runner_exception_type", "exported_rank_count")
                 result[name] = {key: data[key] for key in keys if key in data}
         return result
-    NAME = "tilexr-cpu-b4f4660a-ht-t32-e2e-" + digest[:8]
+    NAME = f"tilexr-cpu-b4f4660a-ht-t{tokens}-e2e-{digest[:8]}"
     VARIANTS[digest] = variant
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
     try:
@@ -39,7 +41,7 @@ def run_e2e(request):
     except (OSError, subprocess.SubprocessError) as error:
         return dict(result, preflight="container_create_failed", error_type=type(error).__name__)
     try:
-        result.update(main(dict(request, tokens=32, hidden=256, forward_images=True)))
+        result.update(main(dict(request, tokens=tokens, hidden=256, forward_images=True)))
     except (OSError, ValueError, AssertionError, subprocess.SubprocessError) as error:
         result["stage_error"] = type(error).__name__
         if case.is_dir():
@@ -83,5 +85,5 @@ def run_e2e(request):
     return {key: result[key] for key in (
         "case", "kernel_sha256", "entry", "preflight", "error_type", "stage_error", "cleanup_error",
         "private_container_removed", "executed_sst", "run", "runner_exit_code", "runner_exception_type",
-        "sst_simulated_microseconds", "checked", "first_mismatch", "checker_error", "cqe_log_records"
+        "sst_simulated_microseconds", "runner_wall_seconds", "checked", "first_mismatch", "checker_error", "cqe_log_records"
     ) if key in result}

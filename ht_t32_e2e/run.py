@@ -16,11 +16,15 @@ root = Path(__file__).resolve().parent
 args = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
 object_name = "inter_server_send.o.gz"
 identity_name = "fixture-identity.json"
+fixture_name = "fixture-images.tar.gz"
 if args.get("sq_stripe") is True:
     object_name = "sq-stripe-a7286b7a.o.gz"
     identity_name = "sq-stripe-identity.json"
+elif args.get("small_t4") is True:
+    identity_name = "t4-identity.json"
+    fixture_name = "t4-fixture-images.tar.gz"
 identity = json.loads((root / identity_name).read_text())
-fixture = (root / "fixture-images.tar.gz").read_bytes()
+fixture = (root / fixture_name).read_bytes()
 object_package = (root / object_name).read_bytes()
 assert hashlib.sha256(fixture).hexdigest() == identity["input_archive_sha256"]
 assert hashlib.sha256(gzip.decompress(object_package)).hexdigest() == identity["kernel_sha256"]
@@ -33,7 +37,7 @@ request = dict(build=build, identity=identity, archive=base64.b64encode(fixture)
                exports=(root/"exports.py").read_text())
 runner = (root.parent/"inter_server/run_mte_t4_remote.py").read_text().rsplit("if __name__ == ", 1)[0]
 assert runner.count("assert tokens == 4") == 1
-runner = runner.replace("assert tokens == 4", "assert tokens == 32")
+runner = runner.replace("assert tokens == 4", "assert tokens in (4, 32)")
 source = "\n".join((runner, (root/"prepare.py").read_text(), (root/"remote.py").read_text(),
                     f"print(json.dumps(run_e2e({request!r}), separators=(',', ':')))" ))
 compile(source, "<t32_fused_remote>", "exec")
