@@ -48,6 +48,7 @@ def main(args):
     assert type(args.get("force_inline", False)) is bool
     assert type(args.get("capture", False)) is bool
     assert type(args.get("mte_status", False)) is bool
+    assert type(args.get("backward_record_bytes", 24)) is int and args.get("backward_record_bytes", 24) in (24, 32)
     assert not args.get("mte_status") or args.get("capture") is True
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")

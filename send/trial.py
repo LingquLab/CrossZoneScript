@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from packed_builder import transform as pack_builder
+from backward_alignment import repack as repack_backward, write_common_header
 
 sys.path.insert(0, "/baseline")
 import sst
@@ -28,7 +29,8 @@ def state_loads(text, scratch):
     return re.subn(pattern, r"TileXR::SimulatorLoad(\1, " + scratch + ")", text)
 
 
-def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False, mte_status=False):
+def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False, mte_status=False, backward_record_bytes=24):
+    write_common_header(folder, baseline, backward_record_bytes)
     original = baseline / "candidate/src/moonep/combine_ht/kernels"
     header = (original / "combine_ht_kernel.h").read_text()
     api = (baseline / "candidate/include/tilexr/comm/udma/device/api.h").read_text()
@@ -124,7 +126,8 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4,
             "force_inline": force_inline, "mte_status": mte_status,
-            "packed_builder": builder == "interleave_packed", "minimal_simd_probe": builder == "scalar_simd_probe"}
+            "packed_builder": builder == "interleave_packed", "minimal_simd_probe": builder == "scalar_simd_probe",
+            "backward_record_bytes": backward_record_bytes}
 
 
 def stop_at_boundary(header, boundary):
@@ -146,11 +149,14 @@ def stop_at_boundary(header, boundary):
     return header[:begin] + body.replace(marker, replacement) + header[end:]
 
 
-def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False):
+def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False, backward_record_bytes=24):
     run = folder / "capture"
     workload = sst.create_workload(run, specs, prepared, 1)
     for rank, spec in enumerate(specs):
         chip = workload["workload_config"][f"chip{rank}"]
+        if backward_record_bytes == 32:
+            assert chip["kernel_param"]["backward"]["value"] % 32 == 0
+            assert len(prepared[rank][0]["backward"]) % 32 == 0
         address = rank * sst.rt.GM_BYTES + 0x280000000
         size = 8 * (spec.backward_capacity + spec.chunks) * 64
         image = run / "input_bin" / f"rank{rank}" / "snapshot.bin"
@@ -242,7 +248,7 @@ def main(args):
               "variant": "mte_queue_state_" + builder, "source_ranks": 64,
               "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder),
               "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none"),
-              "mte_status": args.get("mte_status", False)}
+              "mte_status": args.get("mte_status", False), "backward_record_bytes": args.get("backward_record_bytes", 24)}
     try:
         baseline = Path("/baseline")
         snapshot = json.loads((baseline / "environment.snapshot.json").read_text())
@@ -251,7 +257,8 @@ def main(args):
         assert revisions["candidate"] == result["baseline_commit"]
         result["baseline_object_sha256"] = sst.checksum(sst.KERNEL)
         assert result["baseline_object_sha256"] == "c95c61586a5f9e97c83eb862e83b3cfde3ac9a22dec0b6a3332c67434b7ac85e"
-        result["changes"] = patch(folder, builder=builder, force_inline=result["force_inline"], mte_status=result["mte_status"])
+        result["changes"] = patch(folder, builder=builder, force_inline=result["force_inline"], mte_status=result["mte_status"],
+                                  backward_record_bytes=result["backward_record_bytes"])
         if args.get("capture"):
             path = folder / "combine_ht_kernel.h"
             header = path.read_text()
@@ -272,7 +279,7 @@ def main(args):
         result["simd_probe_functions"] = [line.split()[-1] for line in symbols.splitlines()
             if " FUNC " in line and "ProbeMinimalSimd" in line]
         specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
-        prepared = [x.serialize() for x in specs]
+        prepared, result["backward_preparation"] = repack_backward([x.serialize() for x in specs], result["backward_record_bytes"])
         route_bytes = json.dumps(routes, separators=(",", ":")).encode()
         result["route_sha256"] = hashlib.sha256(route_bytes).hexdigest()
         result["send_rows"] = sum(len(x.gather_rows) for x in specs)
@@ -280,7 +287,7 @@ def main(args):
         assert result["send_rows"] == 260
         sst.KERNEL = binary
         if args.get("capture"):
-            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"]))
+            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"], result["backward_record_bytes"]))
             result["ok"] = result.get("boundary_verified", result["wqe_verified"])
             return save(folder, result)
         stages = []

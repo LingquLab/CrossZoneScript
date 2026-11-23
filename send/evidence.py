@@ -49,7 +49,7 @@ def main(args):
                "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure",
                "force_inline", "outlined_builders", "simd_probe_functions", "stop_boundary", "boundary_verified",
                "checked_status_words", "nonzero_status_words", "status_mismatch_count", "status_encoding",
-               "mte_status", "untouched_snapshots") if k in value}
+               "mte_status", "untouched_snapshots", "backward_record_bytes", "backward_preparation") if k in value}
         out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
                          for s in value.get("stages", [])]
         folder = work / Path(value["report"]).relative_to("/work")
