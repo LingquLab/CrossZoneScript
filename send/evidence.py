@@ -64,6 +64,10 @@ def summary(value):
 
 def main(args):
     assert socket.gethostname().split(".")[0] == args["hostname"]
+    if args["action"] == "vf-text-result":
+        value = json.loads((Path(__file__).resolve().parent / "vf-text-result.json").read_text())
+        print(json.dumps(value, separators=(",", ":")))
+        return
     if args["action"] == "vf-ir-result":
         value = json.loads((Path(__file__).resolve().parent / "vf-ir-result.json").read_text())
         print(json.dumps(value, separators=(",", ":")))

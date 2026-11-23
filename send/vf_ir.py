@@ -1,6 +1,7 @@
 """Inspect VF stack definitions and identical-source LLVM IR in private outputs."""
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 import re
 import shutil
@@ -37,10 +38,15 @@ def summarize_ir(text):
         parameters = header[begin:end - 1]
         callees = sorted(set(re.findall(r'\bcall\b[^\n]*?@(?:"([^"\n]+)"|([^\s(]+))\(', block)))
         names = [a or b for a, b in callees]
+        call_names = [a or b for a, b in re.findall(
+            r'\bcall\b[^\n]*?@(?:"([^"\n]+)"|([^\s(]+))\(', block)]
+        relevant = Counter(value for value in call_names
+                           if re.search(r"vf|simd|vdup|vadd|vst|stack", value, re.I))
         record = {"name": (name[1] or name[2])[:180], "parameter_count": parameter_count(parameters) if depth == 0 else None,
                           "alloca_count": len(re.findall(r"(?m)^\s*%[^=\n]+\s*=\s*alloca\b", block)),
                           "trunc_to_i16_count": len(re.findall(r"\btrunc\b[^\n]*\bto i16\b", block)),
                           "stack_named_operations": sum("stack" in line.lower() for line in block.splitlines()),
+                          "relevant_call_counts": {key[:100]: count for key, count in relevant.most_common(6)},
                           "intrinsic_callees": [value[:80] for value in names
                                                 if re.search(r"vf|simd|vdup|vst|stack", value, re.I)][:4]}
         records.append((record, header[:550]))
