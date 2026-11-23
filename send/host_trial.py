@@ -1,0 +1,53 @@
+# Copyright (c) 2026 TileXR Project.
+"""Create this session's CPU SST container and run one bounded Send candidate.
+
+The old task directory is mounted read-only at /baseline. Detailed process
+captures and all new artifacts stay in this session's separate /work directory.
+"""
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+SESSION = "cb41ec7d-5530-4f29-981d-6274e209a40e"
+NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
+IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
+WORK = Path(__file__).resolve().parent
+
+
+def call(args, timeout=40):
+    p = subprocess.run(args, capture_output=True, timeout=timeout)
+    with (WORK / "host-trial.log").open("ab") as f:
+        f.write(p.stdout + b"\nSTDERR\n" + p.stderr)
+    if p.returncode:
+        raise RuntimeError("command_exit_" + str(p.returncode))
+    return p.stdout
+
+
+def main(args):
+    assert WORK.name == "tilexr-combine-ht-" + SESSION + "-v11"
+    prior = Path(args["prior"])
+    assert prior.parent == Path("/var/tmp") and prior.name.startswith("tilexr-combine-ht-")
+    check = subprocess.run(["docker", "inspect", NAME], capture_output=True, timeout=20)
+    if check.returncode:
+        call(["docker", "run", "-dt", "--name", NAME, "--label", "crosszone.session=" + SESSION,
+              "--network=none", "--runtime=runc", "--shm-size=64m", "--ulimit", "nofile=524288:524288",
+              "--mount", "type=bind,src=" + str(WORK) + ",dst=/work",
+              "--mount", "type=bind,src=" + str(prior) + ",dst=/baseline,readonly",
+              IMAGE, "/bin/bash", "-l"])
+    info = json.loads(call(["docker", "inspect", "--format", "{{json .}}", NAME]))
+    assert info["Image"] == IMAGE and info["Config"]["Labels"].get("crosszone.session") == SESSION
+    assert info["State"]["Running"] and info["HostConfig"]["NetworkMode"] == "none"
+    assert info["HostConfig"]["Runtime"] == "runc"
+    assert any(m["Source"] == str(prior) and m["Destination"] == "/baseline" and not m["RW"] for m in info["Mounts"])
+    assert not (WORK / "mte-original-simd").exists(), "candidate already attempted"
+    call(["docker", "exec", NAME, "python3", "/work/trial.py"], timeout=400)
+    print(json.dumps({"ok": True, "container_id": info["Id"], "result": str(WORK / "trial-result.json")}))
+
+
+if __name__ == "__main__":
+    try:
+        main(json.loads(sys.argv[1]))
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": type(e).__name__, "detail": str(e)[:150]}))
+        sys.exit(1)

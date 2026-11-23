@@ -26,6 +26,22 @@ def summary(value):
 
 def main(args):
     assert socket.gethostname().split(".")[0] == args["hostname"]
+    if args["action"] == "trial-result":
+        work = Path(__file__).resolve().parent
+        file = work / "trial-result.json"
+        if not file.exists():
+            print(json.dumps({"result_exists": False}))
+            return
+        value = json.loads(file.read_text())
+        out = {k: value[k] for k in ("ok", "variant", "build_completed", "send_verified", "verified_ranks",
+               "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure") if k in value}
+        out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
+                         for s in value.get("stages", [])]
+        build_log = work / "mte-original-simd/build.log"
+        if build_log.exists() and not value.get("build_completed"):
+            out["compile_errors"] = [s[:250] for s in build_log.read_text(errors="replace").splitlines() if "error:" in s][:2]
+        print(json.dumps(out, separators=(",", ":")))
+        return
     root = Path(args["prior"])
     assert root.parent == Path("/var/tmp") and root.name.startswith("tilexr-combine-ht-")
     progress = json.loads((root / "progress.json").read_text())

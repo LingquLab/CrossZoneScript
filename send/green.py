@@ -34,10 +34,15 @@ def main(args):
         return r.stdout
 
     call(["mkdir", "-p", WORK])
-    source = Path(__file__).with_name("inspect.py").read_bytes()
-    call(["python3", "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
-          WORK + "/inspect.py"], source)
-    output = call(["timeout", "--kill-after=10", "40", "python3", WORK + "/inspect.py", json.dumps(args)])
+    names = ("host_trial.py", "trial.py", "mte_state.h") if args["action"] == "mte-trial" else ("inspect.py",)
+    for name in names:
+        source = Path(__file__).with_name(name).read_bytes()
+        call(["python3", "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
+              WORK + "/" + name], source)
+    entry = "host_trial.py" if args["action"] == "mte-trial" else "inspect.py"
+    budget = 430 if args["action"] == "mte-trial" else 40
+    output = call(["timeout", "--kill-after=10", str(budget), "python3", WORK + "/" + entry, json.dumps(args)],
+                  timeout=budget + 30)
     result = json.loads(output)
     encoded = json.dumps(result, ensure_ascii=True, separators=(",", ":"))
     assert len(encoded.encode()) <= 2300, "small_packet_budget_exceeded"
