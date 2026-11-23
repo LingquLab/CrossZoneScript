@@ -202,11 +202,13 @@ def summarize_batch(value):
             "backward_record_bytes", "stop_boundary", "error", "failure", "fatal",
             "probe_kind", "probe_mismatch_count", "probe_first_mismatches", "compile_errors")
     keys += ("reference_compat", "changes", "object_bytes", "raw_object_bytes", "raw_object_sha256")
+    keys += ("builder_ir",)
     return {"ok": value["ok"], "diagnostic_only": True,
             "controls": value.get("controls", "full-tile"), "simulation_only": True,
             "artifacts": value.get("artifacts", []),
             "contract": value.get("contract"), "host_errors": value.get("host_errors", []),
             "compiler_artifacts": value.get("compiler_artifacts"),
             "ir_focus": value.get("ir_focus"),
+            "local_mask_vf_codes_identical": value.get("local_mask_vf_codes_identical"),
             "results": [{key: row[key] for key in keys if key in row}
                         for row in value.get("results", [])]}

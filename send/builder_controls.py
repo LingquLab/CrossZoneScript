@@ -1,5 +1,5 @@
 """Generate narrowly scoped experiments on VF-local mask state."""
-KINDS = ("interleave_local_mask", "interleave_local_mask_runtime")
+KINDS = ("interleave_local_mask", "interleave_local_mask_runtime", "interleave_predicate_runtime")
 
 
 def transform(source, kind):
@@ -8,7 +8,29 @@ def transform(source, kind):
     scope = "    __VEC_SCOPE__ {\n        using namespace MicroAPI;\n"
     assert source.count(external) == source.count(scope) == 1
     source = source.replace(external, "")
-    source = source.replace(scope, scope + "        uint32_t remaining = rows;\n")
+    if kind == "interleave_predicate_runtime":
+        row_mask = "            auto mask = UpdateMask<uint32_t>(remaining);"
+        assert source.count(row_mask) == 1
+        source = source.replace(row_mask, """            MaskReg mask;
+            CompareScalar<uint32_t, CMPMODE::LT>(mask,
+                reinterpret_cast<RegTensor<uint32_t> &>(lane), rows - row, all);""")
+        declaration = "            MaskReg storeMask;"
+        assert source.count(declaration) == 1
+        source = source.replace(declaration, declaration + """
+            RegTensor<uint32_t> storeWordIndex, wordStep;
+            storeWordIndex = reinterpret_cast<RegTensor<uint32_t> &>(lane);
+            Duplicate(wordStep, lanes);""")
+        update = "            storeMask = UpdateMask<uint32_t>(remainingWords);"
+        assert source.count(update) == 16
+        source = source.replace(update, """            CompareScalar<uint32_t, CMPMODE::LT>(
+                storeMask, storeWordIndex, remainingWords, all);""")
+        for index in range(15):
+            store = f"            DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v{index}, lanes, storeMask);"
+            assert source.count(store) == 1
+            source = source.replace(store, store + "\n            Add(storeWordIndex, storeWordIndex, wordStep, all);")
+        assert "UpdateMask<" not in source
+    else:
+        source = source.replace(scope, scope + "        uint32_t remaining = rows;\n")
     if kind.endswith("_runtime"):
         declaration = "    const uint16_t repeats = (rows + lanes - 1U) / lanes;\n"
         assert source.count(declaration) == 1

@@ -340,6 +340,12 @@ def main(args):
         result["object_bytes"] = binary.stat().st_size
         result["object_sha256"] = sst.checksum(binary)
         result["build_completed"] = True
+        if builder == "interleave_predicate_runtime":
+            from vf_codegen import inspect as inspect_generated_ir
+            result["builder_ir"] = inspect_generated_ir(folder, snapshot["settings"], sst)
+            check = result["builder_ir"]
+            assert (check.get("compile_returncode") == check.get("decode_returncode") == 0
+                    and check.get("identified") and check.get("generic_pointer_parameter_count") == 0), "predicate_vf_interface_check_failed"
         symbols = subprocess.run(["readelf", "-sW", str(binary)], check=True, capture_output=True,
                                  text=True, timeout=15).stdout
         result["outlined_builders"] = [line.split()[-1] for line in symbols.splitlines()

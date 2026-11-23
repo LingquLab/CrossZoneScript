@@ -46,6 +46,9 @@ def main(args):
             if args.get("controls") == "mask-local":
                 names += ("vf_focus.py",)
                 budget = 880
+            if args.get("controls") == "mask-predicate":
+                names += ("vf_codegen.py", "vf_ir.py", "vf_inspect.py")
+                budget = 620
     elif args["action"] == "padding-probes":
         names = ("padding_probe.py", "trial.py", "builder_controls.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "store_controls.py")
         entry, budget = "padding_probe.py", 640

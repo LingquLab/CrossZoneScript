@@ -7,7 +7,7 @@ import struct
 import subprocess
 
 
-def inspect(folder):
+def inspect(folder, symbol_fragment="ProbeOperation"):
     folder = Path(folder)
     try:
         record = json.loads((folder / "trial-result.json").read_text())
@@ -25,7 +25,9 @@ def inspect(folder):
         functions = []
         for line in symbols.splitlines():
             fields = line.split()
-            if len(fields) < 8 or fields[3] != "FUNC" or "ProbeOperation" not in fields[7]:
+            if len(fields) < 8 or fields[3] != "FUNC" or symbol_fragment not in fields[7]:
+                continue
+            if symbol_fragment == "BuildPutWqes" and not fields[7].endswith(".vector.thread"):
                 continue
             name, size = fields[7], int(fields[2], 0)
             row = {"name": name[:260], "size": size}

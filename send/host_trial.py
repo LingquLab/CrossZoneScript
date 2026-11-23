@@ -59,7 +59,7 @@ def main(args):
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")
     assert boundary == "none" or args.get("capture") is True
-    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 27
+    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 28
     builder = args.get("builder", "original")
     assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS) + MASK_BUILDERS
     folder = "mte-" + builder + "-" + str(args["attempt"])
@@ -75,7 +75,8 @@ def main(args):
         assert config.read_bytes() == (prior / config.name).read_bytes()
     else:
         shutil.copyfile(prior / config.name, config)
-    call(["docker", "exec", NAME, "python3", "/work/trial.py", json.dumps(args)], timeout=400)
+    call(["docker", "exec", NAME, "python3", "/work/trial.py", json.dumps(args)],
+         timeout=510 if builder == "interleave_predicate_runtime" else 400)
     result = json.loads((WORK / "trial-result.json").read_text())
     assert result["ok"]
     result["container_id"] = info["Id"]
@@ -129,15 +130,16 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local", "mask-predicate")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
              "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS,
              "vector": VECTOR_KINDS,
              "ub-gather": GATHER_KINDS,
-             "mask-local": MASK_BUILDERS,
+             "mask-local": MASK_BUILDERS[:2],
+             "mask-predicate": MASK_BUILDERS[2:],
              "sst-compat": ("control", "interleave", "store_post_runtime_vector")}[args.get("controls", "full-tile")]
     def builder_for(kind):
-        if args.get("controls") == "mask-local":
+        if args.get("controls") in ("mask-local", "mask-predicate"):
             return kind
         return kind if args.get("controls") == "sst-compat" and kind == "interleave" else "scalar_" + kind
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
@@ -151,18 +153,25 @@ def run_store_controls(args):
         out["artifacts"] = [inspect_probe_artifacts(WORK / previous)]
     if args.get("controls") == "ub-gather":
         out["artifacts"] = [inspect_probe_artifacts(WORK / "mte-scalar_store_post_runtime_vector-23")]
+    if args.get("controls") == "mask-predicate":
+        out["artifacts"] = [inspect_probe_artifacts(WORK / case, "BuildPutWqes") for case in
+                            ("mte-interleave-22", "mte-interleave_local_mask-26")]
+        pairs = [{row["name"]: row.get("code_sha256") for row in artifact.get("functions", [])}
+                 for artifact in out["artifacts"]]
+        if pairs[0] and all(pairs[0].values()) and all(pairs[1].values()):
+            out["local_mask_vf_codes_identical"] = pairs[0] == pairs[1]
     source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
     assert 0 < source.stat().st_size < 16000000
     functions, snippets = extract_contract(source.read_text())
     assert (functions and functions[0]["destination_by_reference"]
             and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
     out["contract"] = {"functions": functions[:2],
-                       "source_snippets": [] if args.get("controls") == "mask-local" else snippets}
+                       "source_snippets": [] if args.get("controls") in ("mask-local", "mask-predicate") else snippets}
     for offset, kind in enumerate(kinds):
         child = {**args, "action": "mte-trial", "builder": builder_for(kind),
                  "attempt": args["attempt"] + offset, "capture": True,
                  "force_inline": False, "stop_boundary": "before_sq_publish"}
-        if args.get("controls") in ("sst-compat", "ub-gather", "mask-local"):
+        if args.get("controls") in ("sst-compat", "ub-gather", "mask-local", "mask-predicate"):
             child["reference_compat"] = True
         expected = f"/work/mte-{child['builder']}-{child['attempt']}"
         try:
@@ -195,6 +204,8 @@ def run_store_controls(args):
                 out["compiler_artifacts"] = {"available": False, "error": type(error).__name__}
         if args.get("controls") in ("vector", "sst-compat", "ub-gather") and result.get("build_completed"):
             out["artifacts"].append(inspect_probe_artifacts(report.parent))
+        if args.get("controls") == "mask-predicate" and result.get("build_completed"):
+            out["artifacts"].append(inspect_probe_artifacts(report.parent, "BuildPutWqes"))
         path.write_text(json.dumps(out, indent=2))
         (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
         if args.get("controls") in ("compensation", "runtime", "ub-gather") and not result["ok"]:
