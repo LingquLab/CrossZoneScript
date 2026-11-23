@@ -63,15 +63,16 @@ def main(args):
                 archive = root / (name + ".tar")
                 call(["git", "-C", repo, "archive", "--format=tar", "-o", archive, revision, *paths], 45)
                 upload(archive)
-        if stage == "run":
+        if stage in ("run", "inspect"):
             status_args = {**args, "stage": "status"}
             status = json.loads(remote(["python3", WORK + "/host.py", json.dumps(status_args)], 60))
             assert status["ok"] and status["running"] and not status["sst_active"], "session_sst_not_idle"
-        if stage in ("setup", "refresh", "run"):
+        if stage in ("setup", "refresh", "run", "inspect"):
             scripts = root / "scripts.tar"
             with tarfile.open(scripts, "w") as package:
                 for path in sorted(Path(__file__).parent.glob("*.py")):
                     package.add(path, arcname=path.name)
+                package.add(Path(__file__).with_name("sst_fault.c"), arcname="sst_fault.c")
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
         timeout = 960 if stage == "setup" else (args.get("stage_timeout", 60) + 120)
