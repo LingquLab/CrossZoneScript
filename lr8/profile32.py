@@ -1,8 +1,16 @@
 """Export compact rank and stage measurements from verified LR8 SST captures."""
+import argparse
 import json
+from pathlib import Path
 import subprocess
 
-source = r'''
+parser = argparse.ArgumentParser()
+parser.add_argument("--args-file", type=Path, required=True)
+args = json.loads(parser.parse_args().args_file.read_text())
+assert args.get("mode") in (None, "no-credit", "credit", "clock")
+assert args.get("half", 0) in (0, 1)
+
+source = 'OPTIONS = ' + repr(args) + '\n' + r'''
 from collections import defaultdict
 import json
 from pathlib import Path
@@ -14,6 +22,8 @@ for mode, label, schedule in (
     ('credit', 'matrix-32p-16m-fix', 4294967295),
     ('clock', 'matrix-32p-16m-clock-boundaryconfirm', 6311440),
 ):
+    if OPTIONS.get('mode') and mode != OPTIONS['mode']:
+        continue
     root, = Path('/opt').glob('tilexr-lr8-0c04d831-' + label + '-*')
     case = root / f'32p-131072i32-{schedule}-measurement'
     run = json.loads((case / 'execution.json').read_text())
@@ -24,7 +34,9 @@ for mode, label, schedule in (
     result = dict(schedule=schedule, simulated_us=run['simulated_us'], kernel_sha256=provenance['kernel_sha256'],
                   runtime_commit=provenance['runtime_commit'], ranks=[], stages={})
     measures = defaultdict(list)
-    for rank in range(32):
+    core_export = OPTIONS.get('mode') is not None
+    rank_start = OPTIONS.get('half', 0) * 16 if core_export else 0
+    for rank in range(rank_start, rank_start + (16 if core_export else 32)):
         data = (case / 'stage-profiling' / f'rank{rank}.records.bin').read_bytes()
         assert data[:8] == b'TXRPRF1\0'
         offset = 48
@@ -40,6 +52,9 @@ for mode, label, schedule in (
             cores[core] = records
             offset += size
         assert offset == len(data) and len(cores) == 33
+        if core_export:
+            result.setdefault('cores', []).append([rank, []])
+            rank_rows = result['cores'][-1][1]
         groups = [[], []]
         for core in range(32):
             events = defaultdict(list)
@@ -55,10 +70,15 @@ for mode, label, schedule in (
                 if route == 0 or rank // 8 != peer // 8:
                     active.append(group)
             assert all(len(events[event]) == len(active) for event in range(10,18))
+            if core_export:
+                rank_rows.append([core, events[1][0], events[2][0]])
+                row = rank_rows[-1]
             previous = events[1][0]
             for i, group in enumerate(active):
                 ticks = [events[event][i] for event in range(10,18)]
                 assert previous <= ticks[0] and ticks == sorted(ticks)
+                if core_export:
+                    row.append([group, *ticks])
                 groups[group].append((ticks[0], ticks[-1]))
                 durations = [ticks[1]-ticks[0], ticks[3]-ticks[2], ticks[5]-ticks[4],
                              ticks[7]-ticks[6], ticks[0]-previous, ticks[7]-ticks[0]]
@@ -74,6 +94,11 @@ for mode, label, schedule in (
         copy = [b-a for a,b in zip(receiver[24], receiver[25])]
         self_copy = receiver[21][0]-receiver[20][0]
         assert min(wait+copy+[self_copy]) >= 0
+        if core_export:
+            rank_rows.append([32, cores[32][0][1], cores[32][-1][1],
+                              [receiver[20][0], receiver[21][0], receiver[22][0],
+                               receiver[25][-1], sum(wait), sum(copy)]])
+            continue
         measures['recv.scan'].extend(wait)
         measures['recv.handle'].extend(copy)
         measures['recv.self_copy'].append(self_copy)
@@ -86,7 +111,9 @@ for mode, label, schedule in (
         result['stages'][name] = [len(ordered), sum(ordered), ordered[0],
                                   ordered[(len(ordered)-1)//2], ordered[(95*len(ordered)+99)//100-1], ordered[-1]]
     output[mode] = result
-print(json.dumps(output,separators=(',',':')))
+encoded = json.dumps(output,separators=(',',':'))
+assert len(encoded) < 62000
+print(encoded)
 '''
 result = subprocess.run(
     ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'IdentitiesOnly=yes',
