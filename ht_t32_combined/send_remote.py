@@ -24,10 +24,11 @@ def transport_evidence(case, rings):
 def run_t32(request):
     global NAME, ID
     build = request["build"]
-    variant = "t32-sst-mte-send-" + build["kernel_sha256"][:8]
+    suffix = "-distributed" if request.get("distributed") else ""
+    variant = "t32-sst-mte-send-" + build["kernel_sha256"][:8] + suffix
     VARIANTS[build["kernel_sha256"]] = variant
     case = MOUNT / variant
-    NAME = "tilexr-cpu-b4f4660a-ht-t32-send"
+    NAME = "tilexr-cpu-b4f4660a-ht-t32-send" + suffix
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
     ID = docker("create", "--name", NAME, "--runtime=runc", "--network=none",
                 "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=8",

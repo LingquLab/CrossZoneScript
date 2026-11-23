@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 
 from coverage import coverage
@@ -32,21 +33,22 @@ def run_remote(source, timeout):
         return {"invalid_output": True, "stdout_bytes": len(proc.stdout)}
 
 
-def run_send():
-    folder = root / "send"
+def run_send(distributed=False):
+    folder = root / ("distributed" if distributed else "send")
+    binary_folder = root / "send"
     identity = json.loads((folder / "fixture-identity.json").read_text())
-    build = json.loads((folder / "build-record.json").read_text())
+    build = json.loads((binary_folder / "build-record.json").read_text())
     fixture = (folder / "fixture-images.tar.gz").read_bytes()
-    obj = (folder / "inter_server_send.o.gz").read_bytes()
+    obj = (binary_folder / "inter_server_send.o.gz").read_bytes()
     assert hashlib.sha256(fixture).hexdigest() == identity["input_archive_sha256"]
     assert hashlib.sha256(gzip.decompress(obj)).hexdigest() == build["kernel_sha256"]
     with tarfile.open(fileobj=io.BytesIO(fixture)) as archive:
-        stats, rings = coverage(archive)
+        stats, rings = coverage(archive, (2688, 822) if distributed else (2715, 795))
     assert json.loads((folder / "coverage.json").read_text()) == json.loads(json.dumps(stats))
     build.update(binary_source_commit=build["candidate_commit"],
                  candidate_commit="b13556eb4f84afc103ba993f4e9151dc104d2b95",
                  variant="sst-mte-t32-send")
-    req = dict(build=build, identity=identity, coverage=stats, rings=rings,
+    req = dict(build=build, identity=identity, coverage=stats, rings=rings, distributed=distributed,
                archive=base64.b64encode(fixture).decode(), object=base64.b64encode(obj).decode())
     native = (support / "run_mte_t4_remote.py").read_text().rsplit("if __name__ == ", 1)[0]
     assert native.count("assert tokens == 4") == 1
@@ -57,7 +59,11 @@ def run_send():
         "def read_observed(", 1)[1].split("def diagnose_t96(", 1)[0]
     script = "\n".join((native, (root / "prepare.py").read_text(), compare, trace, observe,
                         (root / "send_remote.py").read_text()))
-    return run_remote(script + f"\nprint(json.dumps(run_t32({req!r}), separators=(',', ':')))\n", 2250)
+    if distributed:
+        script += "\n" + (root / "gate_distributed.py").read_text()
+    entry = "run_distributed" if distributed else "run_t32"
+    return run_remote(script + f"\nprint(json.dumps({entry}({req!r}), separators=(',', ':')))\n",
+                      4140 if distributed else 2250)
 
 
 def run_reduce(tag):
@@ -73,8 +79,13 @@ def run_reduce_pair():
     return {kind: run_reduce(kind) for kind in ("bf16", "fp32")}
 
 
-with ThreadPoolExecutor(max_workers=2) as pool:
-    send = pool.submit(run_send)
-    reduce = pool.submit(run_reduce_pair)
-    result = {"send": send.result(), "reduce": reduce.result()}
-print(json.dumps(result, separators=(",", ":")))
+if __name__ == "__main__":
+    args_path = Path(sys.argv[2]) if sys.argv[1:2] == ["--args-file"] else None
+    if args_path and json.loads(args_path.read_text()).get("distributed"):
+        result = {"distributed": run_send(distributed=True)}
+    else:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            send = pool.submit(run_send)
+            reduce = pool.submit(run_reduce_pair)
+            result = {"send": send.result(), "reduce": reduce.result()}
+    print(json.dumps(result, separators=(",", ":")))

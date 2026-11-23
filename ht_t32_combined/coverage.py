@@ -4,7 +4,7 @@ import json
 import struct
 
 
-def coverage(archive):
+def coverage(archive, expected_lane_rows=(2715, 795)):
     def read(name):
         return archive.extractfile(name).read()
 
@@ -70,7 +70,7 @@ def coverage(archive):
                 rank_rings[peer * 40 + lane * 20 + owner] = count + 1
         assert max(pending_per_owner.values(), default=0) < 32
         expected_rings[rank] = rank_rings
-    assert lane_rows == [2715, 795]
+    assert tuple(lane_rows) == tuple(expected_lane_rows)
     stats = {
         "payload_rows_by_lane": lane_rows,
         "rows_per_sender_peer_lane_chunk": [dict(sorted(counts.items())) for counts in counts_by_lane],

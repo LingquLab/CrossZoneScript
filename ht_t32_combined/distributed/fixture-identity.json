@@ -1,0 +1,21 @@
+{
+  "tokens": 32,
+  "hidden": 256,
+  "chunks": 4,
+  "input_archive_sha256": "de44b0e6ae7a61061b48d3f12017f2ba58d4f9c28813af52014face6be49ec62",
+  "fixture_manifest": {
+    "tokens": 32,
+    "hidden": 256,
+    "rows": 56,
+    "chunks": 4,
+    "world": 64,
+    "topk": 6,
+    "row_bytes": 512,
+    "return_slots": 8,
+    "entry": "tilexr_ep_ht_inter_server_send_kernel",
+    "block_dim": 16,
+    "ready_epoch": 4,
+    "magic": 2026,
+    "validation": "generated_not_simulated"
+  }
+}
