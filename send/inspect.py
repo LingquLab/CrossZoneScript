@@ -10,7 +10,15 @@ def summary(value):
     keys = ("returncode", "send_verified", "verified_ranks", "checked_wqes", "mismatch_count",
             "failure", "fault_address", "pc", "link", "constructed", "first_fatal", "first_errors")
     if isinstance(value, dict):
-        return {k: value[k] for k in keys if k in value}
+        out = {k: value[k] for k in keys if k in value}
+        if "first_mismatches" in value:
+            out["first_mismatch"] = value["first_mismatches"][:1]
+        if "ranks" in value and isinstance(value["ranks"], list):
+            ranks = value["ranks"]
+            out["matching_ranks"] = sum(bool(x.get("match")) for x in ranks)
+            out["rank_count"] = len(ranks)
+            out["first_rank"] = ranks[:1]
+        return out
     if isinstance(value, list):
         return [summary(x) for x in value[:3]]
     return str(value)[:80]
@@ -24,6 +32,8 @@ def main(args):
     case = root / Path(progress["case"]).relative_to("/work")
     files = sorted((f for f in case.glob("*/*.json") if f.name in ("analysis.json", "trial.json", "diagnosis.json")),
                    key=lambda f: f.stat().st_mtime, reverse=True)
+    if args.get("prefixes"):
+        files = [f for f in files if f.parent.name.startswith(tuple(args["prefixes"]))]
     offset = args.get("offset", 0)
     rows = []
     for f in files[offset:offset + 4]:
