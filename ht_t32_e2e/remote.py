@@ -6,6 +6,10 @@ def run_e2e(request):
     tokens = request["identity"]["tokens"]
     assert tokens in (4, 32)
     variant = f"t{tokens}-combine-fp32-{digest[:8]}"
+    suffix = "-spread" if request.get("spread_gateways") else ""
+    if suffix:
+        assert tokens == 32 and request["identity"]["runtime_root"].endswith("-spread-data")
+    variant += suffix
     case = MOUNT / variant
     result = {"kernel_sha256": digest, "entry": build["entry"], "case": variant}
     if case.exists():
@@ -21,7 +25,7 @@ def run_e2e(request):
                         "runner_exit_code", "runner_exception_type", "exported_rank_count")
                 result[name] = {key: data[key] for key in keys if key in data}
         return result
-    NAME = f"tilexr-cpu-b4f4660a-ht-t{tokens}-e2e-{digest[:8]}"
+    NAME = f"tilexr-cpu-b4f4660a-ht-t{tokens}-e2e-{digest[:8]}{suffix}"
     VARIANTS[digest] = variant
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
     try:
