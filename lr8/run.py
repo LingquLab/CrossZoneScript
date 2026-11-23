@@ -49,6 +49,11 @@ def main():
     assert not (args.get('zero_logging') and args.get('ta_tp_info'))
     if 'ubus_replacement' in args:
         assert args['ubus_replacement'] == '/home/l00654177/libUBusSimulator.so'
+    if 'ubus_config_override' in args:
+        assert args.get('zero_logging')
+        assert args['ubus_config_override'] == (
+            '/opt/tilexr-lr8-0c04d831-32p-nocredit-ta-tp-retry-4lxg_qc8/'
+            '32p-131072i32-0-measurement/UBusSim_config/UBusSim_simulator_config.yml')
     if 'threads' in args:
         threads = args['threads']
         assert type(threads) is int and 1 <= threads <= min(32, *(ranks for ranks, _ in args['cases']))

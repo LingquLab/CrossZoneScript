@@ -92,6 +92,15 @@ def run():
     STARTED = True
     assert docker('inspect', '--format', '{{.Id}} {{.Image}}', NAME).decode().split() == [cid, IMAGE_ID]
     print(json.dumps(dict(container=NAME, container_id=cid, root=str(ROOT), image_id=IMAGE_ID)), flush=True)
+    if ARGS.get('ubus_config_override'):
+        STAGE = 'snapshot_user_config'
+        original_config = Path(ARGS['ubus_config_override'])
+        config_snapshot = ROOT / 'user-UBusSim_simulator_config.yml'
+        shutil.copyfile(original_config, config_snapshot)
+        assert digest(original_config) == digest(config_snapshot)
+        print(json.dumps(dict(user_config_source=str(original_config),
+                              user_config_snapshot=str(config_snapshot),
+                              user_config_sha256=digest(config_snapshot))), flush=True)
     STAGE = 'source_lock'
     archive = ROOT / 'sources.tar.gz'
     archive.write_bytes(base64.b64decode(DATA[0], validate=True))
@@ -129,6 +138,26 @@ def run():
         anchor = '                           log_level=None)'
         assert suite.count(anchor) == 1
         suite = suite.replace(anchor, '                           log_level=0)')
+    if ARGS.get('ubus_config_override'):
+        anchor = "    routing = configure_fullmesh_routing(configs, config.get('fullmesh_routing', 'installed'))"
+        assert suite.count(anchor) == 1
+        suite = suite.replace(anchor, anchor + '''
+    user_config_path = Path('/work/user-UBusSim_simulator_config.yml')
+    user_config = yaml.safe_load(user_config_path.read_text())
+    def zero_levels(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ('log_level', 'verbose', 'verbosity'):
+                    node[key] = 0
+                else:
+                    zero_levels(value)
+        elif isinstance(node, list):
+            for value in node:
+                zero_levels(value)
+    zero_levels(user_config)
+    require(user_config['architecture_config']['host_num'] >= ranks,
+            'User configuration has insufficient hosts')
+    configs['UBusSim_config/UBusSim_simulator_config.yml'] = user_config''')
     if ARGS.get('cq_gm_doorbell'):
         anchor = 'cq_store_instruction="st_dev", cq_address_contract='
         assert suite.count(anchor) == 1
