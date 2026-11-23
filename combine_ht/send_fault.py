@@ -70,6 +70,8 @@ def main():
         except subprocess.TimeoutExpired:
             returncode = 124
     result = dict(report=str(case), returncode=returncode, wall_s=round(time.monotonic() - start, 3))
+    result["fault_file_bytes"] = fault_path.stat().st_size if fault_path.exists() else None
+    result["sst_launcher"] = env["sst_bin"]
     if fault_path.is_file():
         values = fault_path.read_text(errors="replace").splitlines()
         if len(values) >= 3:

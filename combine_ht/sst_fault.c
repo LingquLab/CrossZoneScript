@@ -1,7 +1,8 @@
 /*
  * Copyright (c) 2026 TileXR Project.
  * Records register addresses and mapped ELF files when the diagnostic SST
- * subprocess receives SIGSEGV. The regular simulator build uses no handler.
+ * subprocess receives SIGSEGV. Append mode lets an exec of the SST launcher
+ * reopen the task-local evidence file. The regular simulator uses no handler.
  */
 #define _GNU_SOURCE
 
@@ -53,7 +54,7 @@ __attribute__((constructor)) static void set_fault_handler(void)
 {
     const char *output = getenv("TILEXR_SST_FAULT_FILE");
     if (!output) return;
-    fault_output = open(output, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    fault_output = open(output, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
     if (fault_output < 0) return;
     struct sigaction handler = {0};
     handler.sa_sigaction = record_fault;
