@@ -73,13 +73,13 @@ def select_environment():
     return snapshot
 
 
-def build_kernel(env, log, source=None, binary=KERNEL, address_transform=True):
+def build_kernel(env, log, source=None, binary=KERNEL, address_transform=True, include_overrides=()):
     src = WORK / "candidate"
     cann = Path(env["cann_root"])
     arch = cann / "aarch64-linux"
     compiler = Path(env["compiler"])
     linker = find_linker(cann, compiler)
-    includes = [src / "include", src / "src/moonep/combine_ht/common",
+    includes = [*include_overrides, src / "include", src / "src/moonep/combine_ht/common",
                 cann / "compiler/tikcpp", cann / "compiler/tikcpp/tikcfw",
                 cann / "compiler/tikcpp/tikcfw/impl", cann / "compiler/tikcpp/tikcfw/interface",
                 arch / "ascendc/include", arch / "asc/include", arch / "include",
