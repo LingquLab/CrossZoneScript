@@ -55,12 +55,12 @@ def main():
         raise RuntimeError("native compiler unavailable")
     with (case / "build.log").open("wb") as log:
         subprocess.run([compiler, "-Wall", "-Wextra", "-O2", "-shared", "-fPIC",
-                        str(source), "-o", str(library)], stdout=log,
+                        str(source), "-ldl", "-o", str(library)], stdout=log,
                        stderr=subprocess.STDOUT, timeout=30, check=True)
     env = snapshot["settings"]
     fault_path = case / "fault-addresses.txt"
     cmd = sst.shell_command(env, "sst", ["env", "TILEXR_SST_FAULT_FILE=" + str(fault_path),
-                           "LD_PRELOAD=" + str(library), env["sst_bin"], "-n", "16",
+                           "LD_PRELOAD=" + str(library), "/opt/sim/local/sstcore/libexec/sstsim.x", "-n", "16",
                            case / "test_UBusSim.py"])
     with (case / "sim.log").open("wb") as log:
         start = time.monotonic()
@@ -71,7 +71,9 @@ def main():
             returncode = 124
     result = dict(report=str(case), returncode=returncode, wall_s=round(time.monotonic() - start, 3))
     result["fault_file_bytes"] = fault_path.stat().st_size if fault_path.exists() else None
-    result["sst_launcher"] = env["sst_bin"]
+    result["sst_launcher"] = "/opt/sim/local/sstcore/libexec/sstsim.x"
+    lifecycle = Path(str(fault_path) + ".lifecycle")
+    result["recorder_lifecycle"] = lifecycle.read_text().splitlines()[-12:] if lifecycle.exists() else []
     if fault_path.is_file():
         values = fault_path.read_text(errors="replace").splitlines()
         if len(values) >= 3:
