@@ -49,7 +49,7 @@ def main(args):
             if args.get("controls") == "mask-predicate":
                 names += ("vf_codegen.py", "vf_ir.py", "vf_inspect.py")
                 budget = 620
-            if args.get("controls") == "vf-packed":
+            if args.get("controls") in ("vf-packed", "vf-packed-default"):
                 names += ("vf_codegen.py", "vf_ir.py", "vf_inspect.py")
                 budget = 620
     elif args["action"] == "padding-probes":

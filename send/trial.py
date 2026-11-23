@@ -346,7 +346,12 @@ def main(args):
             path.write_text(header)
         binary = folder / "send.o"
         with (folder / "build.log").open("wb") as log:
-            if result["vf_stack_off"]:
+            if builder == "interleave_vf_packed_default":
+                from vf_stack_control import build_default, spill_detail
+                result["previous_spill"] = spill_detail(WORK / "mte-interleave_vf_packed-32")
+                result["vf_stack_control"] = build_default(folder, snapshot["settings"], log,
+                    preflight=lambda: verify_builder_interface(folder, builder, snapshot["settings"], result))
+            elif result["vf_stack_off"]:
                 from vf_stack_control import build as build_vf_stack_control
                 preflight = (lambda: verify_builder_interface(folder, builder, snapshot["settings"], result)) if builder in VF_BUILDERS else None
                 result["vf_stack_control"] = build_vf_stack_control(folder, builder, snapshot["settings"], log, preflight=preflight)

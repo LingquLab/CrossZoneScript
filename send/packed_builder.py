@@ -5,7 +5,7 @@ Flush reuses the first 48 bytes of its completed queue-read scratch. The builder
 reads those values before vector work; the following queue load refills scratch.
 The vector instruction body and the snapshot/publication path are preserved.
 """
-VF_BUILDERS = ("interleave_vf_packed",)
+VF_BUILDERS = ("interleave_vf_packed", "interleave_vf_packed_default")
 
 
 def call_block(template, row_begin, row_end):

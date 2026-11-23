@@ -63,10 +63,11 @@ def main(args):
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")
     assert boundary == "none" or args.get("capture") is True
-    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 32
+    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 33
     builder = args.get("builder", "original")
     assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS) + MASK_BUILDERS + VF_BUILDERS
-    assert builder not in VF_BUILDERS or (args.get("vf_stack_off") is True and args.get("controls") == "vf-packed")
+    assert builder != "interleave_vf_packed" or (args.get("vf_stack_off") is True and args.get("controls") == "vf-packed")
+    assert builder != "interleave_vf_packed_default" or (args.get("vf_stack_off", False) is False and args.get("controls") == "vf-packed-default")
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -135,7 +136,7 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local", "mask-predicate", "vf-stack", "vf-packed")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local", "mask-predicate", "vf-stack", "vf-packed", "vf-packed-default")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
              "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS,
              "vector": VECTOR_KINDS,
@@ -143,10 +144,11 @@ def run_store_controls(args):
              "mask-local": MASK_BUILDERS[:2],
              "mask-predicate": MASK_BUILDERS[2:],
              "vf-stack": STACK_BUILDERS,
-             "vf-packed": VF_BUILDERS,
+             "vf-packed": VF_BUILDERS[:1],
+             "vf-packed-default": VF_BUILDERS[1:],
              "sst-compat": ("control", "interleave", "store_post_runtime_vector")}[args.get("controls", "full-tile")]
     def builder_for(kind):
-        if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack", "vf-packed"):
+        if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack", "vf-packed", "vf-packed-default"):
             return kind
         return kind if args.get("controls") == "sst-compat" and kind == "interleave" else "scalar_" + kind
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
@@ -173,7 +175,7 @@ def run_store_controls(args):
     assert (functions and functions[0]["destination_by_reference"]
             and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
     out["contract"] = {"functions": functions[:2],
-                       "source_snippets": [] if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack", "vf-packed") else snippets}
+                       "source_snippets": [] if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack", "vf-packed", "vf-packed-default") else snippets}
     for offset, kind in enumerate(kinds):
         child = {**args, "action": "mte-trial", "builder": builder_for(kind),
                  "attempt": args["attempt"] + offset, "capture": True,
@@ -184,6 +186,8 @@ def run_store_controls(args):
             child.update(vf_stack_off=True, reference_compat=offset != 0)
         if args.get("controls") == "vf-packed":
             child.update(vf_stack_off=True, reference_compat=True)
+        if args.get("controls") == "vf-packed-default":
+            child.update(vf_stack_off=False, reference_compat=True)
         expected = f"/work/mte-{child['builder']}-{child['attempt']}"
         try:
             with (WORK / "store-host.log").open("a") as log, redirect_stdout(log):

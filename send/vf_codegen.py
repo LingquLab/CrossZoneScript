@@ -10,7 +10,7 @@ from vf_ir import summarize_ir
 def inspect(folder, env, sst):
     folder = Path(folder)
     assert folder.parent == Path("/work") and folder.name in (
-        "mte-interleave_predicate_runtime-28", "mte-interleave_vf_packed-32")
+        "mte-interleave_predicate_runtime-28", "mte-interleave_vf_packed-32", "mte-interleave_vf_packed_default-33")
     report = folder / "ir-check"
     report.mkdir()
     inputs = [path for path in folder.iterdir() if path.suffix in (".cpp", ".h")]
