@@ -25,6 +25,11 @@ assert contract["rank_size"] == 64 and contract["abi_size"] == 128 and contract[
 assert contract["device_copyout_executed"] is (kind == "functional")
 image = request["image_id"]
 assert image == "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
+local_image = subprocess.check_output(
+    ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+    text=True, timeout=15,
+).strip()
+assert local_image == image
 items = json.loads((build / "objects.json").read_text())
 assert items["revision"] == "bde4640832397f70516194515f9734ac4c8d8393" and items["passed"]
 
@@ -45,6 +50,7 @@ def safe_error(log):
     patterns = (
         r"(?m)^(?:ValueError|AssertionError|KeyError|FileNotFoundError|RuntimeError|PermissionError|TimeoutError):[^\n]{0,220}",
         r"(?mi)^docker: Error response from daemon:[^\n]{0,200}",
+        r"(?mi)^unknown flag:[^\n]{0,200}",
     )
     for pattern in patterns:
         match = re.search(pattern, content)
@@ -54,7 +60,7 @@ def safe_error(log):
 
 
 started = command([
-    "docker", "run", "--pull=never", "--rm", "-d", "--name", name,
+    "docker", "run", "--rm", "-d", "--name", name,
     "--runtime", "ascend", "--ipc", "shareable", "--shm-size", "64m",
     "--ulimit", "nofile=524288:524288", "--network", "none",
     "-v", f"{origin}:/work:ro", "-v", f"{build}:/candidate:ro", "-v", f"{run}:/run-cases",
