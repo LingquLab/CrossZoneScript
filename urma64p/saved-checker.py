@@ -4,6 +4,7 @@ import contextlib
 import importlib
 import io
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -14,10 +15,10 @@ from pathlib import Path
 root = Path("/run-cases")
 failed = False
 scratch = Path(tempfile.mkdtemp(prefix="urma64p-report-"))
-for schedule in ("syncall", "nosync", "clock"):
+for schedule in os.environ["URMA_SAVED_MODES"].split(","):
     preserved = root / schedule
     original_report = json.loads(sorted(preserved.glob("runs/*/run.json"))[-1].read_text())
-    if original_report["returncode"] != 0 or original_report.get("error") != "Unknown event":
+    if original_report["returncode"] != 0 or original_report.get("error") not in (None, "Unknown event"):
         raise ValueError("unexpected original run status")
     case = scratch / schedule
     case.mkdir()
@@ -54,6 +55,8 @@ for schedule in ("syncall", "nosync", "clock"):
         "            for event in ids:": "            collect(events, lane)\n            for event in ids:",
     }
     for old, new in transforms.items():
+        if "collect(events, lane)" not in new and source.count(new) == 1:
+            continue
         if source.count(old) != 1:
             raise ValueError("unrecognized checker layout")
         source = source.replace(old, new)
@@ -79,6 +82,8 @@ for schedule in ("syncall", "nosync", "clock"):
                               global_gap_cycles=start1-end0, min_rank_gap_cycles=min(local_gaps),
                               cross_start_spread_cycles=end_start1-start1)
         evidence = json.loads((case / "candidate-result.json").read_text())
+        if schedule == "clock" and original_report.get("error") is None:
+            assert start1 >= evidence["deadline"] and start1 >= end0, timing_summary
         print(json.dumps({"schedule": schedule, "verification": report["status"], "lanes": lane_count[0],
                           "event_counts": counts, "simulated_us": evidence["simulated_us"],
                           "deadline": evidence["deadline"], "timing": timing_summary}), flush=True)

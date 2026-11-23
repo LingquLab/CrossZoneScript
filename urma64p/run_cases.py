@@ -5,11 +5,13 @@ import base64
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--args-file", type=Path, required=True)
-args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
+args_file = parser.parse_args().args_file
+args = json.loads(args_file.read_text(encoding="utf-8"))
 build = args["build"]
 kind = args["kind"]
 size = args["size"]
@@ -32,6 +34,9 @@ if kind == "functional" and size != "512kib-per-rank":
     parser.error("only the 512 KiB/rank functional reference is retained for 64P")
 
 directory = Path(__file__).resolve().parent
+if "run_dir" in args:
+    subprocess.run([sys.executable, str(directory / "recheck_saved.py"),
+                    "--args-file", str(args_file)], check=True)
 ssh = [
     "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
     "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
