@@ -27,26 +27,37 @@ def main():
     symbols = subprocess.run(["nm", "-D", "--defined-only", str(library)], capture_output=True, text=True, timeout=20).stdout
     constructors = [line.split()[-1] for line in symbols.splitlines() if re.search(r"BaLayerC[12]E", line)]
     result = dict(report=str(report), library_sha256=sst.checksum(library), constructor_symbols=constructors, field_accesses=[])
-    for symbol in constructors[:1]:
-        disassembly = subprocess.run([shutil.which("objdump"), "-d", "--disassemble=" + symbol, str(library)], capture_output=True, text=True, timeout=30).stdout
-        (report / "constructor.asm").write_text(disassembly)
-        lines = [line.strip() for line in disassembly.splitlines() if re.match(r"^\s*[0-9a-f]+:\s+[0-9a-f]{8}\s", line)]
-        for index, line in enumerate(lines):
-            if re.search(r"#(?:4120|0x1018)\]", line):
-                result["field_accesses"].append(dict(address=line.split(":")[0], window=lines[max(0, index-3):index+1]))
+    disassembly = subprocess.run([shutil.which("objdump"), "-d", str(library)], capture_output=True, text=True, timeout=60).stdout
+    (report / "library.asm").write_text(disassembly)
+    function = None
+    functions, accesses, recent = [], [], []
+    for line in disassembly.splitlines():
+        match = re.match(r"^[0-9a-f]+ <([^>]+)>:", line)
+        if match:
+            function = match[1]
+            recent = []
+            if "_ZN3SST7Davinci7BaLayer" in function:
+                functions.append(function)
+        if not re.match(r"^\s*[0-9a-f]+:\s+[0-9a-f]{8}\s", line):
+            continue
+        if function and "_ZN3SST7Davinci7BaLayer" in function:
+            if re.search(r"#(?:4120|4112|0x1018|0x1010)\]", line):
+                accesses.append(dict(function=function, instruction=line.strip(), previous=recent[-4:]))
+            recent.append(line.strip())
+    result["ba_methods"] = functions[:60]
+    result["field_accesses"] = [{"function": item["function"], "instruction": item["instruction"]} for item in accesses]
+    writes = [item for item in accesses if re.search(r"\s(?:str|stp)\s", item["instruction"])]
+    if writes:
+        result["initialization_window"] = writes[-1]["previous"] + [writes[-1]["instruction"]]
+    sst.write_json(report / "field-accesses.json", accesses)
     strings = subprocess.run(["strings", "-t", "x", str(library)], capture_output=True, text=True, timeout=20).stdout.splitlines()
     result["native_port_names"] = [line.strip() for line in strings if re.search(r"\b(?:ubSubsysReqPort|netSimReqPort|V310_flag|UBusSim_flag|simt_urma_flag)\b", line)]
-    result["field_accesses"] = result["field_accesses"][:2]
-    import graph_focus
-    capture = io.StringIO()
-    with redirect_stdout(capture):
-        graph_focus.main()
-    graph = json.loads(capture.getvalue())
-    result["python_graph_report"] = graph["report"]
-    result["python_graph_constructed"] = graph["constructed"]
-    result["ba_params"] = graph["ba_params"]
+    result["field_accesses"] = result["field_accesses"][:12]
+    source_paths = [str(path) for path in (sst.ROOT / "simulator/UBusSim_deployment").rglob("*")
+                    if path.suffix in (".h", ".cpp", ".cc") and re.search(r"ba.?layer", path.name, re.I)]
+    result["native_source_paths"] = source_paths[:8]
     sst.write_json(report / "analysis.json", result)
-    assert len(json.dumps(result).encode()) < 6000
+    assert len(json.dumps(result).encode()) < 8000
     print(json.dumps(result, ensure_ascii=True))
 
 
