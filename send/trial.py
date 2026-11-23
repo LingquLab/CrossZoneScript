@@ -33,7 +33,7 @@ def state_loads(text, scratch):
     return re.subn(pattern, r"TileXR::SimulatorLoad(\1, " + scratch + ")", text)
 
 
-def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False, mte_status=False, backward_record_bytes=24):
+def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False, mte_status=False, backward_record_bytes=24, reference_compat=False):
     write_common_header(folder, baseline, backward_record_bytes)
     original = baseline / "candidate/src/moonep/combine_ht/kernels"
     header = (original / "combine_ht_kernel.h").read_text()
@@ -54,7 +54,14 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert poll.count(old) == 1
     poll = poll.replace(old, new)
     helper = WORK / "mte_state.h"
-    generated = helper.read_text() + "\nnamespace TileXR {\n" + poll + "\n}\n"
+    helper_text = helper.read_text()
+    if reference_compat:
+        assert helper_text.count("gm.SetGlobalBuffer(address, 16U);") == 1
+        helper_text = helper_text.replace("gm.SetGlobalBuffer(address, 16U);",
+            "gm.SetGlobalBuffer(address, 1U);\n    gm.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);")
+        assert helper_text.count("DataCopyExtParams{1U, 64U,") == 1
+        helper_text = helper_text.replace("DataCopyExtParams{1U, 64U,", "DataCopyExtParams{1U, 4U,")
+    generated = helper_text + "\nnamespace TileXR {\n" + poll + "\n}\n"
     (folder / "mte_state_generated.h").write_text(generated)
     header = header.replace("using namespace AscendC;", '#include "mte_state_generated.h"\nusing namespace AscendC;', 1)
     header = header.replace("    bool detailed;", "    bool detailed;\n    LocalTensor<uint32_t> stateRead, stateWrite;", 1)
@@ -79,6 +86,13 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert after.count("writer, detailed};") == 1
     after = after.replace("writer, detailed};", "writer, detailed, queueRead, queueWrite};")
     header = before + after
+    if reference_compat:
+        begin = header.index("inline void NativeLoad(")
+        end = header.index("inline void NativeStore(", begin)
+        body = header[begin:end]
+        assert body.count("gm.SetGlobalBuffer(source);") == 1
+        body = body.replace("gm.SetGlobalBuffer(source);", "gm.SetGlobalBuffer(source);\n    gm.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);")
+        header = header[:begin] + body + header[end:]
     if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS:
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
@@ -130,6 +144,8 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
         auto statusUb = statusBuffer.Get<uint32_t>();
         statusUb.SetValue(0U, sendStatus == 0U ? (0xa5000000U | (args.config.rank << 8U) | core) : sendStatus);
         NativeStore(reinterpret_cast<__gm__ uint32_t *>(args.status) + core, statusUb, 1U);"""
+        if reference_compat:
+            replacement = replacement.replace("+ core, statusUb", "+ core * 8U, statusUb")
         header = header.replace(marker, replacement)
     (folder / "combine_ht_kernel.h").write_text(header)
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
@@ -137,6 +153,8 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
             "force_inline": force_inline, "mte_status": mte_status,
             "packed_builder": builder == "interleave_packed", "minimal_simd_probe": builder == "scalar_simd_probe",
             "backward_record_bytes": backward_record_bytes,
+            "reference_compat": reference_compat, "state_read_bytes": 4 if reference_compat else 64,
+            "status_slot_bytes": 32 if reference_compat else 4, "native_load_disables_l2": reference_compat,
             "simd_operation_probe": builder if builder in ("scalar_simd_gather", "scalar_simd_interleave") else "none"}
 
 
@@ -159,11 +177,32 @@ def stop_at_boundary(header, boundary):
     return header[:begin] + body.replace(marker, replacement) + header[end:]
 
 
-def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False, backward_record_bytes=24, probe_kind=None):
+def status_image(slot_bytes):
+    assert slot_bytes in (4, 32)
+    image = bytearray(512)
+    for core in range(8):
+        struct.pack_into("<I", image, core * slot_bytes, 0x5a5a5a5a)
+    return bytes(image)
+
+
+def status_output(values, slot_bytes):
+    assert slot_bytes in (4, 32) and len(values) == 512
+    words = tuple(struct.unpack_from("<I", values, core * slot_bytes)[0] for core in range(8))
+    guards = sum(values[core * slot_bytes + 4:(core + 1) * slot_bytes] != bytes(slot_bytes - 4)
+                 for core in range(8))
+    guards += values[8 * slot_bytes:] != bytes(512 - 8 * slot_bytes)
+    return words, guards
+
+
+def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False, backward_record_bytes=24, probe_kind=None, status_slot_bytes=4):
     run = folder / "capture"
     workload = sst.create_workload(run, specs, prepared, 1)
     for rank, spec in enumerate(specs):
         chip = workload["workload_config"][f"chip{rank}"]
+        assert chip["output_param"]["status"]["size"] == 512
+        if status_slot_bytes == 32:
+            assert chip["kernel_param"]["status"]["value"] % 32 == 0
+        (run / "input_bin" / f"rank{rank}" / "status.bin").write_bytes(status_image(status_slot_bytes))
         if backward_record_bytes == 32:
             assert chip["kernel_param"]["backward"]["value"] % 32 == 0
             assert len(prepared[rank][0]["backward"]) % 32 == 0
@@ -206,7 +245,7 @@ def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False
         raw = sst.read_output(run, rank, "wqe_snapshot", output["addr"], output["size"])
         status = chip["output_param"]["status"]
         values = sst.read_output(run, rank, "status", status["addr"], status["size"])
-        status_words = struct.unpack_from("<8I", values)
+        status_words, status_guards = status_output(values, status_slot_bytes)
         if probe_kind:
             for core, status in enumerate(status_words):
                 decoded = decode_store_status(status, probe_kind)
@@ -218,7 +257,7 @@ def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False
         out["nonzero_status_words"] += sum(value != 0 for value in status_words)
         expected_status = tuple((0xa5000000 | (rank << 8) | core) if mte_status else 0 for core in range(8))
         out["status_mismatch_count"] += sum(actual != expected for actual, expected in zip(status_words, expected_status))
-        out["status_guard_failures"] += values[32:] != bytes(len(values) - 32)
+        out["status_guard_failures"] += status_guards
         out["untouched_snapshots"] += raw == b"\xcd" * len(raw)
         if rank == 0:
             out["status_words"] = list(status_words)
@@ -267,7 +306,8 @@ def main(args):
               "variant": "mte_queue_state_" + builder, "source_ranks": 64,
               "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder),
               "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none"),
-              "mte_status": args.get("mte_status", False), "backward_record_bytes": args.get("backward_record_bytes", 24)}
+              "mte_status": args.get("mte_status", False), "backward_record_bytes": args.get("backward_record_bytes", 24),
+              "reference_compat": args.get("reference_compat", False)}
     try:
         baseline = Path("/baseline")
         snapshot = json.loads((baseline / "environment.snapshot.json").read_text())
@@ -277,7 +317,7 @@ def main(args):
         result["baseline_object_sha256"] = sst.checksum(sst.KERNEL)
         assert result["baseline_object_sha256"] == "c95c61586a5f9e97c83eb862e83b3cfde3ac9a22dec0b6a3332c67434b7ac85e"
         result["changes"] = patch(folder, builder=builder, force_inline=result["force_inline"], mte_status=result["mte_status"],
-                                  backward_record_bytes=result["backward_record_bytes"])
+                                  backward_record_bytes=result["backward_record_bytes"], reference_compat=result["reference_compat"])
         if args.get("capture"):
             path = folder / "combine_ht_kernel.h"
             header = path.read_text()
@@ -289,6 +329,12 @@ def main(args):
         binary = folder / "send.o"
         with (folder / "build.log").open("wb") as log:
             sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
+        if result["reference_compat"]:
+            raw = binary.read_bytes()
+            assert 0 < len(raw) <= 10485760
+            result.update(raw_object_bytes=len(raw), raw_object_sha256=hashlib.sha256(raw).hexdigest())
+            binary.write_bytes(raw.ljust(10485760, b"\0"))
+        result["object_bytes"] = binary.stat().st_size
         result["object_sha256"] = sst.checksum(binary)
         result["build_completed"] = True
         symbols = subprocess.run(["readelf", "-sW", str(binary)], check=True, capture_output=True,
@@ -307,7 +353,8 @@ def main(args):
         sst.KERNEL = binary
         if args.get("capture"):
             probe_kind = builder[len("scalar_"):] if builder in STORE_BUILDERS else None
-            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"], result["backward_record_bytes"], probe_kind))
+            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"], result["backward_record_bytes"], probe_kind,
+                                  32 if result["reference_compat"] else 4))
             result["ok"] = result.get("boundary_verified", result["wqe_verified"])
             return save(folder, result)
         stages = []

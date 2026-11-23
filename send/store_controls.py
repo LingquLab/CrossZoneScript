@@ -191,6 +191,7 @@ def summarize_batch(value):
             "status_mismatch_count", "status_guard_failures", "status_words",
             "backward_record_bytes", "stop_boundary", "error", "failure", "fatal",
             "probe_kind", "probe_mismatch_count", "probe_first_mismatches", "compile_errors")
+    keys += ("reference_compat", "changes", "object_bytes", "raw_object_bytes", "raw_object_sha256")
     return {"ok": value["ok"], "diagnostic_only": True,
             "controls": value.get("controls", "full-tile"), "simulation_only": True,
             "artifacts": value.get("artifacts", []),

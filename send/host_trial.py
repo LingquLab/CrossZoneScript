@@ -51,12 +51,14 @@ def main(args):
     assert type(args.get("force_inline", False)) is bool
     assert type(args.get("capture", False)) is bool
     assert type(args.get("mte_status", False)) is bool
+    assert type(args.get("reference_compat", False)) is bool
+    assert not args.get("reference_compat") or args.get("mte_status") is True
     assert type(args.get("backward_record_bytes", 24)) is int and args.get("backward_record_bytes", 24) in (24, 32)
     assert not args.get("mte_status") or args.get("capture") is True
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")
     assert boundary == "none" or args.get("capture") is True
-    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
+    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 24
     builder = args.get("builder", "original")
     assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS)
     folder = "mte-" + builder + "-" + str(args["attempt"])
@@ -126,18 +128,22 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
              "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS,
-             "vector": VECTOR_KINDS}[args.get("controls", "full-tile")]
+             "vector": VECTOR_KINDS,
+             "sst-compat": ("control", "interleave", "store_post_runtime_vector")}[args.get("controls", "full-tile")]
+    def builder_for(kind):
+        return kind if args.get("controls") == "sst-compat" and kind == "interleave" else "scalar_" + kind
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "store_controls_already_attempted"
     for offset, kind in enumerate(kinds):
-        assert not (WORK / f"mte-scalar_{kind}-{args['attempt'] + offset}").exists()
+        assert not (WORK / f"mte-{builder_for(kind)}-{args['attempt'] + offset}").exists()
     out = {"ok": False, "diagnostic_only": True, "results": [],
            "controls": args.get("controls", "full-tile")}
-    if args.get("controls") == "vector":
-        out["artifacts"] = [inspect_probe_artifacts(WORK / "mte-scalar_store_post_runtime-18")]
+    if args.get("controls") in ("vector", "sst-compat"):
+        previous = "mte-scalar_store_post_runtime-18" if args["controls"] == "vector" else "mte-scalar_store_post_runtime_vector-20"
+        out["artifacts"] = [inspect_probe_artifacts(WORK / previous)]
     source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
     assert 0 < source.stat().st_size < 16000000
     functions, snippets = extract_contract(source.read_text())
@@ -145,9 +151,11 @@ def run_store_controls(args):
             and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
     out["contract"] = {"functions": functions[:2], "source_snippets": snippets}
     for offset, kind in enumerate(kinds):
-        child = {**args, "action": "mte-trial", "builder": "scalar_" + kind,
+        child = {**args, "action": "mte-trial", "builder": builder_for(kind),
                  "attempt": args["attempt"] + offset, "capture": True,
                  "force_inline": False, "stop_boundary": "before_sq_publish"}
+        if args.get("controls") == "sst-compat":
+            child["reference_compat"] = True
         expected = f"/work/mte-{child['builder']}-{child['attempt']}"
         try:
             with (WORK / "store-host.log").open("a") as log, redirect_stdout(log):
@@ -165,11 +173,13 @@ def run_store_controls(args):
                 result["compile_errors"] = [line[:220] for line in build_log.read_text(errors="replace").splitlines()
                                             if "error:" in line][:2]
         out["results"].append(result)
-        if args.get("controls") == "vector" and result.get("build_completed"):
+        if args.get("controls") in ("vector", "sst-compat") and result.get("build_completed"):
             out["artifacts"].append(inspect_probe_artifacts(report.parent))
         path.write_text(json.dumps(out, indent=2))
         (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
         if args.get("controls") in ("compensation", "runtime") and not result["ok"]:
+            break
+        if args.get("controls") == "sst-compat" and offset == 0 and not result["ok"]:
             break
         # Continue only after an observed terminal simulator exit, never a timeout.
         if not result["ok"] and result.get("returncode") not in (0, 255):
