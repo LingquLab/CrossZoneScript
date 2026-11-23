@@ -4,7 +4,7 @@ import json
 import struct
 
 
-def coverage(archive, expected_lane_rows=(2715, 795)):
+def coverage(archive, expected_lane_rows=(2715, 795), *, payload_groups=None):
     def read(name):
         return archive.extractfile(name).read()
 
@@ -39,6 +39,8 @@ def coverage(archive, expected_lane_rows=(2715, 795)):
         counts = read(prefix + "counts.bin")
         assert len(ranges) == 64 * 4 * 8 and len(counts) == 64 * 4
         rank_rings = {}
+        if payload_groups is not None:
+            payload_groups[rank] = {}
         pending_per_owner = collections.Counter()
         for peer, owner in owners.items():
             ordinal = 0
@@ -65,6 +67,9 @@ def coverage(archive, expected_lane_rows=(2715, 795)):
                         pending_per_owner[owner, lane, chunk] += count
                         assert count <= 8
                         across_stripe += (lane_tail[lane] % 8 + count > 8)
+                        if payload_groups is not None:
+                            ring = peer * 40 + lane * 20 + owner
+                            payload_groups[rank].setdefault(ring, []).append((lane_tail[lane], count))
                         lane_tail[lane] += count
             for lane, count in enumerate(lane_tail):
                 rank_rings[peer * 40 + lane * 20 + owner] = count + 1

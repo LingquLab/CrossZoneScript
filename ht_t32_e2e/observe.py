@@ -62,6 +62,7 @@ def docker_state():
 def inspect_transport():
     totals = Counter()
     stripes = {kind: {"expected": Counter(), "missing": Counter()} for kind in ("sq", "cq")}
+    group_stats = {kind: Counter() for kind in ("crossing", "within")}
     missing_examples = {}
     expected_all = sum(sum(rings.values()) for rings in RINGS.values())
     for host, rings in RINGS.items():
@@ -83,7 +84,28 @@ def inspect_transport():
                     stripes[role]["missing"].update(slot // 8 for slot in missing)
                     if missing:
                         missing_examples.setdefault(role, {"host": host, "ring": ring, "slots": missing[:8]})
-    return dict(expected_slots_all_hosts=expected_all, totals=dict(totals), payload_stripes=stripes,
+            sq_slots = observed["RD_REQ"].get(ring, set())
+            cq_slots = observed["WR_REQ"].get(ring, set())
+            for start, length in GROUPS[host].get(ring, ()):
+                stop = start + length
+                boundary = (start // 8 + 1) * 8
+                crosses = boundary < stop
+                group = group_stats["crossing" if crosses else "within"]
+                payload = set(range(start, stop))
+                missing_sq = payload - sq_slots
+                missing_cq = payload - cq_slots
+                group["groups"] += 1
+                group["payload_slots"] += length
+                group["groups_with_sq_gap"] += bool(missing_sq)
+                group["groups_with_cq_gap"] += bool(missing_cq)
+                group["sq_missing"] += len(missing_sq)
+                group["cq_missing"] += len(missing_cq)
+                group["cq_missing_with_sq_seen"] += len(missing_cq & sq_slots)
+                if crosses:
+                    group["sq_missing_after_boundary"] += sum(slot >= boundary for slot in missing_sq)
+                    group["cq_missing_after_boundary"] += sum(slot >= boundary for slot in missing_cq)
+    return dict(expected_slots_all_hosts=expected_all, totals=dict(totals),
+                payload_groups=group_stats, payload_stripes=stripes,
                 first_missing=missing_examples)
 
 
@@ -100,7 +122,7 @@ def check():
             if name == "run.json":
                 state = record
             keys = ("status", "returncode", "timeout_seconds", "guards", "run", "executed_sst",
-                    "sst_simulated_microseconds", "checked", "first_mismatch", "runner_exit_code",
+                    "sst_simulated_microseconds", "checked", "first_mismatch", "runner_exit_code", "runner_wall_seconds",
                     "private_container_removed", "cqe_log_records")
             result[name] = {key: record[key] for key in keys if key in record}
     result["container"] = docker_state()
