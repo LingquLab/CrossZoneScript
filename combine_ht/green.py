@@ -22,7 +22,7 @@ INPUTS = (
 
 def main(args):
     stage = args["stage"]
-    if stage not in ("setup", "refresh", "status", "run", "batch-report", "stop"):
+    if stage not in ("setup", "refresh", "status", "run", "batch-report", "send-fault", "stop"):
         raise ValueError("unknown stage")
     if not re.fullmatch(r"root@[0-9.]+", args["ssh_target"]) or not re.fullmatch(r"host-[0-9-]+", args["hostname"]):
         raise ValueError("invalid simulator target")
@@ -73,6 +73,23 @@ def main(args):
                     package.add(Path(__file__).with_name(name), arcname=name)
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
+
+        if stage == "send-fault":
+            container = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
+            identity = remote(["docker", "inspect", "--format", "{{.Id}} {{.State.Running}}", container], 30)
+            if identity.decode().strip() != args["container_id"] + " true":
+                raise ValueError("diagnostic container identity mismatch")
+            procs = remote(["docker", "top", container, "-eo", "pid,comm,stat"], 30).decode().splitlines()[1:]
+            if any(line.split()[1] in ("sst", "sstsim.x") and not line.split()[2].startswith("Z") for line in procs):
+                raise RuntimeError("SST already active in the diagnostic container")
+            for name in ("send_fault.py", "sst_fault.c"):
+                upload(Path(__file__).with_name(name))
+            output = remote(["timeout", "--kill-after=25", "510", "docker", "exec", container,
+                             "python3", "/work/send_fault.py"], 565)
+            result = json.loads(output)
+            receipt.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            print(json.dumps(result, ensure_ascii=True))
+            return 0
 
         timeout = 930 if stage == "setup" else 90
         if stage == "run":
