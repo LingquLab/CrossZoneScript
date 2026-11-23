@@ -133,7 +133,8 @@ def run_store_controls(args):
     source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
     assert 0 < source.stat().st_size < 16000000
     functions, snippets = extract_contract(source.read_text())
-    assert functions and "vsts" in functions[0]["callees"], "post_update_contract_missing"
+    assert (functions and functions[0]["destination_by_reference"]
+            and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
     out["contract"] = {"functions": functions[:2], "source_snippets": snippets}
     for offset, kind in enumerate(STORE_KINDS):
         child = {**args, "action": "mte-trial", "builder": "scalar_" + kind,

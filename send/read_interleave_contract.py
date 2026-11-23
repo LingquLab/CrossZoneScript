@@ -20,7 +20,7 @@ def main(args):
     Path("interleave-contract-capture.log").write_bytes(result.stdout + b"\nSTDERR\n" + result.stderr)
     assert result.returncode == 0, "read_only_contract_query_failed"
     value = json.loads(result.stdout)
-    assert value["contract_functions"] and value["prior_results"], "missing_contract_or_result"
+    assert value["contract_functions"], "missing_contract"
     packet = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
     assert len(packet.encode()) < 14000
     print(packet)

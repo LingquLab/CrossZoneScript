@@ -48,17 +48,31 @@ def extract(text):
         if "/reg_compute/" not in source:
             continue
         callees = sorted(set(re.findall(r"\b([A-Za-z_]\w*)\s*(?:<[^;\n]{1,180}>)?\s*\(", body)))
-        relevant = [line.strip() for line in body.splitlines()
-                    if re.search(r"vst|stride|post|dstAddr\s*\+=", line, re.I)]
+        lines = body.splitlines()
+        relevant = []
+        # Select the b32 call and its continuations before other type branches.
+        for index, line in enumerate(lines):
+            if re.search(r"\bvst\s*\(.*uint32_t", line):
+                for following in lines[index:index + 3]:
+                    relevant.append(following.strip())
+                    if ";" in following:
+                        break
+        relevant.extend(line.strip() for line in lines
+                        if re.search(r"postValue|postMode|dstAddr\s*\+=|\bvst\s*\(", line)
+                        and line.strip() not in relevant)
+        source_registers = set(re.findall(r"\bsrcReg\d*\b", signature))
         functions.append({"name": match[1], "source": source, "signature": signature,
-                          "callees": callees[:12], "relevant": relevant})
+                          "destination_by_reference": "&" in first_arg,
+                          "source_register_count": len(source_registers),
+                          "callees": callees, "relevant": relevant})
     # Prefer the installed implementation and keep at most eight source lines.
-    selected = sorted(functions, key=lambda row: ("vsts" not in row["callees"],
-                                                not re.search(r"post|stride", row["signature"], re.I),
-                                                "Impl" not in row["name"]))[:12]
+    selected = sorted(functions, key=lambda row: (not row["destination_by_reference"],
+                                                row["source_register_count"] != 1,
+                                                "vst" not in row["callees"]))[:3]
     snippets, summaries = [], []
     for row in selected:
-        summaries.append({key: row[key] for key in ("name", "source", "callees")})
+        summaries.append({key: row[key] for key in ("name", "source", "callees",
+                                                   "destination_by_reference", "source_register_count")})
         if len(snippets) < 8:
             snippets.append(row["signature"][:650])
         for line in row["relevant"][:7]:
@@ -74,18 +88,13 @@ def collect():
     text = path.read_text(errors="strict")
     summaries, snippets = extract(text)
     assert summaries, "no_register_store_definitions_found"
-    saved = json.loads((PRIOR / "simd-result.json").read_text())
-    result_keys = ("ok", "variant", "report", "object_sha256", "build_completed", "returncode",
-                   "wqe_verified", "checked_wqes", "checked_status_words", "status_mismatch_count",
-                   "status_words", "first_mismatch", "backward_record_bytes", "stop_boundary")
-    results = [{key: row[key] for key in result_keys if key in row} for row in saved.get("results", [])[:2]]
     constants = {}
     for name in ("kWqeBytes", "kWqeU32Words", "kBatchRows", "TILEXR_UDMA_WQE_BB_BYTES"):
         matches = re.findall(r"\b" + name + r"\s*=\s*([^;\n]+)", text)
         constants[name] = list(dict.fromkeys(matches))[:2]
     return {"evidence_kind": "retained_preprocessing_and_results", "preprocess_bytes": path.stat().st_size,
             "contract_functions": summaries, "source_snippets": snippets,
-            "layout_constants": constants, "prior_results": results, "simulation_started": False}
+            "layout_constants": constants, "simulation_started": False}
 
 
 if __name__ == "__main__":
