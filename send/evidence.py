@@ -46,7 +46,11 @@ def main(args):
             with sim_log.open("rb") as f:
                 f.seek(max(0, sim_log.stat().st_size - 20000))
                 lines = f.read().decode(errors="replace").splitlines()
-            out["sim_errors"] = [s[:230] for s in lines if any(x in s.lower() for x in ("fatal:", "malloc", "corrupt", "assertion"))][:2]
+            out["sim_errors"] = [s[max(0, s.lower().find("fatal:")):][:450] for s in lines
+                                 if any(x in s.lower() for x in ("fatal:", "malloc", "corrupt", "assertion"))][:2]
+        for k in ("diagnostic_only", "wqe_verified", "checked_wqes", "mismatch_count", "first_mismatch", "status_words"):
+            if k in value:
+                out[k] = value[k]
         print(json.dumps(out, separators=(",", ":")))
         return
     root = Path(args["prior"])

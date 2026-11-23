@@ -6,11 +6,15 @@ objects and reports only under /work. The selected builder either retains the
 original Scatter path or uses the separately recorded contiguous SIMD stores.
 """
 import hashlib
+from contextlib import redirect_stdout
 import json
 from pathlib import Path
 import re
 import shutil
+import struct
+import subprocess
 import sys
+import time
 
 sys.path.insert(0, "/baseline")
 import sst
@@ -83,6 +87,69 @@ def patch(folder, baseline=Path("/baseline"), builder="original"):
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4}
 
 
+def capture(folder, specs, prepared, snapshot):
+    run = folder / "capture"
+    workload = sst.create_workload(run, specs, prepared, 1)
+    for rank, spec in enumerate(specs):
+        chip = workload["workload_config"][f"chip{rank}"]
+        address = rank * sst.rt.GM_BYTES + 0x280000000
+        size = 8 * (spec.backward_capacity + spec.chunks) * 64
+        image = run / "input_bin" / f"rank{rank}" / "snapshot.bin"
+        image.write_bytes(b"\xcd" * size)
+        chip["kernel_param"]["wqe_snapshot"]["value"] = address
+        chip["kernel_param"]["load_snapshot"] = dict(value=address, param_offset="512", param_type="11", input_bin=str(image))
+        chip["output_param"]["wqe_snapshot"] = dict(addr=address, size=size)
+    with (folder / "model.log").open("w") as log, redirect_stdout(log):
+        sst.write_model(run, snapshot, workload, 8)
+    env = snapshot["settings"]
+    started = time.monotonic()
+    with (run / "sim.log").open("wb") as log:
+        p = subprocess.run(sst.shell_command(env, "sst", [env["sst_bin"], "-n", "16", run / "test_UBusSim.py"]),
+                           cwd=run, stdout=log, stderr=subprocess.STDOUT, timeout=240)
+    out = dict(diagnostic_only=True, returncode=p.returncode, wall_s=time.monotonic() - started,
+               wqe_verified=False, checked_wqes=0, mismatch_count=0, first_mismatch=[], status_words=[])
+    if p.returncode:
+        return out
+    mismatches = []
+    for rank, spec in enumerate(specs):
+        chip = workload["workload_config"][f"chip{rank}"]
+        output = chip["output_param"]["wqe_snapshot"]
+        raw = sst.read_output(run, rank, "wqe_snapshot", output["addr"], output["size"])
+        status = chip["output_param"]["status"]
+        values = sst.read_output(run, rank, "status", status["addr"], status["size"])
+        if rank == 0:
+            out["status_words"] = list(struct.unpack_from("<8I", values))
+        own_input = chip["kernel_param"]["input"]["value"]
+        for gateway, stages in enumerate(spec.backward):
+            if gateway == rank:
+                continue
+            peer = workload["workload_config"][f"chip{gateway}"]
+            remote = peer["kernel_param"]["workspace"]["value"]
+            ordinal = 0
+            for stage, records in enumerate(stages):
+                expected = []
+                for _, source_row, packed_row in records:
+                    expected.append((ordinal, own_input + source_row * 512,
+                                     remote + spec.gather_offset + (packed_row & 0xffffffff) * 512, 512))
+                    ordinal += 1
+                if records:
+                    expected.append((spec.backward_capacity + stage,
+                        chip["kernel_param"]["workspace"]["value"] + (3 * 64 + gateway) * 512,
+                        remote + (3 * 64 + 96 + stage * 8 + rank) * 512, 8))
+                for row, source, destination, length in expected:
+                    offset = (gateway * (spec.backward_capacity + spec.chunks) + row) * 64
+                    words = struct.unpack_from("<16I", raw, offset)
+                    actual = (words[14] | words[15] << 32, words[10] | words[11] << 32, words[12])
+                    out["checked_wqes"] += 1
+                    if actual != (source, destination, length):
+                        mismatches.append(dict(rank=rank, gateway=gateway, stage=stage, row=row,
+                                               expected=[source, destination, length], actual=actual))
+    sst.write_json(folder / "mismatches.json", mismatches)
+    out.update(wqe_verified=not mismatches and out["checked_wqes"] > 0,
+               mismatch_count=len(mismatches), first_mismatch=mismatches[:1])
+    return out
+
+
 def main(args):
     builder = args.get("builder", "original")
     folder = WORK / ("mte-" + builder + "-" + str(args["attempt"]))
@@ -98,6 +165,13 @@ def main(args):
         assert revisions["candidate"] == result["baseline_commit"]
         result["baseline_object_sha256"] = sst.checksum(sst.KERNEL)
         result["changes"] = patch(folder, builder=builder)
+        if args.get("capture"):
+            path = folder / "combine_ht_kernel.h"
+            header = path.read_text()
+            header = header.replace("TileXR::UDMARingDoorbell(head, sq);", "(void)sq; // No network submission in this capture.")
+            header = header.replace("return TileXR::SimulatorPollCQUntilSqTail(info, peer, qp, head, *this, stateRead, stateWrite);",
+                                    "return TileXR::TILEXR_UDMA_STATUS_SUCCESS; // No CQ wait in this capture.")
+            path.write_text(header)
         binary = folder / "send.o"
         with (folder / "build.log").open("wb") as log:
             sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
@@ -109,6 +183,10 @@ def main(args):
         result["route_sha256"] = hashlib.sha256(route_bytes).hexdigest()
         result["send_rows"] = sum(len(x.gather_rows) for x in specs)
         sst.KERNEL = binary
+        if args.get("capture"):
+            result.update(capture(folder, specs, prepared, snapshot))
+            result["ok"] = result["wqe_verified"]
+            return save(folder, result)
         stages = []
         result["stages"] = stages
         state = sst.run_phase(folder / "send-only", 1, specs, prepared, snapshot,
@@ -116,6 +194,10 @@ def main(args):
         result.update(ok=True, send_verified=True, verified_ranks=len(state))
     except Exception as e:
         result.update(error=type(e).__name__, failure=str(e)[:300])
+    return save(folder, result)
+
+
+def save(folder, result):
     sst.write_json(folder / "trial-result.json", result)
     sst.write_json(WORK / "trial-result.json", result)
     print(json.dumps({k: v for k, v in result.items() if k != "stages"}, separators=(",", ":")))
