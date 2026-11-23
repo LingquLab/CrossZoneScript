@@ -24,6 +24,56 @@ def command_for(command, mode, destination):
     return command
 
 
+def inspect_object(folder, report, env, sst):
+    out = {"ok": True, "report": str(report), "object_sha256": EXPECTED_OBJECT,
+           "simulator_launched": False, "disassembly_available": False}
+    preprocessed = folder / "compiler-evidence-1/input.ii"
+    text = preprocessed.read_text(errors="replace")
+    out["preprocessed_has_always_inline_builder"] = bool(re.search(
+        r"always_inline[\s\S]{0,200}?void\s+BuildPutWqes\s*\(", text))
+    out["preprocessed_mentions_local_builder"] = str(folder / "simd_wqe_interleave.h") in text
+    reloc = subprocess.run(["readelf", "-rW", str(folder / "send_rel.o")],
+                           check=True, capture_output=True, text=True, timeout=15).stdout
+    (report / "relocations.txt").write_text(reloc)
+    refs = [line.strip() for line in reloc.splitlines() if "BuildPutWqes" in line]
+    out["builder_relocation_count"] = len(refs)
+    out["builder_relocation_samples"] = [line[:240] for line in refs[:2]]
+    root = Path(env["cann_root"])
+    compiler = Path(env["compiler"]).resolve()
+    tools = {p for pattern in ("*/bin/*objdump*", "*/*/bin/*objdump*", "*/*/*/bin/*objdump*")
+             for p in root.glob(pattern) if p.is_file()}
+    tools.update(p for p in compiler.parent.glob("*objdump*") if p.is_file())
+    out["disassemblers"] = [str(p) for p in sorted(tools)[:6]]
+    out["disassembler_queries"] = []
+    for index, tool in enumerate(sorted(tools)[:4]):
+        result = subprocess.run(sst.shell_command(env, "cann", [tool, "-d", folder / "send.o"]),
+                                capture_output=True, timeout=25)
+        (report / ("disassembly-" + str(index) + ".log")).write_bytes(result.stdout + b"\nSTDERR\n" + result.stderr)
+        lines = result.stdout.decode(errors="replace").splitlines()
+        instructions = [line.strip() for line in lines if re.match(r"^\s*[0-9a-f]+:\s", line, re.I)]
+        out["disassembler_queries"].append({"tool": tool.name, "returncode": result.returncode,
+                                           "instruction_count": len(instructions)})
+        if result.returncode == 0 and instructions:
+            out["disassembly_available"] = True
+            out["instruction_count"] = len(instructions)
+            named = [line for line in instructions if "BuildPutWqes" in line]
+            stack = [line for line in instructions if re.search(r"\bsp\b", line, re.I)]
+            out["builder_instruction_reference_count"] = len(named)
+            out["builder_instruction_samples"] = [line[:240] for line in named[:4]]
+            out["stack_instruction_count"] = len(stack)
+            out["stack_instruction_samples"] = [line[:200] for line in stack[:4]]
+            break
+    if not out["disassembly_available"]:
+        result = subprocess.run(sst.shell_command(env, "cann", [env["compiler"], "--help"]),
+                                capture_output=True, timeout=20)
+        (report / "compiler-help.log").write_bytes(result.stdout + result.stderr)
+        lines = (result.stdout + result.stderr).decode(errors="replace").splitlines()
+        out["compiler_help_returncode"] = result.returncode
+        out["compiler_output_options"] = [line.strip()[:180] for line in lines
+            if re.search(r"save-temps|emit.*llvm|assembly|dump|device-only|cce.*only", line, re.I)][:10]
+    return out
+
+
 def inspect_container(args):
     sys.path.insert(0, "/baseline")
     import sst
@@ -33,19 +83,23 @@ def inspect_container(args):
     folder.relative_to(work)
     assert folder.name == "mte-interleave-1"
     assert hashlib.sha256((folder / "send.o").read_bytes()).hexdigest() == EXPECTED_OBJECT
-    report = folder / ("compiler-evidence-" + str(args["inspection_attempt"]))
+    prefix = "object-evidence-" if args["action"] == "object-inspect" else "compiler-evidence-"
+    report = folder / (prefix + str(args["inspection_attempt"]))
     report.mkdir()
     out = {"ok": False, "report": str(report), "object_sha256": EXPECTED_OBJECT,
            "stages": [], "simulator_launched": False}
     try:
+        snapshot = json.loads(Path("/baseline/environment.snapshot.json").read_text())
+        env = snapshot["settings"]
+        if args["action"] == "object-inspect":
+            out = inspect_object(folder, report, env, sst)
+            return save_result(work, report, out)
         source = folder / "combine_ht.cpp"
         builder = folder / "simd_wqe_interleave.h"
         text = builder.read_text()
         out["builder_source_sha256"] = hashlib.sha256(builder.read_bytes()).hexdigest()
         out["source_has_always_inline"] = "__attribute__((always_inline)) inline __aicore__ void BuildPutWqes(" in text
         out["header_includes_local_builder"] = '#include "simd_wqe_interleave.h"' in (folder / "combine_ht_kernel.h").read_text()
-        snapshot = json.loads(Path("/baseline/environment.snapshot.json").read_text())
-        env = snapshot["settings"]
         command = json.loads((folder / "build.json").read_text())[0]
         assert command[0] == env["compiler"]
         assert command[command.index("-c") + 1] == str(source)
@@ -77,6 +131,10 @@ def inspect_container(args):
         out["ok"] = True
     except Exception as error:
         out.update(error=type(error).__name__, failure=str(error)[:160])
+    return save_result(work, report, out)
+
+
+def save_result(work, report, out):
     (report / "result.json").write_text(json.dumps(out, indent=2))
     (work / "compiler-result.json").write_text(json.dumps(out, indent=2))
     print(json.dumps(out, separators=(",", ":")))
