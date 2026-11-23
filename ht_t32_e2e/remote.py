@@ -7,8 +7,11 @@ def run_e2e(request):
     assert tokens in (4, 32)
     variant = f"t{tokens}-combine-fp32-{digest[:8]}"
     suffix = "-spread" if request.get("spread_gateways") else ""
-    if suffix:
+    if request.get("spread_gateways"):
         assert tokens == 32 and request["identity"]["runtime_root"].endswith("-spread-data")
+    if "profile" in request:
+        assert tokens == 4 and not suffix
+        suffix = "-profile"
     variant += suffix
     case = MOUNT / variant
     result = {"kernel_sha256": digest, "entry": build["entry"], "case": variant}
@@ -89,5 +92,6 @@ def run_e2e(request):
     return {key: result[key] for key in (
         "case", "kernel_sha256", "entry", "preflight", "error_type", "stage_error", "cleanup_error",
         "private_container_removed", "executed_sst", "run", "runner_exit_code", "runner_exception_type",
-        "sst_simulated_microseconds", "runner_wall_seconds", "checked", "first_mismatch", "checker_error", "cqe_log_records"
+        "sst_simulated_microseconds", "runner_wall_seconds", "checked", "first_mismatch", "checker_error", "cqe_log_records",
+        "profile"
     ) if key in result}

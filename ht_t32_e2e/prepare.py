@@ -73,8 +73,11 @@ def prepare_bulk(request, case, container_case):
     workload = case / "workload.yml"
     text = workload.read_text()
     assert identity["runtime_root"] + "/" in text
-    workload.write_text(text.replace(identity["runtime_root"], container_case))
-    chips = json.loads(workload.read_text())["workload_config"]
+    configured = json.loads(text.replace(identity["runtime_root"], container_case))
+    if "profile" in request:
+        configure_fused_profile(request, case, container_case, configured)
+    workload.write_text(json.dumps(configured, indent=2) + "\n")
+    chips = configured["workload_config"]
     assert len(chips) == 64 and all(chip["block_dim"] == 16 and chip["vec_func"] == build["entry"]
                                   and chip["kernel_file"] == container_case + "/kernel/inter_server_send.o"
                                   for chip in chips.values())

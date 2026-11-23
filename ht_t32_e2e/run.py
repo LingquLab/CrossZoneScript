@@ -17,7 +17,12 @@ args = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-fi
 object_name = "inter_server_send.o.gz"
 identity_name = "fixture-identity.json"
 fixture_name = "fixture-images.tar.gz"
-if args.get("sq_stripe") is True:
+profile = args.get("fused_profile") is True
+if profile:
+    identity_name = "t4-profile-identity.json"
+    fixture_name = "t4-fixture-images.tar.gz"
+    object_name = "t4-profile.o.gz"
+elif args.get("sq_stripe") is True:
     object_name = "sq-stripe-a7286b7a.o.gz"
     identity_name = "sq-stripe-identity.json"
 elif args.get("small_t4") is True:
@@ -44,10 +49,14 @@ if delta:
     manifest = (root / "t32-spread-delta-manifest.json").read_bytes()
     assert hashlib.sha256(manifest).hexdigest() == identity["delta_manifest_sha256"]
     request["delta_manifest"] = base64.b64encode(manifest).decode()
+profile_remote = ""
+if profile:
+    request["profile"] = (root / "fused_profile.py").read_text()
+    profile_remote = (root / "fused_profile_remote.py").read_text()
 runner = (root.parent/"inter_server/run_mte_t4_remote.py").read_text().rsplit("if __name__ == ", 1)[0]
 assert runner.count("assert tokens == 4") == 1
 runner = runner.replace("assert tokens == 4", "assert tokens in (4, 32)")
-source = "\n".join((runner, (root/"prepare.py").read_text(), (root/"remote.py").read_text(),
+source = "\n".join((runner, profile_remote, (root/"prepare.py").read_text(), (root/"remote.py").read_text(),
                     f"print(json.dumps(run_e2e({request!r}), separators=(',', ':')))" ))
 compile(source, "<t32_fused_remote>", "exec")
 password_auth = args.get("local_auth_note") is True
@@ -91,9 +100,37 @@ def run(environment):
                 "stderr_bytes": len(reply.stderr), "check_retained_run": True}
 
 
+def fetch_profile(result, environment):
+    report = result.get("profile", {})
+    if "trace_sha256" not in report:
+        return
+    path = result["case"].removeprefix("/work/inter-server-native/")
+    assert path == f"t4-combine-fp32-{identity['kernel_sha256'][:8]}-profile"
+    remote = "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/" + path
+    destination = Path("D:/project/tilexr-inter-server-sst") / path
+    destination.mkdir(parents=True, exist_ok=True)
+    options = ssh[2:-3]
+    fields = {"perfetto_trace.json": "trace_sha256", "profile-summary.json": "summary_sha256"}
+    for name, field in fields.items():
+        pending = destination / (name + ".partial")
+        fetch = subprocess.run(["scp", "-q", *options, f"{ssh[-3]}:{remote}/{name}", str(pending)],
+                               env=environment, capture_output=True, timeout=150)
+        if fetch.returncode or hashlib.sha256(pending.read_bytes()).hexdigest() != report[field]:
+            result["profile_copy_error"] = "transfer_or_hash_mismatch"
+            return
+        pending.replace(destination / name)
+    result["green_perfetto_file"] = str(destination / "perfetto_trace.json")
+    result["green_profile_summary"] = str(destination / "profile-summary.json")
+
+
 try:
     with askpass_environment() if password_auth else nullcontext(None) as environment:
         result = run(environment)
+        if profile:
+            try:
+                fetch_profile(result, environment)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                result["profile_copy_error"] = type(error).__name__
 except FileNotFoundError:
     result = {"transport_error": "configured_local_auth_note_not_found"}
 print(json.dumps(result, separators=(",", ":")))
