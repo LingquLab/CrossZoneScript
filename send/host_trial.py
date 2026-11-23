@@ -14,6 +14,7 @@ import sys
 from store_controls import BASE_KINDS, POINTER_KINDS, COMPENSATION_KINDS, RUNTIME_KINDS, VECTOR_KINDS, GATHER_KINDS, KINDS, summarize_batch
 from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract_contract
 from probe_artifacts import inspect as inspect_probe_artifacts
+from builder_controls import KINDS as MASK_BUILDERS
 
 SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
@@ -58,9 +59,9 @@ def main(args):
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")
     assert boundary == "none" or args.get("capture") is True
-    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 25
+    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 27
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS)
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS) + MASK_BUILDERS
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -128,13 +129,16 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
              "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS,
              "vector": VECTOR_KINDS,
              "ub-gather": GATHER_KINDS,
+             "mask-local": MASK_BUILDERS,
              "sst-compat": ("control", "interleave", "store_post_runtime_vector")}[args.get("controls", "full-tile")]
     def builder_for(kind):
+        if args.get("controls") == "mask-local":
+            return kind
         return kind if args.get("controls") == "sst-compat" and kind == "interleave" else "scalar_" + kind
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "store_controls_already_attempted"
@@ -152,12 +156,13 @@ def run_store_controls(args):
     functions, snippets = extract_contract(source.read_text())
     assert (functions and functions[0]["destination_by_reference"]
             and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
-    out["contract"] = {"functions": functions[:2], "source_snippets": snippets}
+    out["contract"] = {"functions": functions[:2],
+                       "source_snippets": [] if args.get("controls") == "mask-local" else snippets}
     for offset, kind in enumerate(kinds):
         child = {**args, "action": "mte-trial", "builder": builder_for(kind),
                  "attempt": args["attempt"] + offset, "capture": True,
                  "force_inline": False, "stop_boundary": "before_sq_publish"}
-        if args.get("controls") in ("sst-compat", "ub-gather"):
+        if args.get("controls") in ("sst-compat", "ub-gather", "mask-local"):
             child["reference_compat"] = True
         expected = f"/work/mte-{child['builder']}-{child['attempt']}"
         try:
@@ -176,6 +181,12 @@ def run_store_controls(args):
                 result["compile_errors"] = [line[:220] for line in build_log.read_text(errors="replace").splitlines()
                                             if "error:" in line][:2]
         out["results"].append(result)
+        if args.get("controls") == "mask-local" and offset == 0:
+            try:
+                out["ir_focus"] = json.loads(call([
+                    "docker", "exec", NAME, "python3", "/work/vf_focus.py"], timeout=30))
+            except Exception as error:
+                out["ir_focus"] = {"available": False, "error": type(error).__name__}
         if args.get("controls") == "ub-gather" and offset == 0:
             try:
                 out["compiler_artifacts"] = json.loads(call([
@@ -189,6 +200,8 @@ def run_store_controls(args):
         if args.get("controls") in ("compensation", "runtime", "ub-gather") and not result["ok"]:
             break
         if args.get("controls") == "sst-compat" and offset == 0 and not result["ok"]:
+            break
+        if args.get("controls") == "mask-local" and result.get("returncode") != 0:
             break
         # Continue only after an observed terminal simulator exit, never a timeout.
         if not result["ok"] and result.get("returncode") not in (0, 255):

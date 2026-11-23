@@ -207,5 +207,6 @@ def summarize_batch(value):
             "artifacts": value.get("artifacts", []),
             "contract": value.get("contract"), "host_errors": value.get("host_errors", []),
             "compiler_artifacts": value.get("compiler_artifacts"),
+            "ir_focus": value.get("ir_focus"),
             "results": [{key: row[key] for key in keys if key in row}
                         for row in value.get("results", [])]}

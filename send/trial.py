@@ -19,6 +19,7 @@ from packed_builder import transform as pack_builder
 from backward_alignment import repack as repack_backward, write_common_header
 from simd_probe_variants import install as install_simd_probe
 from store_controls import KINDS as STORE_KINDS, decode as decode_store_status
+from builder_controls import KINDS as MASK_BUILDERS, transform as local_mask_builder
 
 STORE_BUILDERS = tuple("scalar_" + kind for kind in STORE_KINDS)
 
@@ -93,12 +94,14 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
         assert body.count("gm.SetGlobalBuffer(source);") == 1
         body = body.replace("gm.SetGlobalBuffer(source);", "gm.SetGlobalBuffer(source);\n    gm.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);")
         header = header[:begin] + body + header[end:]
-    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS:
+    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS + MASK_BUILDERS:
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
         builder_name = "scalar_wqe_control.h" if builder.startswith("scalar_") else "simd_wqe_interleave.h"
         header = header[:begin] + '#include "' + builder_name + '"\n' + header[end:]
         builder_text = (WORK / builder_name).read_text()
+        if builder in MASK_BUILDERS:
+            builder_text = local_mask_builder(builder_text, builder)
         if builder == "interleave_packed":
             header, builder_text = pack_builder(header, builder_text)
         if force_inline:
