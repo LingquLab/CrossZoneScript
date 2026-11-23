@@ -43,8 +43,10 @@ def decode_core(raw):
     return slices
 
 
-def render(case):
-    from exports import reconstruct_die_output
+def render(case, reconstruct=None):
+    if reconstruct is None:
+        from exports import reconstruct_die_output
+        reconstruct = reconstruct_die_output
 
     workload = json.loads((case / "workload.yml").read_text())["workload_config"]
     env = json.loads((case / "sst-environment.json").read_text())
@@ -54,7 +56,7 @@ def render(case):
         region = chip["output_param"]["profile"]
         address = region["addr"] - chip["sys_va_base_addr"]
         paths = [case / "bin" / f"david_{rank}_die{die}_profile.bin" for die in (1, 2)]
-        data = reconstruct_die_output(paths, address, region["size"], env["decoder_library"])
+        data = reconstruct(paths, address, region["size"], env["decoder_library"])
         for owner in range(CORES):
             offset = owner * CORE_BYTES
             try:
