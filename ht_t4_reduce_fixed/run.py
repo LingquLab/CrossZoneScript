@@ -12,7 +12,7 @@ ssh = [
     "-o", "ConnectTimeout=10", "root@141.61.94.58", "python3", "-",
 ]
 results = {}
-for side in ("opt",)
+for side in ("opt",):
     identity = json.loads((root / f"{side}.json").read_text())
     archive = (root / f"{side}.tar.gz").read_bytes()
     assert hashlib.sha256(archive).hexdigest() == identity["archive_sha256"]
