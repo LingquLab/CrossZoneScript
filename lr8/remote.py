@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import struct
 import subprocess
@@ -124,6 +125,10 @@ def run():
         worker = worker.replace(anchor, b'SPLIT_UDMA_WRITES=splitting, CQ_GM_DOORBELL=int(label == variant))')
     (ROOT / 'kernel_worker.py').write_bytes(worker)
     suite = base64.b64decode(DATA[2], validate=True).decode('utf-8').replace('\r\n', '\n')
+    if ARGS.get('zero_logging'):
+        anchor = '                           log_level=None)'
+        assert suite.count(anchor) == 1
+        suite = suite.replace(anchor, '                           log_level=0)')
     if ARGS.get('cq_gm_doorbell'):
         anchor = 'cq_store_instruction="st_dev", cq_address_contract='
         assert suite.count(anchor) == 1
@@ -195,6 +200,25 @@ def run():
         "run(json.loads(sys.argv[1]))\n", encoding='utf-8')
     cann_env = '/opt/sim/cann-env.sh'
     ubus = '/opt/sim/plugins/libUBusSimulator.so'
+    if ARGS.get('ubus_replacement'):
+        STAGE = 'replace_ubus'
+        replacement = Path(ARGS['ubus_replacement'])
+        assert replacement.is_file()
+        original_sha = docker('exec', NAME, 'sha256sum', ubus).decode().split()[0]
+        backup = ROOT / 'libUBusSimulator.so.original'
+        docker('cp', NAME + ':' + ubus, str(backup))
+        assert digest(backup) == original_sha
+        staged = ROOT / 'libUBusSimulator.so.replacement'
+        shutil.copyfile(replacement, staged)
+        replacement_sha = digest(staged)
+        assert digest(replacement) == replacement_sha
+        docker('exec', NAME, 'cp', '/work/libUBusSimulator.so.replacement', ubus + '.replacement')
+        assert docker('exec', NAME, 'sha256sum', ubus + '.replacement').decode().split()[0] == replacement_sha
+        docker('exec', NAME, 'mv', ubus + '.replacement', ubus)
+        provenance = dict(source=str(replacement), loaded_path=ubus, backup=str(backup),
+                          original_sha256=original_sha, replacement_sha256=replacement_sha)
+        (ROOT / 'ubus-replacement.json').write_text(json.dumps(provenance, indent=2) + '\n')
+        print(json.dumps(provenance), flush=True)
     STAGE = 'environment_files'
     hashes = docker('exec', NAME, 'sha256sum', cann_env, ubus).decode().splitlines()
     config = dict(
@@ -242,10 +266,14 @@ def run():
                        routing=ARGS.get('routing', 'installed'))
             scenario = json.loads((case / 'scenario.json').read_text())
             row['lsu_level'] = scenario['simulator']['lsu_level']
-            if ARGS.get('ta_tp_info'):
+            if ARGS.get('ta_tp_info') or ARGS.get('zero_logging'):
                 log, = case.glob('runs/*/sim.log')
                 row['sim_log'] = str(log)
                 row['sim_log_bytes'] = log.stat().st_size
+            if ARGS.get('ubus_replacement'):
+                loaded = result['loaded_libraries']['observed'][ubus]
+                assert loaded['sha256'] == replacement_sha
+                row['loaded_ubus_sha256'] = loaded['sha256']
             if config['stage_profiling']:
                 row.update(phase_boundaries(case / 'stage-profiling', ranks))
             print(json.dumps(row), flush=True)

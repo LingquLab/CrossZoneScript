@@ -45,6 +45,10 @@ def main():
     assert args.get('sim_variant', 'sim-split1') in ('sim-split1', 'sim-device-split1')
     assert args.get('optimization', 'O2') in ('O1', 'O2')
     assert type(args.get('ta_tp_info', False)) is bool
+    assert type(args.get('zero_logging', False)) is bool
+    assert not (args.get('zero_logging') and args.get('ta_tp_info'))
+    if 'ubus_replacement' in args:
+        assert args['ubus_replacement'] == '/home/l00654177/libUBusSimulator.so'
     if 'threads' in args:
         threads = args['threads']
         assert type(threads) is int and 1 <= threads <= min(32, *(ranks for ranks, _ in args['cases']))
