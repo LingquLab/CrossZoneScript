@@ -21,6 +21,8 @@ schedules = args["schedules"]
 auto_clock = args.get("auto_clock", False)
 if not re.fullmatch(r"/opt/urma64p-full\.[A-Za-z0-9]{6}", build):
     parser.error("invalid build directory")
+if "expected_revision" in args and not re.fullmatch(r"[0-9a-f]{40}", args["expected_revision"]):
+    parser.error("invalid expected revision")
 if kind not in ("functional", "performance"):
     parser.error("invalid case type")
 if size not in ("512b-per-peer", "512kib-per-rank", "4mib-per-rank", "16mib-per-rank"):

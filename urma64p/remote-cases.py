@@ -31,7 +31,8 @@ local_image = subprocess.check_output(
 ).strip()
 assert local_image == image
 items = json.loads((build / "objects.json").read_text())
-assert items["revision"] == "bde4640832397f70516194515f9734ac4c8d8393" and items["passed"]
+expected_revision = args.get("expected_revision", "bde4640832397f70516194515f9734ac4c8d8393")
+assert items["revision"] == expected_revision and items["passed"]
 
 source = base64.b64decode(args["prepare_b64"], validate=True)
 compile(source, "prepare_case.py", "exec")
