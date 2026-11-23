@@ -111,7 +111,7 @@ def main(args):
         case = run_sst({**args, "ranks": ranks}, 2 * args["stage_timeout"] + 110)
         results.append(case)
         (WORK / f'batch-bs{args["tokens"]}-{batch[0]}p.json').write_text(json.dumps(results, indent=2))
-        if len(case.get("stages", [])) < 2 or any(item["returncode"] == 124 for item in case["stages"]):
+        if not case["ok"]:
             break
     return dict(ok=len(results) == len(batch) and all(case["ok"] for case in results), cases=results)
 

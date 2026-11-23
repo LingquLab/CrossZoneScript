@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tarfile
 
-SESSION = "348041ae-83ce-4ec6-887b-07b0b991b38e"
+SESSION = "c83978c3-9516-4c83-ac3a-d23a05725bf3"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 INPUTS = (

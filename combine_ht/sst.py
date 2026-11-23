@@ -290,7 +290,14 @@ def run_phase(case, mode, spec, prepared, config, args, stages, send_state=None)
             state = validate_send(case, work, prepared)
             result["verified_ranks"] = len(spec)
             return state
-        result["numeric_validation"] = "skipped_cast"
+        for rank, (_, _, expected) in enumerate(prepared):
+            output = work["workload_config"][f"chip{rank}"]["output_param"]["workspace"]
+            actual = read_output(case, rank, "workspace", output["addr"], output["size"])
+            if actual != expected:
+                mismatch = next(i for i, (a, b) in enumerate(zip(actual, expected)) if a != b)
+                raise ValueError(f"rank {rank} reduce workspace mismatch at byte {mismatch}")
+        result["numeric_validation"] = "exact_workspace"
+        result["verified_ranks"] = len(spec)
     except (OSError, ValueError) as error:
         result["failure"] = str(error)
         raise
@@ -330,10 +337,14 @@ def run(args, stages):
     write_json(WORK / "progress.json", {**progress, "state": "send-only"})
     try:
         send_state = run_phase(case / "send-only", 1, spec, prepared, config, args, stages)
-    except (OSError, ValueError) as error:
-        if not stages or stages[-1]["returncode"] == 124:
-            raise
-        send_failure = str(error)
+    except (OSError, ValueError):
+        write_json(case / "case.json", record)
+        raise
+    if args.get("phase") == "send_only":
+        record["ok"] = True
+        write_json(case / "case.json", record)
+        write_json(WORK / "progress.json", {**progress, "state": "complete", "stages": stages})
+        return record
     write_json(case / "case.json", record)
     write_json(WORK / "progress.json", {**progress, "state": "reduce-only", "stages": stages})
     try:
