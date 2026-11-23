@@ -43,7 +43,8 @@ def main(args):
             print(json.dumps({"function_count": len(funcs), "posting_functions": names[:8]}, separators=(",", ":")))
             return
         out = {k: value[k] for k in ("ok", "variant", "build_completed", "send_verified", "verified_ranks",
-               "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure") if k in value}
+               "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure",
+               "force_inline", "outlined_builders") if k in value}
         out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
                          for s in value.get("stages", [])]
         folder = work / Path(value["report"]).relative_to("/work")
@@ -57,7 +58,7 @@ def main(args):
                 lines = f.read().decode(errors="replace").splitlines()
             out["sim_errors"] = [s[max(0, s.lower().find("fatal:")):][:450] for s in lines
                                  if any(x in s.lower() for x in ("fatal:", "malloc", "corrupt", "assertion"))][:2]
-        for k in ("diagnostic_only", "wqe_verified", "checked_wqes", "mismatch_count", "first_mismatch", "status_words", "returncode", "wall_s"):
+        for k in ("diagnostic_only", "wqe_verified", "checked_wqes", "checked_wqe_fields", "mismatch_count", "first_mismatch", "status_words", "returncode", "wall_s"):
             if k in value:
                 out[k] = value[k]
         capture_log = folder / "capture/sim.log"

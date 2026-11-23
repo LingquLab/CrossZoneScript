@@ -7,10 +7,11 @@ captures and all new artifacts stay in this session's separate /work directory.
 import json
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 
-SESSION = "cb41ec7d-5530-4f29-981d-6274e209a40e"
+SESSION = "05d1d635-d6d7-4dd3-af34-421e32bb209c"
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
 IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
 WORK = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ def call(args, timeout=40):
 
 
 def main(args):
+    assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
     assert WORK.name == "tilexr-combine-ht-" + SESSION + "-v11"
     prior = Path(args["prior"])
     assert prior.parent == Path("/var/tmp") and prior.name.startswith("tilexr-combine-ht-")
@@ -41,6 +43,9 @@ def main(args):
     assert info["State"]["Running"] and info["HostConfig"]["NetworkMode"] == "none"
     assert info["HostConfig"]["Runtime"] == "runc"
     assert any(m["Source"] == str(prior) and m["Destination"] == "/baseline" and not m["RW"] for m in info["Mounts"])
+    assert any(m["Source"] == str(WORK) and m["Destination"] == "/work" and m["RW"] for m in info["Mounts"])
+    assert type(args.get("force_inline", False)) is bool
+    assert type(args.get("capture", False)) is bool
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
     assert builder in ("original", "interleave")
@@ -58,7 +63,10 @@ def main(args):
     else:
         shutil.copyfile(prior / config.name, config)
     call(["docker", "exec", NAME, "python3", "/work/trial.py", json.dumps(args)], timeout=400)
-    print(json.dumps({"ok": True, "container_id": info["Id"], "result": str(WORK / "trial-result.json")}))
+    result = json.loads((WORK / "trial-result.json").read_text())
+    assert result["ok"]
+    result["container_id"] = info["Id"]
+    print(json.dumps(result, separators=(",", ":")))
 
 
 if __name__ == "__main__":

@@ -13,12 +13,13 @@ import shlex
 import subprocess
 import sys
 
-SESSION = "cb41ec7d-5530-4f29-981d-6274e209a40e"
+SESSION = "05d1d635-d6d7-4dd3-af34-421e32bb209c"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 
 def main(args):
-    assert re.fullmatch(r"root@[0-9.]+", args["ssh_target"])
+    assert args["ssh_target"] == "root@141.61.94.26"
+    assert args["action"] in ("mte-trial", "trial-result", "outline")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]
@@ -34,8 +35,6 @@ def main(args):
         return r.stdout
 
     call(["mkdir", "-p", WORK])
-    call(["python3", "-c", "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.unlink() if p.exists() else None",
-          WORK + "/inspect.py"])
     names = ("host_trial.py", "trial.py", "mte_state.h", "simd_wqe_interleave.h") if args["action"] == "mte-trial" else ("evidence.py",)
     for name in names:
         source = Path(__file__).with_name(name).read_bytes()
@@ -47,7 +46,7 @@ def main(args):
                   timeout=budget + 30)
     result = json.loads(output)
     encoded = json.dumps(result, ensure_ascii=True, separators=(",", ":"))
-    assert len(encoded.encode()) <= 2300, "small_packet_budget_exceeded"
+    assert len(encoded.encode()) <= 6000, "small_packet_budget_exceeded"
     print(encoded)
 
 

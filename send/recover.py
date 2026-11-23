@@ -26,8 +26,8 @@ def main(args):
     if result.returncode:
         sys.stderr.buffer.write(result.stderr[-6000:])
     assert result.returncode == 0, "remote_probe_failed"
-    assert not result.stderr, "remote_probe_stderr"
     value = json.loads(result.stdout)
+    value["ssh_diagnostic_bytes"] = len(result.stderr)
     encoded = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
     assert len(encoded.encode()) <= 12000
     assert value["identity_ok"] and value["object_matches_previous_result"]

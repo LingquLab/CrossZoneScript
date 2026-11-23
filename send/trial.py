@@ -27,7 +27,7 @@ def state_loads(text, scratch):
     return re.subn(pattern, r"TileXR::SimulatorLoad(\1, " + scratch + ")", text)
 
 
-def patch(folder, baseline=Path("/baseline"), builder="original"):
+def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False):
     original = baseline / "candidate/src/moonep/combine_ht/kernels"
     header = (original / "combine_ht_kernel.h").read_text()
     api = (baseline / "candidate/include/tilexr/comm/udma/device/api.h").read_text()
@@ -76,15 +76,21 @@ def patch(folder, baseline=Path("/baseline"), builder="original"):
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
         header = header[:begin] + '#include "simd_wqe_interleave.h"\n' + header[end:]
-        shutil.copyfile(WORK / "simd_wqe_interleave.h", folder / "simd_wqe_interleave.h")
+        builder_text = (WORK / "simd_wqe_interleave.h").read_text()
+        if force_inline:
+            marker = "__aicore__ inline void BuildPutWqes("
+            assert builder_text.count(marker) == 1
+            builder_text = builder_text.replace(marker, "__attribute__((always_inline)) inline __aicore__ void BuildPutWqes(")
+        (folder / "simd_wqe_interleave.h").write_text(builder_text)
     else:
-        assert builder == "original"
+        assert builder == "original" and not force_inline
     assert "TileXR::UDMARingDoorbell(head, sq);" in header
     assert "TileXR::UDMAPublishWqe(wqes, sq, head, count);" in header
     assert "ld_dev(" not in header
     (folder / "combine_ht_kernel.h").write_text(header)
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
-    return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4}
+    return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4,
+            "force_inline": force_inline}
 
 
 def capture(folder, specs, prepared, snapshot):
@@ -107,7 +113,8 @@ def capture(folder, specs, prepared, snapshot):
         p = subprocess.run(sst.shell_command(env, "sst", [env["sst_bin"], "-n", "16", run / "test_UBusSim.py"]),
                            cwd=run, stdout=log, stderr=subprocess.STDOUT, timeout=240)
     out = dict(diagnostic_only=True, returncode=p.returncode, wall_s=time.monotonic() - started,
-               wqe_verified=False, checked_wqes=0, mismatch_count=0, first_mismatch=[], status_words=[])
+               wqe_verified=False, checked_wqes=0, mismatch_count=0, first_mismatch=[], status_words=[],
+               checked_wqe_fields=["source", "destination", "length"])
     if p.returncode:
         return out
     mismatches = []
@@ -156,7 +163,8 @@ def main(args):
     folder.mkdir()
     result = {"ok": False, "baseline_commit": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
               "variant": "mte_queue_state_" + builder + "_simd", "source_ranks": 64,
-              "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder)}
+              "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder),
+              "force_inline": args.get("force_inline", False)}
     try:
         baseline = Path("/baseline")
         snapshot = json.loads((baseline / "environment.snapshot.json").read_text())
@@ -164,7 +172,8 @@ def main(args):
         revisions = json.loads((baseline / "revisions.json").read_text())
         assert revisions["candidate"] == result["baseline_commit"]
         result["baseline_object_sha256"] = sst.checksum(sst.KERNEL)
-        result["changes"] = patch(folder, builder=builder)
+        assert result["baseline_object_sha256"] == "c95c61586a5f9e97c83eb862e83b3cfde3ac9a22dec0b6a3332c67434b7ac85e"
+        result["changes"] = patch(folder, builder=builder, force_inline=result["force_inline"])
         if args.get("capture"):
             path = folder / "combine_ht_kernel.h"
             header = path.read_text()
@@ -177,11 +186,19 @@ def main(args):
             sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
         result["object_sha256"] = sst.checksum(binary)
         result["build_completed"] = True
+        symbols = subprocess.run(["readelf", "-sW", str(binary)], check=True, capture_output=True,
+                                 text=True, timeout=15).stdout
+        result["outlined_builders"] = [line.split()[-1] for line in symbols.splitlines()
+            if " FUNC " in line and "BuildPutWqes" in line and line.split()[-1].endswith(".vector.thread")]
+        if result["force_inline"]:
+            assert not result["outlined_builders"], "compiler_retained_outlined_builder"
         specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
         prepared = [x.serialize() for x in specs]
         route_bytes = json.dumps(routes, separators=(",", ":")).encode()
         result["route_sha256"] = hashlib.sha256(route_bytes).hexdigest()
         result["send_rows"] = sum(len(x.gather_rows) for x in specs)
+        assert result["route_sha256"] == "f5eb786c6ca0a725607b16caef0ac8a8c0efc161576b185d9c74ffa2f4127881"
+        assert result["send_rows"] == 260
         sst.KERNEL = binary
         if args.get("capture"):
             result.update(capture(folder, specs, prepared, snapshot))
