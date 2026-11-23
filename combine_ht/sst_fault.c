@@ -53,7 +53,9 @@ __attribute__((constructor)) static void set_fault_handler(void)
 {
     const char *output = getenv("TILEXR_SST_FAULT_FILE");
     if (!output) return;
-    fault_output = open(output, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    /* A launcher may exec the real simulator. Reopen the same capture instead
+     * of rejecting the empty file created by the launcher's constructor. */
+    fault_output = open(output, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
     if (fault_output < 0) return;
     struct sigaction handler = {0};
     handler.sa_sigaction = record_fault;
