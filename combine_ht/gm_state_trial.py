@@ -74,7 +74,7 @@ def main():
     prepared = [spec.serialize() for spec in specs]
     stages = []
     original = sst.KERNEL
-    result = dict(report=str(report), local_candidate=True, wqe_builder="simd_interleave_contiguous_store", baseline_kernel_sha256=sst.checksum(original),
+    result = dict(report=str(report), local_candidate=True, wqe_builder="simd_interleave_shift_address_h256", baseline_kernel_sha256=sst.checksum(original),
                   candidate_kernel_sha256=sst.checksum(binary), changes=dict(kernel=kernel_changes, api=api_changes), stages=stages)
     sst.KERNEL = binary
     try:
@@ -89,6 +89,7 @@ def main():
     if log_path.is_file() and not result.get("send_verified"):
         lines = log_path.read_text(errors="replace").splitlines()
         result["first_fatal"] = [line[line.index("FATAL:"):][:700] for line in lines if "FATAL:" in line][:1]
+        result["heap_errors"] = [line[:500] for line in lines if re.search(r"malloc|corrupt|double.free|unaligned|assertion", line, re.I)][:2]
     sst.write_json(report / "trial.json", result)
     print(json.dumps(result, ensure_ascii=True))
 

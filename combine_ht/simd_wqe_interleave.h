@@ -1,16 +1,20 @@
 /* Copyright (c) 2026 TileXR Project.
  * Builds a 64-row WQE tile in registers, transposes its sixteen word vectors
  * with four Interleave stages and stores contiguous WQEs in the caller's UB.
+ * This H=256 trial uses shifts for 512-byte payload and 8-byte signal rows.
  * Reuses Send's metadata and publication fences; no scalar row walk is added.
  */
+template <uint32_t RowShift>
 __simd_callee__ inline void PutAddressWords(MicroAPI::RegTensor<uint32_t> &low,
     MicroAPI::RegTensor<uint32_t> &high, MicroAPI::RegTensor<uint32_t> &rows,
-    MicroAPI::RegTensor<uint32_t> &stride, uint64_t base, MicroAPI::MaskReg &mask)
+    uint64_t base, MicroAPI::MaskReg &mask)
 {
     using namespace MicroAPI;
     RegTensor<uint32_t> offsetLow, offsetHigh, one, zero, carry;
     MaskReg overflow;
-    Mull(offsetLow, offsetHigh, rows, stride, mask);
+    static_assert(RowShift > 0 && RowShift < 32, "row shift must fit the 32-bit limb");
+    ShiftLefts(offsetLow, rows, RowShift, mask);
+    ShiftRights(offsetHigh, rows, 32U - RowShift, mask);
     Adds(low, offsetLow, static_cast<uint32_t>(base), mask);
     Compare<uint32_t, CMPMODE::LT>(overflow, low, offsetLow, mask);
     Duplicate(one, 1U);
@@ -79,8 +83,8 @@ __aicore__ inline void BuildPutWqes(LocalTensor<uint8_t> wqes, LocalTensor<uint8
                 DataCopyGather(sourceRows, batchMeta + sendWord, recordIndex, mask);
                 DataCopyGather(remoteRows, batchMeta + packedWord, recordIndex, mask);
             }
-            PutAddressWords(v14, v15, sourceRows, length, input, mask);
-            PutAddressWords(v10, v11, remoteRows, length, remote, mask);
+            PutAddressWords<Signal ? 3U : 9U>(v14, v15, sourceRows, input, mask);
+            PutAddressWords<Signal ? 3U : 9U>(v10, v11, remoteRows, remote, mask);
             v12 = length;
             DataCopyGather(v1, peerHeader + 1U, zero, all);
             DataCopyGather(v2, peerHeader + 2U, zero, all);
