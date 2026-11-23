@@ -4,18 +4,29 @@ import contextlib
 import importlib
 import io
 import json
+import shutil
 import sys
+import tempfile
 import types
 from collections import Counter, defaultdict
 from pathlib import Path
 
 root = Path("/run-cases")
 failed = False
+scratch = Path(tempfile.mkdtemp(prefix="urma64p-report-"))
 for schedule in ("syncall", "nosync", "clock"):
-    case = root / schedule
-    original_report = json.loads(sorted(case.glob("runs/*/run.json"))[-1].read_text())
+    preserved = root / schedule
+    original_report = json.loads(sorted(preserved.glob("runs/*/run.json"))[-1].read_text())
     if original_report["returncode"] != 0 or original_report.get("error") != "Unknown event":
         raise ValueError("unexpected original run status")
+    case = scratch / schedule
+    case.mkdir()
+    for entry in preserved.iterdir():
+        target = case / entry.name
+        if entry.is_dir():
+            target.symlink_to(entry, target_is_directory=True)
+        else:
+            shutil.copyfile(entry, target)
     timing = defaultdict(lambda: defaultdict(list))
     counts = Counter()
     lane_count = [0]
