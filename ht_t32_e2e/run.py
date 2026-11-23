@@ -13,9 +13,15 @@ from contextlib import nullcontext
 from green_auth import askpass_environment
 
 root = Path(__file__).resolve().parent
-identity = json.loads((root / "fixture-identity.json").read_text())
+args = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
+object_name = "inter_server_send.o.gz"
+identity_name = "fixture-identity.json"
+if args.get("sq_stripe") is True:
+    object_name = "sq-stripe-a7286b7a.o.gz"
+    identity_name = "sq-stripe-identity.json"
+identity = json.loads((root / identity_name).read_text())
 fixture = (root / "fixture-images.tar.gz").read_bytes()
-object_package = (root / "inter_server_send.o.gz").read_bytes()
+object_package = (root / object_name).read_bytes()
 assert hashlib.sha256(fixture).hexdigest() == identity["input_archive_sha256"]
 assert hashlib.sha256(gzip.decompress(object_package)).hexdigest() == identity["kernel_sha256"]
 entry = identity["entry"]
@@ -31,9 +37,7 @@ runner = runner.replace("assert tokens == 4", "assert tokens == 32")
 source = "\n".join((runner, (root/"prepare.py").read_text(), (root/"remote.py").read_text(),
                     f"print(json.dumps(run_e2e({request!r}), separators=(',', ':')))" ))
 compile(source, "<t32_fused_remote>", "exec")
-password_auth = (
-    sys.argv[1:2] == ["--args-file"] and json.loads(Path(sys.argv[2]).read_text()).get("local_auth_note") is True
-)
+password_auth = args.get("local_auth_note") is True
 ssh = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8"]
 if password_auth:
     ssh.extend(["-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1",
