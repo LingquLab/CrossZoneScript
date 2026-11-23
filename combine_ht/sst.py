@@ -325,16 +325,24 @@ def run(args, stages):
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"], stages=stages)
     write_json(case / "case.json", record)
     send_state = None
+    send_failure = None
+    reduce_failure = None
+    write_json(WORK / "progress.json", {**progress, "state": "send-only"})
     try:
-        write_json(WORK / "progress.json", {**progress, "state": "send-only"})
         send_state = run_phase(case / "send-only", 1, spec, prepared, config, args, stages)
-    except (OSError, ValueError):
-        if not stages or not stages[-1]["completed"]:
+    except (OSError, ValueError) as error:
+        if not stages or stages[-1]["returncode"] == 124:
             raise
+        send_failure = str(error)
     write_json(case / "case.json", record)
     write_json(WORK / "progress.json", {**progress, "state": "reduce-only", "stages": stages})
-    run_phase(case / "reduce-only", 2, spec, prepared, config, args, stages, send_state)
-    record["ok"] = send_state is not None
+    try:
+        run_phase(case / "reduce-only", 2, spec, prepared, config, args, stages, send_state)
+    except (OSError, ValueError) as error:
+        if len(stages) != 2 or stages[-1]["returncode"] == 124:
+            raise
+        reduce_failure = str(error)
+    record["ok"] = send_failure is None and reduce_failure is None
     state = "complete" if record["ok"] else "incomplete"
     write_json(case / "case.json", record)
     write_json(WORK / "progress.json", {**progress, "state": state, "stages": stages})

@@ -87,6 +87,14 @@ def main(args):
                     progress=json.loads(progress.read_text()) if progress.exists() else None)
     if active:
         raise RuntimeError("SST already active in the task container")
+    if stage == "batch-report":
+        tokens, ranks = args["tokens"], args["first_rank"]
+        if tokens not in (4, 8, 16, 32) or ranks not in (8, 16, 32, 64):
+            raise ValueError("unsupported batch identity")
+        path = WORK / f"batch-bs{tokens}-{ranks}p.json"
+        return dict(ok=True, report=str(path), cases=json.loads(path.read_text()))
+    if stage == "refresh":
+        return dict(ok=running, host_work=str(WORK))
     if stage == "stop":
         if running:
             call("docker", "stop", NAME)
@@ -103,7 +111,7 @@ def main(args):
         case = run_sst({**args, "ranks": ranks}, 2 * args["stage_timeout"] + 110)
         results.append(case)
         (WORK / f'batch-bs{args["tokens"]}-{batch[0]}p.json').write_text(json.dumps(results, indent=2))
-        if not case["ok"]:
+        if len(case.get("stages", [])) < 2 or any(item["returncode"] == 124 for item in case["stages"]):
             break
     return dict(ok=len(results) == len(batch) and all(case["ok"] for case in results), cases=results)
 

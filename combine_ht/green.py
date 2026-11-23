@@ -22,7 +22,7 @@ INPUTS = (
 
 def main(args):
     stage = args["stage"]
-    if stage not in ("setup", "status", "run", "stop"):
+    if stage not in ("setup", "refresh", "status", "run", "batch-report", "stop"):
         raise ValueError("unknown stage")
     if not re.fullmatch(r"root@[0-9.]+", args["ssh_target"]) or not re.fullmatch(r"host-[0-9-]+", args["hostname"]):
         raise ValueError("invalid simulator target")
@@ -66,6 +66,7 @@ def main(args):
                 archive = root / (name + ".tar")
                 call(["git", "-C", repo, "archive", "--format=tar", "-o", archive, revision, *paths], 45)
                 upload(archive)
+        if stage in ("setup", "refresh"):
             scripts = root / "scripts.tar"
             with tarfile.open(scripts, "w") as package:
                 for name in ("host.py", "sst.py", "fixtures.py"):
