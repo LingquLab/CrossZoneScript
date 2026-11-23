@@ -145,6 +145,31 @@ def run():
     su = configs[V310_CONFIG]['simulator_config']['su']
     assert lsu_level == 1 and su['params']['lsu_level'] == 1
     lsu_level = su['params']['lsu_level'] = 2''')
+    if ARGS.get('ta_tp_info'):
+        anchor = '    configs, lsu_level = configure(resources, args)'
+        assert suite.count(anchor) == 1
+        suite = suite.replace(anchor, anchor + '''
+    def logging_levels(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ('log_level', 'verbose', 'verbosity'):
+                    yield value
+                else:
+                    yield from logging_levels(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from logging_levels(value)
+
+    before = [level for doc in configs.values() for level in logging_levels(doc)]
+    require(before and set(before) == {0}, 'Expected baseline logging levels of zero')
+    ubus = configs['UBusSim_config/UBusSim_simulator_config.yml']['simulator_config']
+    for component in ('ta_layer', 'tp_layer'):
+        params = ubus[component]['params']
+        require(params['verbose'] == 0, 'Expected component verbosity of zero')
+        params['verbose'] = 2
+    after = [level for doc in configs.values() for level in logging_levels(doc)]
+    require(after.count(2) == 2 and after.count(0) == len(before) - 2,
+            'Expected only TA and TP at verbosity 2')''')
     if ARGS.get('tune') or any(ARGS.get('schedules', [])):
         anchor = '    from case_tools import preflight\n\n    output = Path(config["suite_output"])'
         assert suite.count(anchor) == 1
@@ -217,6 +242,10 @@ def run():
                        routing=ARGS.get('routing', 'installed'))
             scenario = json.loads((case / 'scenario.json').read_text())
             row['lsu_level'] = scenario['simulator']['lsu_level']
+            if ARGS.get('ta_tp_info'):
+                log, = case.glob('runs/*/sim.log')
+                row['sim_log'] = str(log)
+                row['sim_log_bytes'] = log.stat().st_size
             if config['stage_profiling']:
                 row.update(phase_boundaries(case / 'stage-profiling', ranks))
             print(json.dumps(row), flush=True)
