@@ -108,7 +108,7 @@ def main(args):
                 if any(row.split()[1] in ("sst", "sstsim.x", "sst_trace") and not row.split()[2].startswith("Z") for row in processes):
                     raise RuntimeError("a diagnostic SST process is already active")
             entry = {"send-fault": "send_fault.py", "debug-fault": "debug_fault.py", "inspect-fault": "inspect_fault.py", "wiring-focus": "wiring_focus.py", "port-focus": "port_focus.py", "graph-focus": "graph_focus.py", "native-link": "native_link_focus.py", "link-context": "link_context.py", "watch-link": "watch_link.py", "wqe-focus": "wqe_focus.py", "scalar-address": "scalar_address_focus.py"}[stage]
-            dependencies = {"send-fault": ("native_trace.c",), "native-link": ("graph_focus.py",), "watch-link": ("link_watch.cpp",)}.get(stage, ())
+            dependencies = {"send-fault": ("native_trace.c",), "native-link": ("graph_focus.py",), "watch-link": ("link_watch.cpp",), "wqe-focus": ("sst.py",)}.get(stage, ())
             for name in (entry, *dependencies):
                 upload(Path(__file__).with_name(name))
             output = remote(["timeout", "--kill-after=25", "510", "docker", "exec", container,

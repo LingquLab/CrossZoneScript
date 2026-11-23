@@ -73,7 +73,7 @@ def select_environment():
     return snapshot
 
 
-def build_kernel(env, log, source=None, binary=KERNEL):
+def build_kernel(env, log, source=None, binary=KERNEL, address_transform=True):
     src = WORK / "candidate"
     cann = Path(env["cann_root"])
     arch = cann / "aarch64-linux"
@@ -91,6 +91,10 @@ def build_kernel(env, log, source=None, binary=KERNEL):
                "-mllvm", "-cce-aicore-stack-size=0x8000", "-mllvm", "-cce-aicore-function-stack-size=0x8000",
                "-mllvm", "-cce-aicore-record-overflow=true", "-mllvm", "-cce-aicore-addr-transform",
                "-mllvm", "-cce-aicore-dcci-insert-for-scalar=false"]
+    if not address_transform:
+        position = options.index("-cce-aicore-addr-transform")
+        assert options[position - 1] == "-mllvm"
+        del options[position - 1:position + 1]
     compile_command = [compiler, *options, *["-I" + str(p) for p in includes], "-c",
                        source, "-o", obj]
     link_command = [linker, "-m", "aicorelinux", "-Ttext=0", obj, "--static",

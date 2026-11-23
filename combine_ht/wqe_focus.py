@@ -35,7 +35,7 @@ def main():
     shutil.copyfile(source_dir / "combine_ht.cpp", source)
     binary = report / "wqe_capture.o"
     with (report / "build.log").open("wb") as log:
-        sst.build_kernel(snapshot["settings"], log, source=source, binary=binary)
+        sst.build_kernel(snapshot["settings"], log, source=source, binary=binary, address_transform=False)
     specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
     prepared = [rank.serialize() for rank in specs]
     run = report / "capture"
@@ -65,8 +65,11 @@ def main():
             code = process.returncode
         except subprocess.TimeoutExpired:
             code = 124
-    result = dict(report=str(report), diagnostic_only=True, returncode=code, wall_s=round(time.monotonic()-start, 3),
+    result = dict(report=str(report), diagnostic_only=True, compiler_address_transform=False, returncode=code, wall_s=round(time.monotonic()-start, 3),
                   baseline_kernel_sha256=sst.checksum(original_binary), diagnostic_kernel_sha256=sst.checksum(binary))
+    prior_logs = sorted(case.glob("scalar-address-*/compile.log"), key=lambda path: path.stat().st_mtime)
+    if prior_logs:
+        result["prior_assembly_errors"] = [line[:400] for line in prior_logs[-1].read_text(errors="replace").splitlines() if "error:" in line][:2]
     checked, mismatches = 0, []
     if code == 0:
         for rank, spec in enumerate(specs):
