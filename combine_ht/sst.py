@@ -1,0 +1,266 @@
+# Copyright (c) 2026 TileXR Project.
+"""Compile the pinned HT entry and provide SST workload and dump-check helpers."""
+
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import time
+from types import SimpleNamespace
+
+import yaml
+
+import fixtures
+
+WORK = Path(__file__).resolve().parent
+TOOLS = WORK / "tooling/tools/unitest/simulator"
+EXPERIMENT = TOOLS / "experiments/alltoall_udma"
+sys.path[:0] = [str(TOOLS), str(EXPERIMENT)]
+from case_tools import extract_die_output
+from configuration import configure, UBUS_CONFIG, V310_CONFIG
+from kernel_build import find_linker
+import runtime as rt
+from sim_environment import RESOURCE_GROUPS, checksum, file_record, load_environment, runtime_fingerprint, shell_command, verify_environment
+
+ENTRY = "tilexr_moonep_combine_ht_kernel"
+KERNEL = WORK / (ENTRY + ".o")
+ROOT = Path("/opt/sim")
+POINTERS = ("workspace", "input", "forward", "forward_counts", "ranges", "masks", "backward",
+            "backward_counts", "backward_ranges", "status", "profiling", "comm", "fullmesh_info", "registry")
+CONFIG = ("rank", "world", "tokens", "hidden", "topk", "input_rows", "gather_rows", "chunk_tokens",
+          "first_chunk_splits", "reduce_core_begin", "reduce_core_count", "run_mask", "wait_policy")
+LAYOUT32 = ("chunks", "groups", "control_slots", "forward_capacity", "backward_capacity", "reserved")
+LAYOUT64 = ("gather_offset", "partial_offset", "workspace_bytes", "backward_range_elements")
+SIM_TIME = re.compile(r"Simulation is complete, simulated time:\s*([0-9.eE+-]+)\s+([munpf]?s)\b")
+V11_DIE_DECODER_SHA256 = "bf93fd6d0749fc3c6eaae365c7cba558988e1fa25c1b9a26e139be61b60a3da3"
+TIME_FACTORS = {"fs": 1e-9, "ps": 1e-6, "ns": 1e-3, "us": 1, "ms": 1e3, "s": 1e6}
+
+
+def write_json(path, value):
+    pending = path.with_suffix(".tmp")
+    pending.write_text(json.dumps(value, indent=2) + "\n")
+    pending.replace(path)
+
+
+def select_environment():
+    config = json.loads((TOOLS / "environment.json").read_text())
+    config["library_dir"] = "plugins"
+    paths = {}
+    for key, directory in RESOURCE_GROUPS.items():
+        filename = "test_UBusSim.py" if key == "installed_model.py" else Path(key).name
+        candidates = sorted((ROOT / "simulator" / directory).rglob(filename))
+        perf = [path for path in candidates if "perf" in str(path.relative_to(ROOT)).lower()]
+        if len(perf) == 1:
+            paths[key] = str(perf[0])
+        elif len(candidates) == 1 and (key == "installed_model.py" or directory == "UBusSim_deployment"):
+            paths[key] = str(candidates[0])
+        else:
+            raise ValueError(f"expected one perf config for {key}, found {len(perf)}; candidates={candidates}")
+    config["platform_resources"] = paths
+    environment = WORK / "perf-environment.json"
+    write_json(environment, config)
+    env = load_environment(environment)
+    sources = {key: Path(path) for key, path in paths.items()}
+    snapshot = dict(settings=env, resources={key: file_record(path) for key, path in sources.items()},
+                    runtime_files=runtime_fingerprint(env, sources))
+    write_json(WORK / "environment.snapshot.json", snapshot)
+    return snapshot
+
+
+def build_kernel(env, log, source=None, binary=KERNEL):
+    src = WORK / "candidate"
+    cann = Path(env["cann_root"])
+    arch = cann / "aarch64-linux"
+    compiler = Path(env["compiler"])
+    linker = find_linker(cann, compiler)
+    includes = [src / "include", src / "src/moonep/combine_ht/common",
+                cann / "compiler/tikcpp", cann / "compiler/tikcpp/tikcfw",
+                cann / "compiler/tikcpp/tikcfw/impl", cann / "compiler/tikcpp/tikcfw/interface",
+                arch / "ascendc/include", arch / "asc/include", arch / "include",
+                arch / "pkg_inc", arch / "pkg_inc/runtime"]
+    source = source or src / "src/moonep/combine_ht/kernels/combine_ht.cpp"
+    obj = binary.with_name(binary.stem + "_rel.o")
+    options = ["-xcce", "-O2", "-DCATLASS_ARCH=3510", "--cce-auto-sync", "-Wno-deprecated-declarations",
+               "-DTILEXR_COMBINE_HT_SIM_SEND=1", "-DTILEXR_ENABLE_PROFILING=1", "--cce-aicore-arch=dav-c310-vec", "--cce-aicore-only", "-std=gnu++17",
+               "-mllvm", "-cce-aicore-stack-size=0x8000", "-mllvm", "-cce-aicore-function-stack-size=0x8000",
+               "-mllvm", "-cce-aicore-record-overflow=true", "-mllvm", "-cce-aicore-addr-transform",
+               "-mllvm", "-cce-aicore-dcci-insert-for-scalar=false"]
+    compile_command = [compiler, *options, *["-I" + str(p) for p in includes], "-c",
+                       source, "-o", obj]
+    link_command = [linker, "-m", "aicorelinux", "-Ttext=0", obj, "--static",
+                    "--allow-multiple-definition", "-o", binary]
+    write_json(binary.parent / "build.json", [list(map(str, argv)) for argv in (compile_command, link_command)])
+    for argv in (compile_command, link_command):
+        subprocess.run(shell_command(env, "cann", argv), check=True, timeout=150, stdout=log,
+                       stderr=subprocess.STDOUT)
+    subprocess.run(["readelf", "-sW", binary], check=True, timeout=15, stdout=log, stderr=subprocess.STDOUT)
+    if not binary.read_bytes().startswith(b"\x7fELF"):
+        raise ValueError("invalid AICore ELF")
+
+
+def setup():
+    snapshot = select_environment()
+    with (WORK / "build.log").open("wb") as log:
+        build_kernel(snapshot["settings"], log)
+    return dict(ok=True, profiling_compiled=True, kernel_sha256=checksum(KERNEL), perf_resources=snapshot["resources"],
+                build_report=str(WORK / "build.json"),
+                model_libraries={name: record for name, record in snapshot["runtime_files"].items()
+                                 if name.endswith(".so")})
+
+
+def region_images(rank, images):
+    base = rank * rt.GM_BYTES
+    addresses = {}
+    cursor = base + 0x200000000
+    for name, image in images.items():
+        addresses[name] = cursor
+        cursor += fixtures.align(max(len(image), 1))
+    if cursor >= base + rt.BASES["comm_args"]:
+        raise ValueError("HT data overlaps simulator runtime GM")
+    return addresses
+
+
+def registry_image(records):
+    data = bytearray(16 + 256 * 16)
+    struct.pack_into("<4I", data, 0, 0x54585255, 1, len(records), 1)
+    for index, record in enumerate(records):
+        struct.pack_into("<QQ", data, 16 + index * 16, record["workspace_addr"], record["workspace_bytes"])
+    return bytes(data)
+
+
+def param_table(addresses, spec, mode):
+    params = {}
+    for n, name in enumerate(POINTERS):
+        address = addresses.get(name, 0)
+        params[name] = dict(value=address, param_offset=str(n * 8), param_type="11")
+    for fields, vals, start, width, code in (
+        (CONFIG, spec.config(mode), 112, 4, 5),
+        (LAYOUT32, spec.layout()[:6], 168, 4, 5),
+        (LAYOUT64, spec.layout()[6:], 192, 8, 7),
+    ):
+        for n, (name, value) in enumerate(zip(fields, vals)):
+            params[name] = dict(value=value, param_offset=str(start + width * n), param_type=str(code))
+    for name, value, offset, code in (("comm_peer_begin", spec.rank // 8 * 8, 164, 5),
+                                      ("magic", 0, 224, 6), ("wqe_snapshot", addresses.get("wqe_snapshot", 0), 232, 11)):
+        params[name] = dict(value=value, param_offset=str(offset), param_type=str(code))
+    return params
+
+
+def create_workload(case, specs, prepared, mode, send_state=None):
+    case.mkdir()
+    output = {"workload_config": {}}
+    records = []
+    for spec, (images, _, _) in zip(specs, prepared):
+        addresses = region_images(spec.rank, {**images, "status": bytes(512)})
+        records.append(dict(rank=spec.rank, addresses=addresses, input_addr=addresses["input"],
+                            workspace_addr=addresses["workspace"], workspace_bytes=spec.layout()[8]))
+    scenario = dict(rank_size=len(specs), ranks=records,
+                    layout=dict(workspace_bytes=max(r["workspace_bytes"] for r in records)))
+    registry = registry_image(records)
+    for spec, (initial, _, _), record in zip(specs, prepared, records):
+        rank = spec.rank
+        base = rank * rt.GM_BYTES
+        directory = case / "input_bin" / f"rank{rank}"
+        directory.mkdir(parents=True)
+        images = {name: payload for name, payload in initial.items()
+                  if name in (("input", "workspace", "backward", "backward_ranges") if mode == 1
+                              else ("input", "workspace", "forward", "ranges", "masks"))}
+        addresses = {name: record["addresses"][name] for name in images}
+        if mode == 1:
+            runtime = rt.runtime_images(rank, scenario)
+            for name in ("sq_ctx", "cq_ctx", "mem_info", "eid_table", "queue_state", "cq_doorbells", "udma_info"):
+                images[name] = runtime[name]
+                addresses[name] = base + rt.BASES[name]
+            images["registry"] = registry
+            addresses["registry"] = base + rt.BASES["profile_registry"]
+            addresses["fullmesh_info"] = addresses["udma_info"]
+            images["status"] = b"\x5a" * 32 + bytes(480)
+            addresses["status"] = record["addresses"]["status"]
+        else:
+            images["workspace"] = (send_state[rank].read_bytes() if send_state is not None
+                                   else prepared[rank][1])
+        params = param_table(addresses, spec, mode)
+        offset = 240
+        for name, payload in images.items():
+            path = directory / (name + ".bin")
+            path.write_bytes(payload.ljust(fixtures.align(len(payload)), b"\0"))
+            params["load_" + name] = dict(value=addresses[name], param_offset=str(offset),
+                                         param_type="11", input_bin=str(path))
+            offset += 8
+        outputs = dict(workspace=dict(addr=addresses["workspace"], size=spec.layout()[8]))
+        if mode == 1:
+            outputs["status"] = dict(addr=addresses["status"], size=512)
+        output["workload_config"][f"chip{rank}"] = dict(gm_size=rt.GM_BYTES, sys_va_base_addr=base,
+            ub_base_addr=0x80000, stack_base_addr=0x100000, param_base_addr=base + 0x80000000,
+            block_dim=64, subblock_dim=1, kernel_file=str(KERNEL), vec_func=ENTRY, kernel_param=params,
+            bin_param=dict(addr=base + 0x40000000, size=max(0x26C40, fixtures.align(KERNEL.stat().st_size), offset)),
+            output_param=outputs)
+    return output
+
+
+def write_model(case, snapshot, workload, ranks):
+    sources = {name: Path(record["path"]) for name, record in snapshot["resources"].items()}
+    args = SimpleNamespace(rank_size=ranks, log_level=1, instruction_dump_chips=[])
+    configs, level = configure(sources, args)
+    configs[UBUS_CONFIG]["simulator_info"]["clos_router_in_fm_flag"] = True
+    for name, config in configs.items():
+        path = case / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(config, sort_keys=False))
+    text = yaml.safe_dump(workload, sort_keys=False)
+    (case / "workload.yml").write_text(text)
+    (case / "v310_config/workload_config.yml").write_text(text)
+    shutil.copyfile(sources["installed_model.py"], case / "installed_model.py")
+    shutil.copyfile(EXPERIMENT / "model_entry.py", case / "test_UBusSim.py")
+    write_json(case / "environment.snapshot.json", snapshot)
+    return dict(su=configs[V310_CONFIG]["simulator_config"]["su"]["component"],
+                lsu_level=level, clos_router_in_fm_flag=True, log_level=args.log_level)
+
+
+def read_output(case, rank, output_name, address, size):
+    paths = [case / "bin" / f"david_{rank}_die{die}_{output_name}.bin" for die in (1, 2)]
+    return extract_die_output(paths, output_name, address - rank * rt.GM_BYTES, size)
+
+
+def validate_send(case, workload, prepared):
+    snapshot = json.loads((case / "environment.snapshot.json").read_text())
+    library = Path(snapshot["settings"]["library_dir"]) / "libDavinciSimulator.so"
+    if checksum(library) != V11_DIE_DECODER_SHA256:
+        raise ValueError("V1.1.0 dump has no verified Die decoder")
+    retained = {}
+    for rank, (_, expected, _) in enumerate(prepared):
+        outputs = workload["workload_config"][f"chip{rank}"]["output_param"]
+        workspace = outputs["workspace"]
+        status = outputs["status"]
+        raw = read_output(case, rank, "status", status["addr"], status["size"])
+        if any(raw):
+            raise ValueError(f"rank {rank} nonzero send kernel status: {struct.unpack_from('<8I', raw)}")
+        actual = read_output(case, rank, "workspace", workspace["addr"], workspace["size"])
+        if actual != expected:
+            offset = next(i for i, (a, b) in enumerate(zip(actual, expected)) if a != b)
+            raise ValueError(f"rank {rank} send workspace mismatch at byte {offset}")
+        path = case / f"rank{rank}.verified-workspace.bin"
+        path.write_bytes(actual)
+        retained[rank] = path
+    return retained
+
+
+
+def main(args):
+    try:
+        if args["stage"] != "setup":
+            raise ValueError("only_setup_is_available_in_this_script_revision")
+        result = setup()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        result = dict(ok=False, stage=args["stage"], error_type=type(error).__name__, detail=str(error)[:700])
+    print(json.dumps(result, ensure_ascii=True))
+
+
+if __name__ == "__main__":
+    main(json.loads(sys.argv[1]))
