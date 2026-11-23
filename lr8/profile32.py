@@ -78,7 +78,7 @@ for mode, label, schedule in (
                 ticks = [events[event][i] for event in range(10,18)]
                 assert previous <= ticks[0] and ticks == sorted(ticks)
                 if core_export:
-                    row.append([group, *ticks])
+                    row.append([group, ticks[0], *(b - a for a, b in zip(ticks, ticks[1:]))])
                 groups[group].append((ticks[0], ticks[-1]))
                 durations = [ticks[1]-ticks[0], ticks[3]-ticks[2], ticks[5]-ticks[4],
                              ticks[7]-ticks[6], ticks[0]-previous, ticks[7]-ticks[0]]
@@ -112,7 +112,7 @@ for mode, label, schedule in (
                                   ordered[(len(ordered)-1)//2], ordered[(95*len(ordered)+99)//100-1], ordered[-1]]
     output[mode] = result
 encoded = json.dumps(output,separators=(',',':'))
-assert len(encoded) < 62000
+assert len(encoded) < 62000, len(encoded)
 print(encoded)
 '''
 result = subprocess.run(
@@ -120,6 +120,6 @@ result = subprocess.run(
      '-i', 'C:/Users/l00929943/.ssh/id_ed25519_server', 'root@141.61.94.30', 'python3 -'],
     input=source, text=True, capture_output=True, timeout=75)
 if result.returncode:
-    print(json.dumps(dict(ssh_exit=result.returncode, error=result.stderr.splitlines()[-1:])))
+    print(json.dumps(dict(ssh_exit=result.returncode, error=result.stderr.splitlines()[-2:])))
     raise SystemExit(0)
 print(result.stdout, end='')
