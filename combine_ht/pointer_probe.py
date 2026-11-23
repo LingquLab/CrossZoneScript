@@ -41,14 +41,16 @@ extern "C" __global__ __aicore__ void tilexr_moonep_combine_ht_kernel(TileXRComb
 '''
 
 
-def main():
+def main(variant="fields"):
     case = Path(json.loads((sst.WORK / "progress.json").read_text())["case"])
     assert case.parent == sst.WORK / "cases"
     snapshot = json.loads((case / "send-only/environment.snapshot.json").read_text())
     sst.verify_environment(snapshot)
     report = Path(mkdtemp(prefix="pointer-probe-", dir=case))
     source = report / "pointer_probe.cpp"
-    source.write_text(SOURCE)
+    extra = {"fields": "", "plain_gm": "output[7] = *reinterpret_cast<__gm__ uint32_t *>(sq->headAddr);",
+             "ld_dev": "output[7] = ld_dev(reinterpret_cast<__gm__ uint32_t *>(sq->headAddr), 0);"}[variant]
+    source.write_text(SOURCE.replace("    output[6] = sq->bufAddr;", "    output[6] = sq->bufAddr;\n    " + extra))
     shutil.copyfile(sst.WORK / "candidate/src/moonep/combine_ht/kernels/combine_ht_kernel.h", report / "combine_ht_kernel.h")
     binary = report / "pointer_probe.o"
     env = snapshot["settings"]
@@ -74,19 +76,24 @@ def main():
             code = process.returncode
         except subprocess.TimeoutExpired:
             code = 124
-    result = dict(report=str(report), diagnostic_only=True, returncode=code, wall_s=round(time.monotonic()-start, 3), ranks=[])
+    result = dict(report=str(report), variant=variant, kernel_sha256=sst.checksum(binary), diagnostic_only=True, returncode=code, wall_s=round(time.monotonic()-start, 3), ranks=[])
     if not code:
         for rank in range(8):
             output = workload["workload_config"][f"chip{rank}"]["output_param"]["status"]
             raw = sst.read_output(run, rank, "status", output["addr"], output["size"])
-            values = struct.unpack_from("<7Q", raw)
+            values = struct.unpack_from("<7Q" if variant == "fields" else "<8Q", raw)
             q = sst.rt.queue_addresses(rank, 8, 0, 0)
             base = rank * sst.rt.GM_BYTES
             expected = (base+sst.rt.BASES["udma_info"], 40, base+sst.rt.BASES["sq_ctx"], base+sst.rt.BASES["sq_ctx"], q["sq_head"], q["count"], q["sq"])
+            if variant != "fields":
+                expected += (0,)
             result["ranks"].append(dict(rank=rank, actual=[hex(value) for value in values], expected=[hex(value) for value in expected], match=values==expected))
     sst.write_json(report / "analysis.json", result)
-    print(json.dumps(result, ensure_ascii=True))
+    return result
 
 
 if __name__ == "__main__":
-    main()
+    results = []
+    for variant in ("plain_gm", "ld_dev"):
+        results.append(main(variant))
+    print(json.dumps({"comparisons": results}, ensure_ascii=True))
