@@ -85,6 +85,10 @@ def main():
         result.update(send_verified=False, failure=str(error)[:500])
     finally:
         sst.KERNEL = original
+    log_path = report / "send-only/sim.log"
+    if log_path.is_file() and not result.get("send_verified"):
+        lines = log_path.read_text(errors="replace").splitlines()
+        result["first_fatal"] = [line[line.index("FATAL:"):][:700] for line in lines if "FATAL:" in line][:1]
     sst.write_json(report / "trial.json", result)
     print(json.dumps(result, ensure_ascii=True))
 
