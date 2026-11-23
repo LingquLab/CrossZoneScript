@@ -17,10 +17,19 @@ CONTAINER_PROBE = r'''
 import json, pathlib, re, subprocess, sys
 import yaml
 folder = pathlib.Path(sys.argv[1])
+processes = []
+for entry in pathlib.Path("/proc").iterdir():
+    if entry.name.isdigit():
+        try:
+            processes.append((entry / "comm").read_text().strip())
+        except (FileNotFoundError, ProcessLookupError):
+            pass
 config = yaml.safe_load((folder / "capture/workload.yml").read_text())
 chip = config["workload_config"]["chip0"]
 out = {"address_config": {key: chip[key] for key in
        ("ub_base_addr", "stack_base_addr", "block_dim", "subblock_dim")}}
+out["simulator_process_count"] = sum(bool(re.search(r"sst(sim)?|mpirun", name, re.I)) for name in processes)
+out["compiler_process_count"] = sum(bool(re.search(r"bisheng|clang|ccec", name, re.I)) for name in processes)
 root = pathlib.Path("/opt/sim/Ascend/cann-9.1.0")
 tools = sorted({p for pattern in ("*/bin/*objdump*", "*/*/bin/*objdump*", "*/*/*/bin/*objdump*")
                 for p in root.glob(pattern) if p.is_file()})
@@ -78,9 +87,6 @@ def main(args):
     out["builder_functions"] = [{"symbol": words[-1][:220], "size": int(words[2])}
                                 for words in functions if "BuildPutWqes" in words[-1]][:4]
     if out["container_running"]:
-        processes = call(["docker", "top", name, "-eo", "comm"]).splitlines()[1:]
-        out["simulator_process_count"] = sum(bool(re.search(r"sst(sim)?|mpirun", x, re.I)) for x in processes)
-        out["compiler_process_count"] = sum(bool(re.search(r"bisheng|clang|ccec", x, re.I)) for x in processes)
         out["container_probe"] = json.loads(call(["docker", "exec", name, "python3", "-c",
                                                    CONTAINER_PROBE, str(Path("/work") / folder.name)], timeout=40))
     log = folder / "capture/sim.log"
