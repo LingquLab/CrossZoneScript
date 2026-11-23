@@ -154,11 +154,12 @@ def inside_container():
     print(json.dumps(out, separators=(",", ":")))
 
 
-def host(args):
+def host(args, entry="vf_inspect.py", directory="vf-inspection-1", timeout=300):
+    assert (entry, directory) in (("vf_inspect.py", "vf-inspection-1"), ("vf_ir.py", "vf-ir-inspection-1"))
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
     root = Path(__file__).resolve().parent
     assert root.name == "tilexr-combine-ht-" + SESSION + "-v11"
-    assert not (root / "vf-inspection-1").exists(), "inspection_already_attempted"
+    assert not (root / directory).exists(), "inspection_already_attempted"
     process = subprocess.run(["docker", "inspect", NAME], capture_output=True, check=True, timeout=20)
     info = json.loads(process.stdout)[0]
     assert info["Image"] == IMAGE and info["Config"]["Labels"]["crosszone.session"] == SESSION
@@ -166,9 +167,9 @@ def host(args):
     assert info["HostConfig"]["Runtime"] == "runc"
     assert any(m["Source"] == str(root) and m["Destination"] == "/work" and m["RW"] for m in info["Mounts"])
     assert any(m["Destination"] == "/baseline" and not m["RW"] for m in info["Mounts"])
-    process = subprocess.run(["docker", "exec", NAME, "python3", "/work/vf_inspect.py", "--container"],
-                             capture_output=True, timeout=300)
-    (root / "vf-inspection-host.log").write_bytes(process.stdout + b"\nSTDERR\n" + process.stderr)
+    process = subprocess.run(["docker", "exec", NAME, "python3", "/work/" + entry, "--container"],
+                             capture_output=True, timeout=timeout)
+    (root / (directory + "-host.log")).write_bytes(process.stdout + b"\nSTDERR\n" + process.stderr)
     assert process.returncode == 0, "vf_inspection_failed"
     value = json.loads(process.stdout)
     packet = json.dumps(value, separators=(",", ":"))
