@@ -40,7 +40,7 @@ def patch(text, prefix):
         stores += 1
         return prefix + "SimulatorQueueStore(" + value + ", reinterpret_cast<__gm__ uint32_t*>(" + address + "), 0);"
 
-    text = re.sub(r"st_dev\((.*?),\s*reinterpret_cast<__gm__ uint32_t\*>\(([^()]*)\),\s*0\);", replace, text, flags=re.S)
+    text = re.sub(r"st_dev\((.*?),\s*reinterpret_cast<__gm__ uint32_t\s*\*>\(([^()]*)\),\s*0\);", replace, text, flags=re.S)
     return text, dict(loads=loads, stores=stores)
 
 
