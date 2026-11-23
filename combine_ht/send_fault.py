@@ -21,6 +21,12 @@ def location(address, mappings, report):
             continue
         offset = address - start + file_offset
         entry = dict(elf=Path(path).name, file_offset=hex(offset))
+        objdump = shutil.which("objdump")
+        if objdump:
+            disassembly = subprocess.run([objdump, "-d", "--start-address=" + hex(offset - 8),
+                                          "--stop-address=" + hex(offset + 8), path], capture_output=True, text=True, timeout=20)
+            entry["instructions"] = [line.strip() for line in disassembly.stdout.splitlines()
+                                     if re.match(r"^\s*[0-9a-f]+:\s+[0-9a-f]{8}\s", line)][:4]
         resolver = shutil.which("addr2line")
         if resolver:
             symbol = subprocess.run([resolver, "-f", "-C", "-e", path, hex(offset)],
@@ -90,6 +96,11 @@ def main():
                     mappings.append((begin, end, int(fields[2], 16), fields[5]))
             result.update(pc=location(pc, mappings, case), link=location(link, mappings, case),
                           fault_address=hex(fault_address))
+    registers = Path(str(fault_path) + ".regs")
+    if registers.is_file():
+        result["registers"] = json.loads(registers.read_text())
+    configs = sst.yaml.safe_load((case / "UBusSim_config/UBusSim_simulator_config.yml").read_text())
+    result["architecture_config"] = configs.get("architecture_config", {})
     result["baseline_report"] = str(BASELINE)
     result["kernel_sha256"] = sst.checksum(sst.KERNEL)
     sst.write_json(case / "diagnosis.json", result)

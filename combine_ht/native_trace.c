@@ -65,6 +65,15 @@ int main(int argc, char **argv)
                         regs_ok ? registers.regs[30] : 0, info_ok ? (unsigned long long)info.si_addr : 0);
                 fprintf(stderr, "trace_fault signal=%d regs_ok=%d info_ok=%d sp=%llx\n",
                         number, regs_ok, info_ok, registers.sp);
+                char register_path[4096];
+                (void)snprintf(register_path, sizeof(register_path), "%s.regs", argv[1]);
+                FILE *regfile = fopen(register_path, "wx");
+                if (regfile) {
+                    fprintf(regfile, "{\"sp\":\"0x%llx\"", registers.sp);
+                    for (int i = 0; i < 31; ++i) fprintf(regfile, ",\"x%d\":\"0x%llx\"", i, registers.regs[i]);
+                    fprintf(regfile, "}\n");
+                    (void)fclose(regfile);
+                }
 #endif
                 char name[80];
                 (void)snprintf(name, sizeof(name), "/proc/%d/maps", thread);

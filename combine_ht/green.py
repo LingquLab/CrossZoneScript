@@ -96,6 +96,17 @@ def main(args):
                         or not any(m["Source"] == WORK and m["Destination"] == "/work" for m in info["Mounts"])):
                     raise ValueError("ptrace diagnostic container identity mismatch")
                 container = diagnostic
+            if args.get("use_ptrace_container"):
+                container += "-ptrace"
+                info = json.loads(remote(["docker", "inspect", "--format", "{{json .}}", container], 30))
+                if (info["Config"]["Labels"].get("crosszone.session") != SESSION
+                        or info["HostConfig"]["NetworkMode"] != "none"
+                        or not info["State"]["Running"]
+                        or not any(m["Source"] == WORK and m["Destination"] == "/work" for m in info["Mounts"])):
+                    raise ValueError("existing diagnostic container identity mismatch")
+                processes = remote(["docker", "top", container, "-eo", "pid,comm,stat"], 30).decode().splitlines()[1:]
+                if any(row.split()[1] in ("sst", "sstsim.x", "sst_trace") and not row.split()[2].startswith("Z") for row in processes):
+                    raise RuntimeError("a diagnostic SST process is already active")
             for name in (("send_fault.py", "native_trace.c") if stage == "send-fault" else ("debug_fault.py",)):
                 upload(Path(__file__).with_name(name))
             output = remote(["timeout", "--kill-after=25", "510", "docker", "exec", container,
