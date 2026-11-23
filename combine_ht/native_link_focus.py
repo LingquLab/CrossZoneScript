@@ -5,6 +5,8 @@ Reads only the pinned simulator library. Returns short instruction windows for
 the null link field and relevant link names without running simulator events.
 """
 
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import re
@@ -35,6 +37,14 @@ def main():
     strings = subprocess.run(["strings", "-t", "x", str(library)], capture_output=True, text=True, timeout=20).stdout.splitlines()
     result["native_port_names"] = [line.strip() for line in strings if re.search(r"\b(?:ubSubsysReqPort|netSimReqPort|V310_flag|UBusSim_flag|simt_urma_flag)\b", line)]
     result["field_accesses"] = result["field_accesses"][:2]
+    import graph_focus
+    capture = io.StringIO()
+    with redirect_stdout(capture):
+        graph_focus.main()
+    graph = json.loads(capture.getvalue())
+    result["python_graph_report"] = graph["report"]
+    result["python_graph_constructed"] = graph["constructed"]
+    result["ba_params"] = graph["ba_params"]
     sst.write_json(report / "analysis.json", result)
     assert len(json.dumps(result).encode()) < 6000
     print(json.dumps(result, ensure_ascii=True))
