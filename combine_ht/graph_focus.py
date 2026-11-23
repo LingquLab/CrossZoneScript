@@ -36,13 +36,15 @@ def main():
 
     class Node:
         def __init__(self, name, kind):
-            self.name, self.kind, self.ports = name, kind, []
+            self.name, self.kind, self.ports, self.params = name, kind, [], {}
             nodes[name] = self
 
         def addParams(self, *args):
+            self.params.update(args[0])
             return None
 
         def addParam(self, *args):
+            self.params[args[0]] = args[1]
             return None
 
         def setSubComponent(self, name, kind, *args):
@@ -97,6 +99,14 @@ def main():
             examples[signature].append(node.name)
     result.update(component_count=len(nodes), link_count=len(links), ba_component_count=len(bas),
                   first8_ba_port_groups=[dict(ports=list(key), count=count, examples=examples[key]) for key, count in groups.items()])
+    result["ba_params"] = []
+    for name in ("Host0_Udie0_Body0_ba_layer", "Host0_Udie0_Body3_ba_layer", "Host0_Udie0_Body4_ba_layer"):
+        if name in nodes:
+            node = nodes[name]
+            selected = {key: value for key, value in node.params.items()
+                        if re.search(r"flag|mode|port|body|die|station|chip|host|ccum|ba_.*id", key, re.I)
+                        and isinstance(value, (int, float, bool, str))}
+            result["ba_params"].append(dict(name=name, kind=node.kind, params=selected))
     runner.write_json(report / "analysis.json", result)
     assert len(json.dumps(result).encode()) < 8000
     print(json.dumps(result, ensure_ascii=True))
