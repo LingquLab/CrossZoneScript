@@ -1,0 +1,7 @@
+{
+  "commit": "3146de5181b2ba4bfd4d9a6161d74f5bab53a862",
+  "case_name": "ht-t4-reduce-ab-opt-15cdb016",
+  "object": "tilexr_ep_ht_final_reduce_sst_kernel.o",
+  "object_sha256": "15cdb016bd641128f6556a1877c12e5a8705ed60052446e8c2de943f506a5c1e",
+  "archive_sha256": "559ba6267be81ba703a3e9820c8e30dd0d3bc3ae21abd5313ea013fb1ceebc35"
+}
