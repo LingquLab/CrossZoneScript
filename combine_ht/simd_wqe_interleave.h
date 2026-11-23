@@ -13,8 +13,8 @@ __simd_callee__ inline void PutAddressWords(MicroAPI::RegTensor<uint32_t> &low,
     RegTensor<uint32_t> offsetLow, offsetHigh, one, zero, carry;
     MaskReg overflow;
     static_assert(RowShift > 0 && RowShift < 32, "row shift must fit the 32-bit limb");
-    ShiftLefts(offsetLow, rows, RowShift, mask);
-    ShiftRights(offsetHigh, rows, 32U - RowShift, mask);
+    ShiftLefts(offsetLow, rows, static_cast<int16_t>(RowShift), mask);
+    ShiftRights(offsetHigh, rows, static_cast<int16_t>(32U - RowShift), mask);
     Adds(low, offsetLow, static_cast<uint32_t>(base), mask);
     Compare<uint32_t, CMPMODE::LT>(overflow, low, offsetLow, mask);
     Duplicate(one, 1U);
