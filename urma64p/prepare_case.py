@@ -66,6 +66,17 @@ for name in sorted(files):
     shutil.copyfile(source, target)
 shutil.copyfile(candidate, case / kernel_rel)
 
+checker = case / "full_validation.py"
+source = checker.read_text()
+event_pairs = "pairs = {2: 1, 11: 10, 13: 12, 21: 20, 31: 30, 41: 40}"
+allowed_events = "allowed = {1, 2, 10, 11, 12, 13, 20, 21, 30, 31, 40, 41}"
+if source.count(event_pairs) != 1 or source.count(allowed_events) != 1:
+    raise ValueError("unrecognized Full profiling checker")
+source = source.replace(event_pairs, event_pairs[:-1] + ", 51: 50, 53: 52}")
+source = source.replace(allowed_events, allowed_events[:-1] + ", 50, 51, 52, 53}")
+compile(source, str(checker), "exec")
+checker.write_text(source)
+
 old_paths = (scenario["kernel"]["original_path"], str(reference / kernel_rel))
 changes = {
     **{path: str(case / kernel_rel) for path in old_paths},
