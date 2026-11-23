@@ -18,7 +18,7 @@ WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 def main(args):
     assert args["ssh_target"] == "root@141.61.94.26"
-    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "simd-probes", "simd-result", "store-controls", "store-result", "padding-probes", "padding-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
+    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "simd-probes", "simd-result", "store-controls", "store-result", "padding-probes", "padding-result", "vf-inspect", "vf-inspection-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]
@@ -43,6 +43,8 @@ def main(args):
     elif args["action"] == "padding-probes":
         names = ("padding_probe.py", "trial.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "store_controls.py")
         entry, budget = "padding_probe.py", 640
+    elif args["action"] == "vf-inspect":
+        names, entry, budget = ("vf_inspect.py",), "vf_inspect.py", 330
     elif args["action"] in ("compiler-inspect", "object-inspect", "call-focus", "compiler-result"):
         names, entry, budget = ("compiler_inspect.py",), "compiler_inspect.py", 210
     else:
