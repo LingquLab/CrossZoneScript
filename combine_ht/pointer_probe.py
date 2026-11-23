@@ -8,6 +8,7 @@ It snapshots values already consumed by Send; no production path is modified.
 from contextlib import redirect_stdout
 import json
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 from tempfile import mkdtemp
@@ -48,6 +49,7 @@ def main():
     report = Path(mkdtemp(prefix="pointer-probe-", dir=case))
     source = report / "pointer_probe.cpp"
     source.write_text(SOURCE)
+    shutil.copyfile(sst.WORK / "candidate/src/moonep/combine_ht/kernels/combine_ht_kernel.h", report / "combine_ht_kernel.h")
     binary = report / "pointer_probe.o"
     env = snapshot["settings"]
     with (report / "build.log").open("wb") as log:
