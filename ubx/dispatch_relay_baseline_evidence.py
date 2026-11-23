@@ -10,6 +10,7 @@ from stage_sources import connect, run_remote
 
 PROBE = r'''
 from hashlib import sha256
+from statistics import quantiles
 import json
 from pathlib import Path
 import struct
@@ -21,7 +22,7 @@ def elf_hashes(path):
     data = path.read_bytes()
     entry = {"file_sha256": sha256(data).hexdigest()}
     if data[:4] != b"\x7fELF" or data[4] not in (1, 2) or data[5] not in (1, 2):
-        return entry
+        return entry, {}
     endian = "<" if data[5] == 1 else ">"
     elf64 = data[4] == 2
     hdr = struct.unpack_from(endian + ("16sHHIQQQIHHHHHH" if elf64 else "16sHHIIIIIHHHHHH"), data)
@@ -29,17 +30,18 @@ def elf_hashes(path):
     section_format = endian + ("IIQQQQIIQQ" if elf64 else "IIIIIIIIII")
     sections = [struct.unpack_from(section_format, data, offset + stride * i) for i in range(count)]
     if not sections:
-        return entry
+        return entry, {}
     string_table = sections[string_idx]
     strings = data[string_table[4]:string_table[4]+string_table[5]]
     code = {}
     for name_at, _, flags, _, start, size, *_ in sections:
         if flags & 4 and size:
             name = strings[name_at:].split(b"\0", 1)[0].decode("ascii", "replace")
-            code[name] = {"bytes":size,"sha256":sha256(data[start:start+size]).hexdigest()}
+            code[name] = data[start:start+size]
     if code:
-        entry["code_sections"] = code
-    return entry
+        entry["code_sections"] = {name: {"bytes":len(blob), "sha256":sha256(blob).hexdigest()}
+                                  for name, blob in code.items()}
+    return entry, code
 
 phases = {
     ("RELAY", "topk_relay_plan"): "relay_plan",
@@ -48,6 +50,7 @@ phases = {
     ("INTRA_SEND", "intra_send_role"): "intra_send",
 }
 result = {}
+texts = {}
 for namespace in sys.argv[2:]:
     root = home / namespace
     revision = json.loads((root / "upstream/manifest.json").read_text())["revisions"]["tail-relay"]["commit"]
@@ -55,7 +58,9 @@ for namespace in sys.argv[2:]:
     for mode in ("off", "on"):
         kernels = list((root / "installs" / f"tail-relay-base-{mode}" / "lib").rglob("tilexr_ep_ubx_kernel.o"))
         if len(kernels) == 1:
-            programs[mode] = elf_hashes(kernels[0])
+            programs[mode], code = elf_hashes(kernels[0])
+            if ".text" in code:
+                texts.setdefault(mode, []).append(code[".text"])
     rows = {}
     for bs in (64, 128, 32):
         for mode in ("off", "on"):
@@ -67,8 +72,26 @@ for namespace in sys.argv[2:]:
                          stages={phases[item["role"],item["stage"]]:
                                  round(item["round_slowest_core_us"]["median"],4)
                                  for item in report.get("stages", []) if (item["role"],item["stage"]) in phases})
+            if mode == "off":
+                samples = list(report["native_task_round_slowest_rank_us"].values())
+                q1, _, q3 = quantiles(samples, n=4, method="inclusive")
+                stats["off_quartiles"] = [round(q1, 4), round(q3, 4)]
             rows[f"{bs}-{mode}"] = stats
     result[revision[:8]] = dict(kernels=programs, cases=rows)
+differences = {}
+for mode, versions in texts.items():
+    if len(versions) != 2:
+        continue
+    old, new = versions
+    if len(old) != len(new):
+        continue
+    offsets = [i for i, (first,second) in enumerate(zip(old,new)) if first != second]
+    chunks = sorted({i//1024 for i in offsets})
+    differences[mode] = dict(changed_bytes=len(offsets), changed_1k_chunks=len(chunks),
+                             text_bytes=len(old),
+                             first_byte=offsets[0] if offsets else None,
+                             last_byte=offsets[-1] if offsets else None)
+result["text_differences"] = differences
 print(json.dumps(result, separators=(",", ":")))
 '''
 
