@@ -22,7 +22,7 @@ INPUTS = (
 
 def main(args):
     stage = args["stage"]
-    assert stage in ("setup", "refresh", "run", "status", "stop", "inspect")
+    assert stage in ("setup", "refresh", "run", "status", "stop", "inspect", "read")
     assert args["ssh_target"] == "root@141.61.94.26"
     assert args["hostname"] == "host-94-26"
     root = Path(os.environ["LOCALAPPDATA"]) / "CrossZone" / "tilexr" / (SESSION + "-v11")
@@ -63,11 +63,11 @@ def main(args):
                 archive = root / (name + ".tar")
                 call(["git", "-C", repo, "archive", "--format=tar", "-o", archive, revision, *paths], 45)
                 upload(archive)
-        if stage in ("run", "inspect"):
+        if stage in ("run", "inspect", "read"):
             status_args = {**args, "stage": "status"}
             status = json.loads(remote(["python3", WORK + "/host.py", json.dumps(status_args)], 60))
             assert status["ok"] and status["running"] and not status["sst_active"], "session_sst_not_idle"
-        if stage in ("setup", "refresh", "run", "inspect"):
+        if stage in ("setup", "refresh", "run", "inspect", "read"):
             scripts = root / "scripts.tar"
             with tarfile.open(scripts, "w") as package:
                 for path in sorted(Path(__file__).parent.glob("*.py")):

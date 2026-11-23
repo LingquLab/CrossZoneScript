@@ -92,6 +92,8 @@ def main(args):
     assert json.loads((WORK / "revisions.json").read_text()) == REVISIONS
     if stage == "refresh":
         return dict(ok=True, host_work=str(WORK))
+    if stage == "read":
+        return json.loads(call("python3", WORK / "crash_read.py", json.dumps(args), timeout=45))
     if stage == "inspect":
         return json.loads(call("docker", "exec", NAME, "python3", "/work/diagnose.py", json.dumps(args),
                                timeout=args["stage_timeout"] + 95))
