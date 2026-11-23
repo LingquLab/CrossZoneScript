@@ -23,6 +23,9 @@ def decode_core(raw):
         raise ValueError(f"Invalid profile header {words=}, {lost=}")
     stack, slices = [], []
     records = list(struct.iter_unpack("<QQ", raw[16:words * 8]))
+    recovered_start = records[0] == (0, 0) and records[1][1] == 3 and records[1][0] > 0
+    if recovered_start:
+        records[0] = (records[1][0], 1)
     if records[0][1] != 1 or records[-1][1] != 2:
         raise ValueError("Missing kernel bounds")
     previous = 0
@@ -40,7 +43,7 @@ def decode_core(raw):
             slices.append((stage, begin, tick))
     if stack:
         raise ValueError("Unclosed stage")
-    return slices
+    return slices, recovered_start
 
 
 def render(case, reconstruct=None):
@@ -50,7 +53,7 @@ def render(case, reconstruct=None):
 
     workload = json.loads((case / "workload.yml").read_text())["workload_config"]
     env = json.loads((case / "sst-environment.json").read_text())
-    tracks, invalid = {}, []
+    tracks, invalid, recovered = {}, [], set()
     for rank in range(64):
         chip = workload[f"chip{rank}"]
         region = chip["output_param"]["profile"]
@@ -60,7 +63,10 @@ def render(case, reconstruct=None):
         for owner in range(CORES):
             offset = owner * CORE_BYTES
             try:
-                tracks[rank, owner] = decode_core(data[offset:offset + CORE_BYTES])
+                slices, recovered_start = decode_core(data[offset:offset + CORE_BYTES])
+                tracks[rank, owner] = slices
+                if recovered_start:
+                    recovered.add((rank, owner))
             except ValueError as error:
                 invalid.append([rank, owner, str(error)])
     if not tracks:
@@ -77,13 +83,17 @@ def render(case, reconstruct=None):
         for stage, begin, end in sorted(slices, key=lambda row: (row[1], -row[2])):
             duration = (end - begin) / CYCLES_PER_US
             totals[stage] += duration
-            events.append(dict(name=stage, ph="X", pid=rank, tid=owner,
-                               ts=round((begin - origin) / CYCLES_PER_US, 6), dur=round(duration, 6)))
+            event = dict(name=stage, ph="X", pid=rank, tid=owner,
+                         ts=round((begin - origin) / CYCLES_PER_US, 6), dur=round(duration, 6))
+            if stage == "kernel" and (rank, owner) in recovered:
+                event["args"] = {"start": "left-censored at first observed stage"}
+            events.append(event)
         for stage, duration in totals.items():
             breakdown[stage].append(duration)
         if (rank, owner) == last:
             last_breakdown = {stage: round(duration, 3) for stage, duration in totals.items()}
     summary = dict(streams=len(tracks), invalid_count=len(invalid), invalid_sample=invalid[:6],
+                   recovered_kernel_start_count=len(recovered), last_aiv_kernel_start_recovered=last in recovered,
                    slices=sum(map(len, tracks.values())), last_aiv=list(last), last_aiv_us=last_breakdown,
                    clock_cycles_per_us=CYCLES_PER_US,
                    stages={name: {"tracks": len(values), "median_us": round(median(values), 3),
