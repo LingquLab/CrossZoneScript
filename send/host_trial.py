@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from store_controls import BASE_KINDS, POINTER_KINDS, summarize_batch
+from store_controls import BASE_KINDS, POINTER_KINDS, COMPENSATION_KINDS, summarize_batch
 from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract_contract
 
 SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
@@ -57,7 +57,7 @@ def main(args):
     assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in BASE_KINDS + POINTER_KINDS)
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS)
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -125,13 +125,15 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer")
-    kinds = POINTER_KINDS if args.get("controls") == "pointer" else BASE_KINDS
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation")
+    kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
+             "compensation": COMPENSATION_KINDS}[args.get("controls", "full-tile")]
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "store_controls_already_attempted"
     for offset, kind in enumerate(kinds):
         assert not (WORK / f"mte-scalar_{kind}-{args['attempt'] + offset}").exists()
-    out = {"ok": False, "diagnostic_only": True, "results": []}
+    out = {"ok": False, "diagnostic_only": True, "results": [],
+           "controls": args.get("controls", "full-tile")}
     source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
     assert 0 < source.stat().st_size < 16000000
     functions, snippets = extract_contract(source.read_text())
@@ -161,6 +163,8 @@ def run_store_controls(args):
         out["results"].append(result)
         path.write_text(json.dumps(out, indent=2))
         (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
+        if args.get("controls") == "compensation" and not result["ok"]:
+            break
         # Continue only after an observed terminal simulator exit, never a timeout.
         if not result["ok"] and result.get("returncode") not in (0, 255):
             break
