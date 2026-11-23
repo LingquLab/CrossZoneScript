@@ -1,11 +1,12 @@
 # Copyright (c) 2026 TileXR Project.
 """Read one retained SST candidate, its container state and scalar call metadata.
 
-No container or process is started or stopped. The container's Python process
-only reads configuration and optionally invokes its existing disassembler.
+No container or process is started or stopped. Process names are checked from
+the host through the container's PID namespace; generated YAML stays on disk.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -13,49 +14,31 @@ import subprocess
 import sys
 
 
-CONTAINER_PROBE = r'''
-import json, pathlib, re, subprocess, sys
-import yaml
-folder = pathlib.Path(sys.argv[1])
-processes = []
-for entry in pathlib.Path("/proc").iterdir():
-    if entry.name.isdigit():
+def process_counts(init_pid):
+    namespace = os.readlink(Path("/proc") / str(init_pid) / "ns/pid")
+    names = []
+    inaccessible = 0
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
         try:
-            processes.append((entry / "comm").read_text().strip())
+            if os.readlink(entry / "ns/pid") == namespace:
+                names.append((entry / "comm").read_text().strip())
         except (FileNotFoundError, ProcessLookupError):
             pass
-config = yaml.safe_load((folder / "capture/workload.yml").read_text())
-chip = config["workload_config"]["chip0"]
-out = {"address_config": {key: chip[key] for key in
-       ("ub_base_addr", "stack_base_addr", "block_dim", "subblock_dim")}}
-out["simulator_process_count"] = sum(bool(re.search(r"sst(sim)?|mpirun", name, re.I)) for name in processes)
-out["compiler_process_count"] = sum(bool(re.search(r"bisheng|clang|ccec", name, re.I)) for name in processes)
-root = pathlib.Path("/opt/sim/Ascend/cann-9.1.0")
-tools = sorted({p for pattern in ("*/bin/*objdump*", "*/*/bin/*objdump*", "*/*/*/bin/*objdump*")
-                for p in root.glob(pattern) if p.is_file()})
-out["disassemblers"] = [str(p.relative_to(root)) for p in tools[:8]]
-out["disassembly_attempted"] = False
-if tools:
-    tool = next((p for p in tools if p.name == "llvm-objdump"), tools[0])
-    process = subprocess.run([str(tool), "-d", str(folder / "send.o")],
-                             capture_output=True, text=True, timeout=25)
-    out["disassembly_attempted"] = True
-    out["disassembly_returncode"] = process.returncode
-    instructions = [line.strip() for line in process.stdout.splitlines()
-                    if re.match(r"^\s*[0-9a-f]+:\s", line)]
-    out["instruction_count"] = len(instructions)
-    stack = [line for line in instructions if re.search(r"\bsp\b", line, re.I)]
-    out["stack_instruction_count"] = len(stack)
-    out["stack_instructions"] = [line[:180] for line in stack[:6]]
-    out["call_instruction_count"] = sum(bool(re.search(r"\b(call|bl|jal)\b", line, re.I))
-                                        for line in instructions)
-print(json.dumps(out, separators=(",", ":")))
-'''
+        except PermissionError:
+            inaccessible += 1
+    return {"observed_process_count": len(names),
+            "inaccessible_pid_count": inaccessible,
+            "simulator_process_count": sum(bool(re.search(r"sst(sim)?|mpirun", name, re.I)) for name in names),
+            "compiler_process_count": sum(bool(re.search(r"bisheng|clang|ccec", name, re.I)) for name in names)}
 
 
 def call(argv, timeout=20):
     result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-    assert result.returncode == 0, "query_failed_" + Path(argv[0]).name
+    if result.returncode:
+        sys.stderr.write(result.stderr[-4000:])
+        raise RuntimeError("query_failed_" + Path(argv[0]).name + "_" + str(result.returncode))
     return result.stdout
 
 
@@ -87,8 +70,14 @@ def main(args):
     out["builder_functions"] = [{"symbol": words[-1][:220], "size": int(words[2])}
                                 for words in functions if "BuildPutWqes" in words[-1]][:4]
     if out["container_running"]:
-        out["container_probe"] = json.loads(call(["docker", "exec", name, "python3", "-c",
-                                                   CONTAINER_PROBE, str(Path("/work") / folder.name)], timeout=40))
+        out.update(process_counts(info["State"]["Pid"]))
+    config = folder / "capture/workload.yml"
+    out["workload_exists"] = config.is_file()
+    if config.is_file():
+        text = config.read_text()
+        out["address_config"] = {key: sorted({int(value, 0) for value in re.findall(
+            r"(?m)^\s*" + key + r":\s*(0x[0-9a-fA-F]+|[0-9]+)\s*$", text)})
+            for key in ("ub_base_addr", "stack_base_addr", "block_dim", "subblock_dim")}
     log = folder / "capture/sim.log"
     with log.open("rb") as stream:
         stream.seek(max(0, log.stat().st_size - 32768))

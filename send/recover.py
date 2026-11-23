@@ -23,6 +23,8 @@ def main(args):
     probe = Path(__file__).with_name("recover_host.py").read_bytes()
     result = subprocess.run(command, input=probe, capture_output=True, timeout=100)
     Path("send-recover.log").write_bytes(result.stdout + b"\nSTDERR\n" + result.stderr)
+    if result.returncode:
+        sys.stderr.buffer.write(result.stderr[-6000:])
     assert result.returncode == 0, "remote_probe_failed"
     assert not result.stderr, "remote_probe_stderr"
     value = json.loads(result.stdout)
