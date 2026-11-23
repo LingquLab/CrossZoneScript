@@ -70,10 +70,12 @@ checker = case / "full_validation.py"
 source = checker.read_text()
 event_pairs = "pairs = {2: 1, 11: 10, 13: 12, 21: 20, 31: 30, 41: 40}"
 allowed_events = "allowed = {1, 2, 10, 11, 12, 13, 20, 21, 30, 31, 40, 41}"
-if source.count(event_pairs) != 1 or source.count(allowed_events) != 1:
+sender_events = "{30, 31, 40, 41} for e in ids[2:-4]"
+if any(source.count(value) != 1 for value in (event_pairs, allowed_events, sender_events)):
     raise ValueError("unrecognized Full profiling checker")
 source = source.replace(event_pairs, event_pairs[:-1] + ", 51: 50, 53: 52}")
 source = source.replace(allowed_events, allowed_events[:-1] + ", 50, 51, 52, 53}")
+source = source.replace(sender_events, "{30, 31, 40, 41, 50, 51, 52, 53} for e in ids[2:-4]")
 compile(source, str(checker), "exec")
 checker.write_text(source)
 
