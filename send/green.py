@@ -18,7 +18,7 @@ WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 def main(args):
     assert args["ssh_target"] == "root@141.61.94.26"
-    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "simd-probes", "simd-result", "store-controls", "store-result", "padding-probes", "padding-result", "vf-inspect", "vf-inspection-result", "vf-ir", "vf-ir-result", "vf-text", "vf-text-result", "vf-decode", "vf-decode-result", "vf-asm", "vf-asm-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
+    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "simd-probes", "simd-result", "store-controls", "store-result", "padding-probes", "padding-result", "vf-inspect", "vf-inspection-result", "vf-ir", "vf-ir-result", "vf-text", "vf-text-result", "vf-decode", "vf-decode-result", "vf-asm", "vf-asm-result", "vf-machine", "vf-machine-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]
@@ -62,6 +62,8 @@ def main(args):
         names, entry, budget = ("vf_decode.py", "vf_text.py", "vf_ir.py", "vf_inspect.py"), "vf_decode.py", 330
     elif args["action"] == "vf-asm":
         names, entry, budget = ("vf_asm.py", "vf_inspect.py"), "vf_asm.py", 290
+    elif args["action"] == "vf-machine":
+        names, entry, budget = ("vf_machine.py", "vf_inspect.py"), "vf_machine.py", 360
     elif args["action"] in ("compiler-inspect", "object-inspect", "call-focus", "compiler-result"):
         names, entry, budget = ("compiler_inspect.py",), "compiler_inspect.py", 210
     else:
