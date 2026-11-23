@@ -18,7 +18,7 @@ WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 def main(args):
     assert args["ssh_target"] == "root@141.61.94.26"
-    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "trial-result", "outline", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
+    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]

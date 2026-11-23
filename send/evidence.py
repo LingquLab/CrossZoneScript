@@ -2,9 +2,45 @@
 """Read retained combine HT evidence without starting or changing an SST run."""
 import json
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
+
+
+def gather_contract(work):
+    path = work / "mte-interleave-1/compiler-evidence-1/input.ii"
+    text = path.read_text(errors="replace")
+    definitions, snippets = [], []
+    names = set()
+    for match in re.finditer(r"\b(DataCopyGather[A-Za-z0-9_]*)\s*\(", text):
+        name = match[1]
+        brace = text.find("{", match.end())
+        semicolon = text.find(";", match.end())
+        if name in names or brace < 0 or brace - match.end() > 1600 or (semicolon >= 0 and semicolon < brace):
+            continue
+        depth, end = 1, brace + 1
+        while end < len(text) and depth and end - brace < 20000:
+            depth += (text[end] == "{") - (text[end] == "}")
+            end += 1
+        if depth:
+            continue
+        names.add(name)
+        start = text.rfind("\n", 0, match.start()) + 1
+        signature = " ".join(text[start:brace].split())
+        body = text[brace + 1:end - 1]
+        directives = list(re.finditer(r'(?m)^#\s+[0-9]+\s+"([^"\n]+)"', text[:match.start()]))
+        source = directives[-1][1] if directives else "unknown"
+        callees = sorted(set(re.findall(r"\b([A-Za-z_]\w*)\s*(?:<[^;\n]{1,200}>)?\s*\(", body)))
+        definitions.append({"name": name, "source": source, "callees": callees[:14]})
+        if len(definitions) <= 2:
+            snippets.append(signature[:420])
+            lines = [line.strip() for line in body.splitlines() if re.search(r"gather|<<|ShiftLeft", line, re.I)]
+            snippets.extend(line[:260] for line in lines[:2])
+        if len(definitions) == 4:
+            break
+    return {"preprocess_bytes": path.stat().st_size, "definition_count": len(definitions),
+            "definitions": definitions, "source_snippets": snippets[:8]}
 
 
 def summary(value):
@@ -27,6 +63,9 @@ def summary(value):
 
 def main(args):
     assert socket.gethostname().split(".")[0] == args["hostname"]
+    if args["action"] == "gather-contract":
+        print(json.dumps(gather_contract(Path(__file__).resolve().parent), separators=(",", ":")))
+        return
     if args["action"] == "boundary-result":
         print(json.dumps(json.loads((Path(__file__).resolve().parent / "boundary-result.json").read_text()), separators=(",", ":")))
         return
