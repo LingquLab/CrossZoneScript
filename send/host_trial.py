@@ -55,7 +55,7 @@ def main(args):
     assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe")
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave")
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -77,38 +77,43 @@ def main(args):
 
 
 def probe_boundaries(args):
-    path = WORK / ("boundary-result-" + str(args["attempt"]) + ".json")
+    operation_probes = args["action"] == "simd-probes"
+    prefix = "simd" if operation_probes else "boundary"
+    path = WORK / (prefix + "-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "boundary_probe_already_attempted"
-    latest = WORK / "boundary-result.json"
+    latest = WORK / (prefix + "-result.json")
     if latest.is_file():
         previous = json.loads(latest.read_text())
         if previous.get("results"):
             first = Path(previous["results"][0]["report"]).name.rsplit("-", 1)[1]
-            retained = WORK / ("boundary-result-" + first + ".json")
+            retained = WORK / (prefix + "-result-" + first + ".json")
             if not retained.is_file():
                 shutil.copyfile(latest, retained)
     out = {"ok": False, "diagnostic_only": True, "results": []}
-    for offset, boundary in enumerate(("before_builder", "before_sq_publish")):
-        child = {**args, "action": "mte-trial", "attempt": args["attempt"] + offset,
+    steps = (("scalar_simd_gather", "before_sq_publish"), ("scalar_simd_interleave", "before_sq_publish")) if operation_probes else (
+        (args["builder"], "before_builder"), (args["builder"], "before_sq_publish"))
+    for offset, (builder, boundary) in enumerate(steps):
+        child = {**args, "action": "mte-trial", "builder": builder, "attempt": args["attempt"] + offset,
                  "capture": True, "force_inline": False, "stop_boundary": boundary}
         try:
             with (WORK / "boundary-host.log").open("a") as log, redirect_stdout(log):
                 main(child)
         except Exception as error:
-            out["host_error"] = type(error).__name__
+            out.setdefault("host_errors", []).append({"builder": builder, "error": type(error).__name__})
         current = WORK / "trial-result.json"
         expected = "/work/mte-" + child["builder"] + "-" + str(child["attempt"])
         if current.is_file() and json.loads(current.read_text()).get("report") == expected:
             result = json.loads(current.read_text())
             out["results"].append(result)
-            if not result["ok"] or "host_error" in out:
-                break
         else:
             out["missing_report"] = boundary
             break
         path.write_text(json.dumps(out, indent=2))
         latest.write_text(json.dumps(out, indent=2))
-    out["ok"] = len(out["results"]) == 2 and all(result["ok"] for result in out["results"]) and "host_error" not in out
+        if not result["ok"]:
+            if not operation_probes or result.get("returncode") not in (0, 255):
+                break
+    out["ok"] = len(out["results"]) == 2 and all(result["ok"] for result in out["results"]) and not out.get("host_errors")
     path.write_text(json.dumps(out, indent=2))
     latest.write_text(json.dumps(out, indent=2))
     print(json.dumps(out, separators=(",", ":")))
@@ -118,7 +123,7 @@ def probe_boundaries(args):
 if __name__ == "__main__":
     try:
         args = json.loads(sys.argv[1])
-        if args["action"] == "boundary-probe":
+        if args["action"] in ("boundary-probe", "simd-probes"):
             sys.exit(0 if probe_boundaries(args) else 1)
         main(args)
     except Exception as e:

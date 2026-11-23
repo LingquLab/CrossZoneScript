@@ -66,8 +66,8 @@ def main(args):
     if args["action"] == "gather-contract":
         print(json.dumps(gather_contract(Path(__file__).resolve().parent), separators=(",", ":")))
         return
-    if args["action"] == "boundary-result":
-        print(json.dumps(json.loads((Path(__file__).resolve().parent / "boundary-result.json").read_text()), separators=(",", ":")))
+    if args["action"] in ("boundary-result", "simd-result"):
+        print(json.dumps(json.loads((Path(__file__).resolve().parent / (args["action"] + ".json")).read_text()), separators=(",", ":")))
         return
     if args["action"] in ("trial-result", "outline"):
         work = Path(__file__).resolve().parent
