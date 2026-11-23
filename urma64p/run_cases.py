@@ -18,6 +18,7 @@ size = args["size"]
 timeout = args["timeout"]
 deadline = args["deadline"]
 schedules = args["schedules"]
+auto_clock = args.get("auto_clock", False)
 if not re.fullmatch(r"/opt/urma64p-full\.[A-Za-z0-9]{6}", build):
     parser.error("invalid build directory")
 if kind not in ("functional", "performance"):
@@ -28,15 +29,24 @@ if not 1 <= len(schedules) <= 3 or any(s not in ("syncall", "clock", "nosync") f
     parser.error("invalid schedules")
 if not 30 <= timeout <= 21600 or not 0 <= deadline < (1 << 63):
     parser.error("invalid timeout or clock deadline")
-if "clock" in schedules and deadline == 0:
+if "clock" in schedules and deadline == 0 and not auto_clock:
     parser.error("clock deadline required")
 if kind == "functional" and size != "512kib-per-rank":
     parser.error("only the 512 KiB/rank functional reference is retained for 64P")
 
 directory = Path(__file__).resolve().parent
 if "run_dir" in args:
-    subprocess.run([sys.executable, str(directory / "recheck_saved.py"),
-                    "--args-file", str(args_file)], check=True)
+    result = subprocess.run([sys.executable, str(directory / "recheck_saved.py"),
+                             "--args-file", str(args_file)], capture_output=True)
+    for line in result.stdout.splitlines():
+        evidence = json.loads(line)
+        print(json.dumps(evidence), flush=True)
+        if auto_clock and evidence.get("schedule") == "syncall" and "timing" in evidence:
+            # Bootstrap with a small margin. The clock case independently checks separation.
+            args["deadline"] = evidence["timing"]["last_same_end"] + 4096
+    result.check_returncode()
+if auto_clock and "clock" in schedules and args["deadline"] == 0 and "syncall" not in schedules:
+    parser.error("automatic deadline requires verified SyncAll timing")
 ssh = [
     "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
     "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",

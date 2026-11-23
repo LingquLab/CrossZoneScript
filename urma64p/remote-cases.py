@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 import time
+from collections import Counter, defaultdict
 from pathlib import Path
 
 build = Path(args["build"])
@@ -60,6 +61,30 @@ def safe_error(log):
     return None
 
 
+def group_timing(case, schedule, deadline):
+    rows = [json.loads(line) for line in (case / "two_group_events.jsonl").read_text().splitlines()]
+    assert len(rows) == 64 * 31, len(rows)
+    ranks = defaultdict(lambda: defaultdict(list))
+    counts = Counter()
+    for index, (lane, markers) in enumerate(rows):
+        rank, expected_lane = divmod(index, 31)
+        assert lane == expected_lane
+        for cycle, event in markers:
+            ranks[rank][event].append(cycle)
+            counts[event] += 1
+    expected = [960, 960, 512, 512] if contract["bytes_per_peer"] <= 8192 else [1472, 1472, 1024, 1024]
+    assert [counts[n] for n in (50, 51, 52, 53)] == expected, counts
+    end0 = max(max(events[51]) for events in ranks.values())
+    first1 = min(min(events[52]) for events in ranks.values())
+    last1 = max(max(events[52]) for events in ranks.values())
+    local_gap = min(min(events[52]) - max(events[51]) for events in ranks.values())
+    passed = ((schedule != "syncall" or local_gap >= 0) and
+              (schedule != "clock" or first1 >= max(end0, deadline)))
+    return dict(last_same_end=end0, first_cross_start=first1, last_cross_start=last1,
+                global_gap_cycles=first1-end0, min_rank_gap_cycles=local_gap,
+                cross_start_spread_cycles=last1-first1, passed=passed)
+
+
 started = command([
     "docker", "run", "--rm", "-d", "--name", name,
     "--runtime", "ascend", "--ipc", "shareable", "--shm-size", "64m",
@@ -72,12 +97,13 @@ if started:
     raise SystemExit(1)
 
 failed = False
+deadline = args["deadline"]
 try:
     for schedule in args["schedules"]:
         case_path = f"/run-cases/{schedule}"
         record = dict(
             contract=contract, schedule=schedule, kind=kind, case=case_path,
-            deadline=args["deadline"] if schedule == "clock" else 0,
+            deadline=deadline if schedule == "clock" else 0,
             kernel=f"/candidate/{schedule}/{kind}/{contract['entry']}.o",
             kernel_sha256=items["objects"][f"{schedule}/{kind}/{contract['entry']}.o"],
             revision=items["revision"], generator=generator,
@@ -115,9 +141,24 @@ try:
                 }[unit.lower()]
         if status:
             result["error"] = safe_error(run / simulator_log)
+        else:
+            try:
+                assert result["run_status"] == "simulation_outputs_verified"
+                assert "simulated_us" in result
+                result["timing"] = group_timing(case, schedule, record["deadline"])
+                if not result["timing"]["passed"]:
+                    status = 1
+                if args.get("auto_clock") and schedule == "syncall" and status == 0:
+                    deadline = result["timing"]["last_same_end"] + 4096
+            except (AssertionError, KeyError, OSError, ValueError) as exc:
+                status = 1
+                result["error"] = f"{type(exc).__name__}: {exc}"
+        result["exit"] = status
         (case / "candidate-result.json").write_text(json.dumps(result) + "\n")
         print(json.dumps(result), flush=True)
         failed |= status != 0
+        if status and schedule == "syncall" and args.get("auto_clock"):
+            break
 finally:
     cleanup = command(["docker", "stop", "-t", "10", name], "cleanup.log", 35)
     print(json.dumps({"stage":"cleanup","exit":cleanup,"run_dir":str(run)}), flush=True)

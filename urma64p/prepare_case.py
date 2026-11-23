@@ -77,6 +77,13 @@ if any(source.count(value) != 1 for value in (event_pairs, allowed_events, sende
 source = source.replace(event_pairs, event_pairs[:-1] + ", 51: 50, 53: 52}")
 source = source.replace(allowed_events, allowed_events[:-1] + ", 50, 51, 52, 53}")
 source = source.replace(sender_events, "{30, 31, 40, 41, 50, 51, 52, 53} for e in ids[2:-4]")
+collector_anchor = "            for event in ids:"
+if source.count(collector_anchor) != 1:
+    raise ValueError("unrecognized Full profiling event loop")
+source = source.replace(collector_anchor, """            with (case / "two_group_events.jsonl").open("a") as stream:
+                stream.write(__import__("json").dumps([lane, [(cycle, event) for cycle, event in events
+                             if event in (50, 51, 52, 53)]]) + chr(10))
+            for event in ids:""")
 compile(source, str(checker), "exec")
 checker.write_text(source)
 

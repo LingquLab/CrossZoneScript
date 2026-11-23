@@ -71,9 +71,12 @@ for schedule in os.environ["URMA_SAVED_MODES"].split(","):
             case_tools = importlib.import_module("case_tools")
             scenario = case_tools.preflight(case)
             report = case_tools.check_outputs(case, scenario, case / "bin")
-        assert report["status"] == "full_outputs_verified"
+        expected = original_report.get("validation", {}).get("status", "full_outputs_verified")
+        assert report["status"] == expected
         assert lane_count[0] == 1984 and len(timing) == 64, (lane_count[0], len(timing))
-        assert [counts[n] for n in (50, 51, 52, 53)] == [960, 960, 512, 512], counts
+        repeat_group_counts = ([960, 960, 512, 512] if scenario["elements_per_peer"] <= 2048
+                               else [1472, 1472, 1024, 1024])
+        assert [counts[n] for n in (50, 51, 52, 53)] == repeat_group_counts, counts
         end0 = max(max(events[51]) for events in timing.values())
         start1 = min(min(events[52]) for events in timing.values())
         end_start1 = max(max(events[52]) for events in timing.values())
