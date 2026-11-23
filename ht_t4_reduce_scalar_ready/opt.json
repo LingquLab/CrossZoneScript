@@ -1,0 +1,8 @@
+{
+  "commit": "3146de5181b2ba4bfd4d9a6161d74f5bab53a862",
+  "case_name": "ht-t4-reduce-scalar-ready-a1999862",
+  "object": "tilexr_ep_ht_final_reduce_sst_kernel.o",
+  "object_sha256": "a19998620ab7f55b26963d79774f7b554827b795f619e19267d3dde11e526e73",
+  "archive_sha256": "5624e53f51ab85d20e5df73b1931e517dc239d3b1b8b713ed1015f3e4e34d9d2",
+  "diagnostic_change": "scalar ReadyBits, candidate FP32 banks retained"
+}
