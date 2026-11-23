@@ -42,8 +42,16 @@ def main(args):
     assert info["HostConfig"]["Runtime"] == "runc"
     assert any(m["Source"] == str(prior) and m["Destination"] == "/baseline" and not m["RW"] for m in info["Mounts"])
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
-    folder = "mte-original-simd-" + str(args["attempt"])
+    builder = args.get("builder", "original")
+    assert builder in ("original", "interleave")
+    folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
+    old_result = WORK / "trial-result.json"
+    if old_result.exists():
+        record = json.loads(old_result.read_text())
+        retained = WORK / Path(record["report"]).relative_to("/work") / "trial-result.json"
+        if not retained.exists():
+            shutil.copyfile(old_result, retained)
     config = WORK / "perf-environment.json"
     if config.exists():
         assert config.read_bytes() == (prior / config.name).read_bytes()

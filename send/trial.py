@@ -22,7 +22,7 @@ def state_loads(text, scratch):
     return re.subn(pattern, r"TileXR::SimulatorLoad(\1, " + scratch + ")", text)
 
 
-def patch(folder, baseline=Path("/baseline")):
+def patch(folder, baseline=Path("/baseline"), builder="original"):
     original = baseline / "candidate/src/moonep/combine_ht/kernels"
     header = (original / "combine_ht_kernel.h").read_text()
     api = (baseline / "candidate/include/tilexr/comm/udma/device/api.h").read_text()
@@ -67,6 +67,13 @@ def patch(folder, baseline=Path("/baseline")):
     assert after.count("writer, detailed};") == 1
     after = after.replace("writer, detailed};", "writer, detailed, queueRead, queueWrite};")
     header = before + after
+    if builder == "interleave":
+        begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
+        end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
+        header = header[:begin] + '#include "simd_wqe_interleave.h"\n' + header[end:]
+        shutil.copyfile(WORK / "simd_wqe_interleave.h", folder / "simd_wqe_interleave.h")
+    else:
+        assert builder == "original"
     assert "TileXR::UDMARingDoorbell(head, sq);" in header
     assert "TileXR::UDMAPublishWqe(wqes, sq, head, count);" in header
     assert "ld_dev(" not in header
@@ -76,10 +83,11 @@ def patch(folder, baseline=Path("/baseline")):
 
 
 def main(args):
-    folder = WORK / ("mte-original-simd-" + str(args["attempt"]))
+    builder = args.get("builder", "original")
+    folder = WORK / ("mte-" + builder + "-" + str(args["attempt"]))
     folder.mkdir()
     result = {"ok": False, "baseline_commit": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
-              "variant": "mte_queue_state_original_simd", "source_ranks": 64,
+              "variant": "mte_queue_state_" + builder + "_simd", "source_ranks": 64,
               "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder)}
     try:
         baseline = Path("/baseline")
@@ -88,7 +96,7 @@ def main(args):
         revisions = json.loads((baseline / "revisions.json").read_text())
         assert revisions["candidate"] == result["baseline_commit"]
         result["baseline_object_sha256"] = sst.checksum(sst.KERNEL)
-        result["changes"] = patch(folder)
+        result["changes"] = patch(folder, builder=builder)
         binary = folder / "send.o"
         with (folder / "build.log").open("wb") as log:
             sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
@@ -107,6 +115,7 @@ def main(args):
         result.update(ok=True, send_verified=True, verified_ranks=len(state))
     except Exception as e:
         result.update(error=type(e).__name__, failure=str(e)[:300])
+    sst.write_json(folder / "trial-result.json", result)
     sst.write_json(WORK / "trial-result.json", result)
     print(json.dumps({k: v for k, v in result.items() if k != "stages"}, separators=(",", ":")))
     return 0 if result["ok"] else 1
