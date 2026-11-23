@@ -48,9 +48,16 @@ def main(args):
                 lines = f.read().decode(errors="replace").splitlines()
             out["sim_errors"] = [s[max(0, s.lower().find("fatal:")):][:450] for s in lines
                                  if any(x in s.lower() for x in ("fatal:", "malloc", "corrupt", "assertion"))][:2]
-        for k in ("diagnostic_only", "wqe_verified", "checked_wqes", "mismatch_count", "first_mismatch", "status_words"):
+        for k in ("diagnostic_only", "wqe_verified", "checked_wqes", "mismatch_count", "first_mismatch", "status_words", "returncode", "wall_s"):
             if k in value:
                 out[k] = value[k]
+        capture_log = folder / "capture/sim.log"
+        if capture_log.exists():
+            with capture_log.open("rb") as f:
+                f.seek(max(0, capture_log.stat().st_size - 20000))
+                lines = f.read().decode(errors="replace").splitlines()
+            out["capture_errors"] = [s[max(0, s.lower().find("fatal:")):][:450] for s in lines
+                                     if any(x in s.lower() for x in ("fatal:", "malloc", "corrupt", "assertion"))][:2]
         print(json.dumps(out, separators=(",", ":")))
         return
     root = Path(args["prior"])
