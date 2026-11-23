@@ -1,0 +1,7 @@
+{
+  "commit": "b13556eb4f84afc103ba993f4e9151dc104d2b95",
+  "case_name": "ht-t32-reduce-bf16-40e4b6cf",
+  "object": "tilexr_ep_ht_final_reduce_kernel.o",
+  "object_sha256": "40e4b6cf0c48c726a8c6cc4424758bd61356d7ad0575c03201c67218000099ea",
+  "archive_sha256": "a0b73cb56ba4abafe659e4317072ba878c3327db7863a24319025a50e965f50f"
+}
