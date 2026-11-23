@@ -51,7 +51,8 @@ def summarize_ir(text):
                                                 if re.search(r"vf|simd|vdup|vst|stack", value, re.I)][:4]}
         records.append((record, header[:550]))
     selected = sorted(records, key=lambda pair: ("vector" not in pair[0]["name"],
-                                                 "ProbeOperation" not in pair[0]["name"]))[:2]
+                                                 "ProbeOperation" not in pair[0]["name"],
+                                                 "BuildPutWqesILb0" not in pair[0]["name"]))[:2]
     functions = [record for record, _ in selected]
     snippets = [header for _, header in selected]
     triple = re.search(r'(?m)^target triple = "([^"\n]+)"', text)
