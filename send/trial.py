@@ -1,8 +1,9 @@
 # Copyright (c) 2026 TileXR Project.
-"""Build one MTE queue-state variant and validate the existing 8P BS4 Send fixture.
+"""Build an MTE queue-state variant and validate the existing 8P BS4 Send fixture.
 
 The baseline tree is mounted read-only. This script writes generated source,
-objects and reports only under /work, leaving the original WQE builder intact.
+objects and reports only under /work. The selected builder either retains the
+original Scatter path or uses the separately recorded contiguous SIMD stores.
 """
 import hashlib
 import json
