@@ -65,6 +65,9 @@ def main():
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         parser.error("invalid candidate revision")
     parallel = args.get("parallel", False)
+    direct_case = args.get("direct_case")
+    if direct_case and parallel:
+        parser.error("direct case and saved stripe control recovery cannot be combined")
     prior = previous_build(revision) if parallel else None
     scripts = Path(__file__).resolve().parent
     with tempfile.TemporaryDirectory(prefix="urma64p-stripe-control-") as temp:
@@ -84,11 +87,11 @@ def main():
                 print(json.dumps(row), flush=True)
             if build.returncode or not directory:
                 raise SystemExit(1)
-        if not parallel:
+        if not parallel and not direct_case:
             wait_for_recovery()
+        case = direct_case or dict(size="4mib-per-rank", timeout=3600, deadline=0, schedules=["syncall"])
         config.write_text(json.dumps(dict(
-            build=directory, expected_revision=revision, kind="performance",
-            size="4mib-per-rank", timeout=3600, deadline=0, schedules=["syncall"],
+            case, build=directory, expected_revision=revision, kind="performance",
         )), encoding="utf-8")
         raise SystemExit(subprocess.run([sys.executable, str(scripts / "run_cases.py"),
                                          "--args-file", str(config)]).returncode)
