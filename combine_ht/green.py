@@ -22,7 +22,7 @@ INPUTS = (
 
 def main(args):
     stage = args["stage"]
-    if stage not in ("setup", "refresh", "status", "run", "batch-report", "send-fault", "debug-fault", "inspect-fault", "wiring-focus", "port-focus", "graph-focus", "native-link", "link-context", "stop"):
+    if stage not in ("setup", "refresh", "status", "run", "batch-report", "send-fault", "debug-fault", "inspect-fault", "wiring-focus", "port-focus", "graph-focus", "native-link", "link-context", "watch-link", "stop"):
         raise ValueError("unknown stage")
     if not re.fullmatch(r"root@[0-9.]+", args["ssh_target"]) or not re.fullmatch(r"host-[0-9-]+", args["hostname"]):
         raise ValueError("invalid simulator target")
@@ -74,7 +74,7 @@ def main(args):
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
 
-        if stage in ("send-fault", "debug-fault", "inspect-fault", "wiring-focus", "port-focus", "graph-focus", "native-link", "link-context"):
+        if stage in ("send-fault", "debug-fault", "inspect-fault", "wiring-focus", "port-focus", "graph-focus", "native-link", "link-context", "watch-link"):
             container = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
             identity = remote(["docker", "inspect", "--format", "{{.Id}} {{.State.Running}}", container], 30)
             if identity.decode().strip() != args["container_id"] + " true":
@@ -107,8 +107,8 @@ def main(args):
                 processes = remote(["docker", "top", container, "-eo", "pid,comm,stat"], 30).decode().splitlines()[1:]
                 if any(row.split()[1] in ("sst", "sstsim.x", "sst_trace") and not row.split()[2].startswith("Z") for row in processes):
                     raise RuntimeError("a diagnostic SST process is already active")
-            entry = {"send-fault": "send_fault.py", "debug-fault": "debug_fault.py", "inspect-fault": "inspect_fault.py", "wiring-focus": "wiring_focus.py", "port-focus": "port_focus.py", "graph-focus": "graph_focus.py", "native-link": "native_link_focus.py", "link-context": "link_context.py"}[stage]
-            dependencies = ("native_trace.c",) if stage == "send-fault" else ("graph_focus.py",) if stage == "native-link" else ()
+            entry = {"send-fault": "send_fault.py", "debug-fault": "debug_fault.py", "inspect-fault": "inspect_fault.py", "wiring-focus": "wiring_focus.py", "port-focus": "port_focus.py", "graph-focus": "graph_focus.py", "native-link": "native_link_focus.py", "link-context": "link_context.py", "watch-link": "watch_link.py"}[stage]
+            dependencies = {"send-fault": ("native_trace.c",), "native-link": ("graph_focus.py",), "watch-link": ("link_watch.cpp",)}.get(stage, ())
             for name in (entry, *dependencies):
                 upload(Path(__file__).with_name(name))
             output = remote(["timeout", "--kill-after=25", "510", "docker", "exec", container,
