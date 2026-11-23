@@ -59,7 +59,7 @@ def object_function(root, name, expected_sha):
             stream.seek(max(0, log.stat().st_size - 32768))
             tail = stream.read().decode(errors="replace")
         start = tail.find("FATAL:")
-        window = tail[max(0, start - 500):start + 1500] if start >= 0 else ""
+        window = tail[start:].split("\n", 1)[0] if start >= 0 else ""
         for key in ("pc", "link", "lr", "addr"):
             match = re.search(r"\b" + key + r"\s*[:=]\s*(0x[0-9a-fA-F]+|[0-9]+)", window, re.I)
             if match:
