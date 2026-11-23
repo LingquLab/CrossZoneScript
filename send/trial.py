@@ -75,8 +75,8 @@ def patch(folder, baseline=Path("/baseline")):
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4}
 
 
-def main():
-    folder = WORK / "mte-original-simd"
+def main(args):
+    folder = WORK / ("mte-original-simd-" + str(args["attempt"]))
     folder.mkdir()
     result = {"ok": False, "baseline_commit": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
               "variant": "mte_queue_state_original_simd", "source_ranks": 64,
@@ -113,4 +113,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(json.loads(sys.argv[1])))

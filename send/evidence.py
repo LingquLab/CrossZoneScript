@@ -37,9 +37,16 @@ def main(args):
                "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure") if k in value}
         out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
                          for s in value.get("stages", [])]
-        build_log = work / "mte-original-simd/build.log"
+        folder = work / Path(value["report"]).relative_to("/work")
+        build_log = folder / "build.log"
         if build_log.exists() and not value.get("build_completed"):
             out["compile_errors"] = [s[:250] for s in build_log.read_text(errors="replace").splitlines() if "error:" in s][:2]
+        sim_log = folder / "send-only/sim.log"
+        if sim_log.exists() and not value.get("ok"):
+            with sim_log.open("rb") as f:
+                f.seek(max(0, sim_log.stat().st_size - 20000))
+                lines = f.read().decode(errors="replace").splitlines()
+            out["sim_errors"] = [s[:230] for s in lines if any(x in s.lower() for x in ("fatal:", "malloc", "corrupt", "assertion"))][:2]
         print(json.dumps(out, separators=(",", ":")))
         return
     root = Path(args["prior"])

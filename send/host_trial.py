@@ -6,6 +6,7 @@ captures and all new artifacts stay in this session's separate /work directory.
 """
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -40,8 +41,15 @@ def main(args):
     assert info["State"]["Running"] and info["HostConfig"]["NetworkMode"] == "none"
     assert info["HostConfig"]["Runtime"] == "runc"
     assert any(m["Source"] == str(prior) and m["Destination"] == "/baseline" and not m["RW"] for m in info["Mounts"])
-    assert not (WORK / "mte-original-simd").exists(), "candidate already attempted"
-    call(["docker", "exec", NAME, "python3", "/work/trial.py"], timeout=400)
+    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
+    folder = "mte-original-simd-" + str(args["attempt"])
+    assert not (WORK / folder).exists(), "candidate already attempted"
+    config = WORK / "perf-environment.json"
+    if config.exists():
+        assert config.read_bytes() == (prior / config.name).read_bytes()
+    else:
+        shutil.copyfile(prior / config.name, config)
+    call(["docker", "exec", NAME, "python3", "/work/trial.py", json.dumps(args)], timeout=400)
     print(json.dumps({"ok": True, "container_id": info["Id"], "result": str(WORK / "trial-result.json")}))
 
 
