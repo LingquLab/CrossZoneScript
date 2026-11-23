@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import socket
+import subprocess
 import sys
 
 
@@ -26,13 +27,21 @@ def summary(value):
 
 def main(args):
     assert socket.gethostname().split(".")[0] == args["hostname"]
-    if args["action"] == "trial-result":
+    if args["action"] in ("trial-result", "outline"):
         work = Path(__file__).resolve().parent
         file = work / "trial-result.json"
         if not file.exists():
             print(json.dumps({"result_exists": False}))
             return
         value = json.loads(file.read_text())
+        if args["action"] == "outline":
+            folder = work / Path(value["report"]).relative_to("/work")
+            p = subprocess.run(["readelf", "-sW", str(folder / "send.o")], capture_output=True, text=True, timeout=15)
+            assert p.returncode == 0
+            funcs = [line.split()[-1] for line in p.stdout.splitlines() if " FUNC " in line]
+            names = [name[:200] for name in funcs if any(x in name for x in ("BuildPut", "LocalUrma", "LocalPut", "Simulator", "PutAddress"))]
+            print(json.dumps({"function_count": len(funcs), "posting_functions": names[:8]}, separators=(",", ":")))
+            return
         out = {k: value[k] for k in ("ok", "variant", "build_completed", "send_verified", "verified_ranks",
                "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure") if k in value}
         out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
