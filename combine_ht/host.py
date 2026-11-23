@@ -8,8 +8,9 @@ import subprocess
 import sys
 
 WORK = Path(__file__).resolve().parent
-SESSION = WORK.name.removeprefix("tilexr-combine-ht-")
-NAME = "tilexr-combine-ht-" + SESSION[:8]
+PREFIX = "tilexr-combine-ht-"
+SESSION = WORK.name[len(PREFIX):]
+NAME = PREFIX + SESSION[:8]
 IMAGE = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
 REVISIONS = {
     "candidate": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
