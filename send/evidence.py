@@ -6,6 +6,7 @@ import re
 import socket
 import subprocess
 import sys
+from store_controls import summarize_batch
 
 
 def gather_contract(work):
@@ -63,6 +64,10 @@ def summary(value):
 
 def main(args):
     assert socket.gethostname().split(".")[0] == args["hostname"]
+    if args["action"] == "store-result":
+        value = json.loads((Path(__file__).resolve().parent / "store-result.json").read_text())
+        print(json.dumps(summarize_batch(value), separators=(",", ":")))
+        return
     if args["action"] == "gather-contract":
         print(json.dumps(gather_contract(Path(__file__).resolve().parent), separators=(",", ":")))
         return

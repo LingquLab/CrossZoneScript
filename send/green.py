@@ -12,13 +12,13 @@ import shlex
 import subprocess
 import sys
 
-SESSION = "05d1d635-d6d7-4dd3-af34-421e32bb209c"
+SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 
 def main(args):
     assert args["ssh_target"] == "root@141.61.94.26"
-    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "simd-probes", "simd-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
+    assert args["action"] in ("mte-trial", "boundary-probe", "boundary-result", "simd-probes", "simd-result", "store-controls", "store-result", "trial-result", "outline", "gather-contract", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]
@@ -34,14 +34,16 @@ def main(args):
         return r.stdout
 
     call(["mkdir", "-p", WORK])
-    if args["action"] in ("mte-trial", "boundary-probe", "simd-probes"):
-        names, entry, budget = ("host_trial.py", "trial.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "mte_state.h", "simd_wqe_interleave.h", "scalar_wqe_control.h", "minimal_simd_probe.h"), "host_trial.py", 430
+    if args["action"] in ("mte-trial", "boundary-probe", "simd-probes", "store-controls"):
+        names, entry, budget = ("host_trial.py", "trial.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "store_controls.py", "mte_state.h", "simd_wqe_interleave.h", "scalar_wqe_control.h", "minimal_simd_probe.h", "interleave_contract_host.py"), "host_trial.py", 430
         if args["action"] in ("boundary-probe", "simd-probes"):
             budget = 850
+        if args["action"] == "store-controls":
+            budget = 1260
     elif args["action"] in ("compiler-inspect", "object-inspect", "call-focus", "compiler-result"):
         names, entry, budget = ("compiler_inspect.py",), "compiler_inspect.py", 210
     else:
-        names, entry, budget = ("evidence.py",), "evidence.py", 40
+        names, entry, budget = ("evidence.py", "store_controls.py"), "evidence.py", 40
     for name in names:
         source = Path(__file__).with_name(name).read_bytes()
         call(["python3", "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",

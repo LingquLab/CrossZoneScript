@@ -11,8 +11,10 @@ import shutil
 import socket
 import subprocess
 import sys
+from store_controls import KINDS as STORE_KINDS, summarize_batch
+from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract_contract
 
-SESSION = "05d1d635-d6d7-4dd3-af34-421e32bb209c"
+SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
 IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
 WORK = Path(__file__).resolve().parent
@@ -55,7 +57,7 @@ def main(args):
     assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave")
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave", "scalar_store_post", "scalar_interleave_post", "scalar_interleave_explicit")
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -120,9 +122,58 @@ def probe_boundaries(args):
     return out["ok"]
 
 
+def run_store_controls(args):
+    assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
+    assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
+    path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
+    assert not path.exists(), "store_controls_already_attempted"
+    for offset, kind in enumerate(STORE_KINDS):
+        assert not (WORK / f"mte-scalar_{kind}-{args['attempt'] + offset}").exists()
+    out = {"ok": False, "diagnostic_only": True, "results": []}
+    source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
+    assert 0 < source.stat().st_size < 16000000
+    functions, snippets = extract_contract(source.read_text())
+    assert functions and "vsts" in functions[0]["callees"], "post_update_contract_missing"
+    out["contract"] = {"functions": functions[:2], "source_snippets": snippets}
+    for offset, kind in enumerate(STORE_KINDS):
+        child = {**args, "action": "mte-trial", "builder": "scalar_" + kind,
+                 "attempt": args["attempt"] + offset, "capture": True,
+                 "force_inline": False, "stop_boundary": "before_sq_publish"}
+        expected = f"/work/mte-{child['builder']}-{child['attempt']}"
+        try:
+            with (WORK / "store-host.log").open("a") as log, redirect_stdout(log):
+                main(child)
+        except Exception as error:
+            out.setdefault("host_errors", []).append({"builder": child["builder"], "error": type(error).__name__})
+        report = WORK / Path(expected).relative_to("/work") / "trial-result.json"
+        if not report.is_file():
+            break
+        result = json.loads(report.read_text())
+        assert result["report"] == expected
+        if not result.get("build_completed"):
+            build_log = report.parent / "build.log"
+            if build_log.is_file():
+                result["compile_errors"] = [line[:220] for line in build_log.read_text(errors="replace").splitlines()
+                                            if "error:" in line][:2]
+        out["results"].append(result)
+        path.write_text(json.dumps(out, indent=2))
+        (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
+        # Continue only after an observed terminal simulator exit, never a timeout.
+        if not result["ok"] and result.get("returncode") not in (0, 255):
+            break
+    out["ok"] = (len(out["results"]) == len(STORE_KINDS) and all(row["ok"] for row in out["results"])
+                 and not out.get("host_errors"))
+    path.write_text(json.dumps(out, indent=2))
+    (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
+    print(json.dumps(summarize_batch(out), separators=(",", ":")))
+    return out["ok"]
+
+
 if __name__ == "__main__":
     try:
         args = json.loads(sys.argv[1])
+        if args["action"] == "store-controls":
+            sys.exit(0 if run_store_controls(args) else 1)
         if args["action"] in ("boundary-probe", "simd-probes"):
             sys.exit(0 if probe_boundaries(args) else 1)
         main(args)

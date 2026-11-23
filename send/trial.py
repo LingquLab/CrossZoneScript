@@ -18,6 +18,9 @@ import time
 from packed_builder import transform as pack_builder
 from backward_alignment import repack as repack_backward, write_common_header
 from simd_probe_variants import install as install_simd_probe
+from store_controls import KINDS as STORE_KINDS, decode as decode_store_status
+
+STORE_BUILDERS = tuple("scalar_" + kind for kind in STORE_KINDS)
 
 sys.path.insert(0, "/baseline")
 import sst
@@ -76,7 +79,7 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert after.count("writer, detailed};") == 1
     after = after.replace("writer, detailed};", "writer, detailed, queueRead, queueWrite};")
     header = before + after
-    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave"):
+    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS:
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
         builder_name = "scalar_wqe_control.h" if builder.startswith("scalar_") else "simd_wqe_interleave.h"
@@ -90,8 +93,9 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
             assert builder_text.count(marker) == 1
             builder_text = builder_text.replace(marker, "__attribute__((always_inline)) inline __aicore__ void BuildPutWqes(")
         (folder / builder_name).write_text(builder_text)
-        if builder in ("scalar_simd_gather", "scalar_simd_interleave"):
-            kind = "gather" if builder == "scalar_simd_gather" else "interleave"
+        if builder in ("scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS:
+            kind = builder[len("scalar_"):] if builder in STORE_BUILDERS else (
+                "gather" if builder == "scalar_simd_gather" else "interleave")
             header, source = install_simd_probe(header, (WORK / "simd_wqe_interleave.h").read_text(), kind)
             (folder / "simd_operation_probe.h").write_text(source)
         if builder == "scalar_simd_probe":
@@ -155,7 +159,7 @@ def stop_at_boundary(header, boundary):
     return header[:begin] + body.replace(marker, replacement) + header[end:]
 
 
-def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False, backward_record_bytes=24):
+def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False, backward_record_bytes=24, probe_kind=None):
     run = folder / "capture"
     workload = sst.create_workload(run, specs, prepared, 1)
     for rank, spec in enumerate(specs):
@@ -183,6 +187,8 @@ def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False
                checked_status_words=0, nonzero_status_words=0, status_mismatch_count=0, untouched_snapshots=0,
                status_guard_failures=0,
                status_encoding="rank_core_marker" if mte_status else "plain_status")
+    if probe_kind:
+        out.update(probe_kind=probe_kind, probe_mismatch_count=0, probe_first_mismatches=[])
     if p.returncode:
         file = run / "sim.log"
         with file.open("rb") as log:
@@ -201,6 +207,13 @@ def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False
         status = chip["output_param"]["status"]
         values = sst.read_output(run, rank, "status", status["addr"], status["size"])
         status_words = struct.unpack_from("<8I", values)
+        if probe_kind:
+            for core, status in enumerate(status_words):
+                decoded = decode_store_status(status, probe_kind)
+                if decoded:
+                    out["probe_mismatch_count"] += 1
+                    if len(out["probe_first_mismatches"]) < 3:
+                        out["probe_first_mismatches"].append(dict(rank=rank, core=core, **decoded))
         out["checked_status_words"] += len(status_words)
         out["nonzero_status_words"] += sum(value != 0 for value in status_words)
         expected_status = tuple((0xa5000000 | (rank << 8) | core) if mte_status else 0 for core in range(8))
@@ -293,7 +306,8 @@ def main(args):
         assert result["send_rows"] == 260
         sst.KERNEL = binary
         if args.get("capture"):
-            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"], result["backward_record_bytes"]))
+            probe_kind = builder[len("scalar_"):] if builder in STORE_BUILDERS else None
+            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"], result["backward_record_bytes"], probe_kind))
             result["ok"] = result.get("boundary_verified", result["wqe_verified"])
             return save(folder, result)
         stages = []

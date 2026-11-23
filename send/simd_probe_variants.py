@@ -5,6 +5,7 @@ Gather uses the completed 64B queue-read scratch. The transpose control writes
 4096 bytes within the 8192B WQE allocation, checks the first/last rows, then lets
 the passing scalar builder construct all descriptors consumed by the snapshot.
 """
+from store_controls import KINDS, generate
 
 GATHER_SOURCE = """constexpr uint32_t kOperationProbeValue = 0x13579bdfU;
 __aicore__ inline void ProbeOperation(__ubuf__ uint32_t *output)
@@ -24,7 +25,7 @@ __aicore__ inline void ProbeOperation(__ubuf__ uint32_t *output)
 
 
 def install(header, interleave_source, kind):
-    assert kind in ("gather", "interleave")
+    assert kind in ("gather", "interleave") + KINDS
     if kind == "gather":
         source = GATHER_SOURCE
         setup = """        if ((stateRead.GetPhyAddr() & 31U) != 0U) return 0xd0ffU;
@@ -36,6 +37,8 @@ def install(header, interleave_source, kind):
             if (stateRead.GetValue(word) != kOperationProbeValue) return 0xd000U + word;
         }
 """
+    elif kind in KINDS:
+        source, setup = generate(interleave_source, kind)
     else:
         begin = interleave_source.index("            Interleave(v0, v8, v0, v8);")
         end = interleave_source.index("            uint32_t remainingWords", begin)

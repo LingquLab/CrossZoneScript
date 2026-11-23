@@ -25,7 +25,7 @@ def extract(text):
     directives = list(re.finditer(r'(?m)^#\s+[0-9]+\s+"([^"\n]+)"', text))
     offsets = [match.start() for match in directives]
     functions = []
-    for match in re.finditer(r"\b(DataCopy\w*)\s*\(", text):
+    for match in re.finditer(r"\b(DataCopyImpl)\s*\(", text):
         brace = text.find("{", match.end())
         semicolon = text.find(";", match.end())
         if brace < 0 or brace - match.end() > 1600 or (semicolon >= 0 and semicolon < brace):
@@ -53,7 +53,7 @@ def extract(text):
         functions.append({"name": match[1], "source": source, "signature": signature,
                           "callees": callees[:12], "relevant": relevant})
     # Prefer the installed implementation and keep at most eight source lines.
-    selected = sorted(functions, key=lambda row: (not any("vst" in name for name in row["callees"]),
+    selected = sorted(functions, key=lambda row: ("vsts" not in row["callees"],
                                                 not re.search(r"post|stride", row["signature"], re.I),
                                                 "Impl" not in row["name"]))[:12]
     snippets, summaries = [], []
@@ -61,7 +61,7 @@ def extract(text):
         summaries.append({key: row[key] for key in ("name", "source", "callees")})
         if len(snippets) < 8:
             snippets.append(row["signature"][:650])
-        for line in row["relevant"][:3]:
+        for line in row["relevant"][:7]:
             if len(snippets) < 8:
                 snippets.append(line[:650])
     return summaries, snippets
