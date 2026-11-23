@@ -20,5 +20,7 @@
   "input_archive_sha256": "a465da233e762691c2caa4cf69e6ed8bc77aba4a07017ea9802eec8c464ab699",
   "kernel_sha256": "c4297a5184e94d69f738306752e5c63d460e57bf7f39e2ad9a2ce6be1a6a1e97",
   "runtime_root": "/work/inter-server-native/t32-combine-fp32-spread-data",
-  "commit": "b13556eb4f84afc103ba993f4e9151dc104d2b95"
+  "commit": "b13556eb4f84afc103ba993f4e9151dc104d2b95",
+  "delta_archive_sha256": "277566e3c622b49cbe6bcb0bec2bf653b7cfafb3673d192aaa0e2e6d5bd98df6",
+  "delta_manifest_sha256": "3c90ad10f9487d9788aa4d2e44a6b883201dd775af26b6ce863b0c89e347b9c5"
 }

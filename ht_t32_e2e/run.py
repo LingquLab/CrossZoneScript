@@ -25,11 +25,13 @@ elif args.get("small_t4") is True:
     fixture_name = "t4-fixture-images.tar.gz"
 elif args.get("spread_gateways") is True:
     identity_name = "t32-spread-identity.json"
-    fixture_name = "t32-spread-fixture-images.tar.gz"
+    fixture_name = "t32-spread-fixture-delta.tar.gz"
 identity = json.loads((root / identity_name).read_text())
 fixture = (root / fixture_name).read_bytes()
 object_package = (root / object_name).read_bytes()
-assert hashlib.sha256(fixture).hexdigest() == identity["input_archive_sha256"]
+delta = args.get("spread_gateways") is True
+digest_field = "delta_archive_sha256" if delta else "input_archive_sha256"
+assert hashlib.sha256(fixture).hexdigest() == identity[digest_field]
 assert hashlib.sha256(gzip.decompress(object_package)).hexdigest() == identity["kernel_sha256"]
 entry = identity["entry"]
 assert entry == "tilexr_ep_ht_combine_sst_fp32"
@@ -37,7 +39,11 @@ build = dict(entry=entry, variant="sst-mte-fused-fp32", candidate_commit=identit
              kernel_sha256=identity["kernel_sha256"], compiled_in="blue")
 request = dict(build=build, identity=identity, archive=base64.b64encode(fixture).decode(),
                object=base64.b64encode(object_package).decode(), checker=(root/"check.py").read_text(),
-               exports=(root/"exports.py").read_text(), spread_gateways=args.get("spread_gateways") is True)
+               exports=(root/"exports.py").read_text(), spread_gateways=delta)
+if delta:
+    manifest = (root / "t32-spread-delta-manifest.json").read_bytes()
+    assert hashlib.sha256(manifest).hexdigest() == identity["delta_manifest_sha256"]
+    request["delta_manifest"] = base64.b64encode(manifest).decode()
 runner = (root.parent/"inter_server/run_mte_t4_remote.py").read_text().rsplit("if __name__ == ", 1)[0]
 assert runner.count("assert tokens == 4") == 1
 runner = runner.replace("assert tokens == 4", "assert tokens in (4, 32)")

@@ -5,11 +5,42 @@ from pathlib import PurePosixPath
 import tarfile
 
 
+def install_delta_fixture(case, archive_bytes, manifest, original):
+    # Copy only the pinned setup inputs from the retained run. Outputs and logs stay isolated.
+    remaining = dict(manifest)
+    assert len(remaining) == 1795
+    with tarfile.open(fileobj=BytesIO(archive_bytes), mode="r:gz") as archive:
+        for member in archive:
+            rel = PurePosixPath(member.name)
+            assert member.isfile() and not rel.is_absolute() and ".." not in rel.parts
+            assert rel.parts[0] in {"workload.yml", "export-layout.json", "input_bin", "fixture-data"}
+            expected = remaining.pop(member.name)
+            assert expected["from_original"] is False
+            target = case / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as dest:
+                shutil.copyfileobj(archive.extractfile(member), dest)
+            assert sha(target) == expected["sha256"], member.name
+    assert len(remaining) == 1152
+    for name, expected in remaining.items():
+        rel = PurePosixPath(name)
+        assert not rel.is_absolute() and ".." not in rel.parts and rel.parts[0] == "input_bin"
+        assert expected["from_original"] is True
+        source = original / rel
+        assert source.is_file() and source.resolve().is_relative_to((original / "input_bin").resolve()), name
+        target = case / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        assert sha(target) == expected["sha256"], name
+
+
 def prepare_bulk(request, case, container_case):
     identity = request["identity"]
     build = request["build"]
     data = base64.b64decode(request["archive"], validate=True)
-    assert hashlib.sha256(data).hexdigest() == identity["input_archive_sha256"]
+    delta = request.get("delta_manifest")
+    digest_field = "delta_archive_sha256" if delta is not None else "input_archive_sha256"
+    assert hashlib.sha256(data).hexdigest() == identity[digest_field]
     assert identity["tokens"] == request["tokens"] and identity["tokens"] in (4, 32)
     assert identity["hidden"] == request["hidden"] and identity["hidden"] in (16, 256)
     template = MOUNT / "t4-sst-mte-bulk-forward-hotpath-1a2f3549"
@@ -22,17 +53,23 @@ def prepare_bulk(request, case, container_case):
     assert build["compiled_in"] == "blue"
 
     case.mkdir(exist_ok=False)
-    with tarfile.open(fileobj=BytesIO(data), mode="r:gz") as archive:
-        members = list(archive)
-        assert len(members) < 4096 and sum(member.size for member in members) < 512 * 1024 * 1024
-        for member in members:
-            rel = PurePosixPath(member.name)
-            assert member.isfile() and not rel.is_absolute() and ".." not in rel.parts
-            assert rel.parts[0] in {"workload.yml", "export-layout.json", "input_bin", "fixture-data"}
-            target = case / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with target.open("xb") as dest:
-                shutil.copyfileobj(archive.extractfile(member), dest)
+    if delta is not None:
+        assert request.get("spread_gateways") and case.name == "t32-combine-fp32-c4297a51-spread"
+        raw_manifest = base64.b64decode(delta, validate=True)
+        assert hashlib.sha256(raw_manifest).hexdigest() == identity["delta_manifest_sha256"]
+        install_delta_fixture(case, data, json.loads(raw_manifest), MOUNT / "t32-combine-fp32-c4297a51")
+    else:
+        with tarfile.open(fileobj=BytesIO(data), mode="r:gz") as archive:
+            members = list(archive)
+            assert len(members) < 4096 and sum(member.size for member in members) < 512 * 1024 * 1024
+            for member in members:
+                rel = PurePosixPath(member.name)
+                assert member.isfile() and not rel.is_absolute() and ".." not in rel.parts
+                assert rel.parts[0] in {"workload.yml", "export-layout.json", "input_bin", "fixture-data"}
+                target = case / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with target.open("xb") as dest:
+                    shutil.copyfileobj(archive.extractfile(member), dest)
     workload = case / "workload.yml"
     text = workload.read_text()
     assert identity["runtime_root"] + "/" in text
