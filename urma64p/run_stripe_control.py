@@ -43,6 +43,20 @@ def wait_for_recovery():
         raise RuntimeError("previous recovery did not release its SST container")
 
 
+def previous_build(revision):
+    base = Path.cwd() / "runs/urma64p-4mib-stripe-control/1/execution"
+    receipt = json.loads((base / "execution.json").read_text(encoding="utf-8"))
+    if receipt["status"] != "EXITED" or receipt["exit_code"] == 0:
+        raise RuntimeError("previous control did not exit with a recoverable failure")
+    rows = [json.loads(line) for line in (base / "stdout.log").read_text(encoding="utf-8").splitlines()
+            if line.startswith("{")]
+    if any(row.get("stage") == "campaign_start" for row in rows):
+        raise RuntimeError("previous control already started an SST case")
+    builds = [row for row in rows if row.get("stage") == "compile"
+              and row.get("passed") and row.get("revision") == revision]
+    return builds[-1] if builds else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
@@ -50,21 +64,28 @@ def main():
     revision = args["revision"]
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         parser.error("invalid candidate revision")
+    parallel = args.get("parallel", False)
+    prior = previous_build(revision) if parallel else None
     scripts = Path(__file__).resolve().parent
     with tempfile.TemporaryDirectory(prefix="urma64p-stripe-control-") as temp:
         config = Path(temp) / "args.json"
-        config.write_text(json.dumps({"revision": revision}), encoding="utf-8")
-        build = subprocess.run([sys.executable, str(scripts / "build.py"), "--args-file", str(config)],
-                               capture_output=True, text=True, timeout=700)
-        directory = None
-        for line in build.stdout.splitlines():
-            row = json.loads(line)
-            if row.get("stage") == "compile" and row.get("passed") and row.get("revision") == revision:
-                directory = row["run_dir"]
-            print(json.dumps(row), flush=True)
-        if build.returncode or not directory:
-            raise SystemExit(1)
-        wait_for_recovery()
+        if prior:
+            directory = prior["run_dir"]
+            print(json.dumps(dict(prior, stage="reuse_compile")), flush=True)
+        else:
+            config.write_text(json.dumps({"revision": revision}), encoding="utf-8")
+            build = subprocess.run([sys.executable, str(scripts / "build.py"), "--args-file", str(config)],
+                                   capture_output=True, text=True, timeout=700)
+            directory = None
+            for line in build.stdout.splitlines():
+                row = json.loads(line)
+                if row.get("stage") == "compile" and row.get("passed") and row.get("revision") == revision:
+                    directory = row["run_dir"]
+                print(json.dumps(row), flush=True)
+            if build.returncode or not directory:
+                raise SystemExit(1)
+        if not parallel:
+            wait_for_recovery()
         config.write_text(json.dumps(dict(
             build=directory, expected_revision=revision, kind="performance",
             size="4mib-per-rank", timeout=3600, deadline=0, schedules=["syncall"],
