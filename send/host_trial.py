@@ -47,6 +47,8 @@ def main(args):
     assert any(m["Source"] == str(WORK) and m["Destination"] == "/work" and m["RW"] for m in info["Mounts"])
     assert type(args.get("force_inline", False)) is bool
     assert type(args.get("capture", False)) is bool
+    assert type(args.get("mte_status", False)) is bool
+    assert not args.get("mte_status") or args.get("capture") is True
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")
     assert boundary == "none" or args.get("capture") is True
@@ -74,8 +76,16 @@ def main(args):
 
 
 def probe_boundaries(args):
-    path = WORK / "boundary-result.json"
+    path = WORK / ("boundary-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "boundary_probe_already_attempted"
+    latest = WORK / "boundary-result.json"
+    if latest.is_file():
+        previous = json.loads(latest.read_text())
+        if previous.get("results"):
+            first = Path(previous["results"][0]["report"]).name.rsplit("-", 1)[1]
+            retained = WORK / ("boundary-result-" + first + ".json")
+            if not retained.is_file():
+                shutil.copyfile(latest, retained)
     out = {"ok": False, "diagnostic_only": True, "results": []}
     for offset, boundary in enumerate(("before_builder", "before_sq_publish")):
         child = {**args, "action": "mte-trial", "attempt": args["attempt"] + offset,
@@ -96,8 +106,10 @@ def probe_boundaries(args):
             out["missing_report"] = boundary
             break
         path.write_text(json.dumps(out, indent=2))
+        latest.write_text(json.dumps(out, indent=2))
     out["ok"] = len(out["results"]) == 2 and all(result["ok"] for result in out["results"]) and "host_error" not in out
     path.write_text(json.dumps(out, indent=2))
+    latest.write_text(json.dumps(out, indent=2))
     print(json.dumps(out, separators=(",", ":")))
     return out["ok"]
 

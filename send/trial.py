@@ -27,7 +27,7 @@ def state_loads(text, scratch):
     return re.subn(pattern, r"TileXR::SimulatorLoad(\1, " + scratch + ")", text)
 
 
-def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False):
+def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=False, mte_status=False):
     original = baseline / "candidate/src/moonep/combine_ht/kernels"
     header = (original / "combine_ht_kernel.h").read_text()
     api = (baseline / "candidate/include/tilexr/comm/udma/device/api.h").read_text()
@@ -87,10 +87,21 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert "TileXR::UDMARingDoorbell(head, sq);" in header
     assert "TileXR::UDMAPublishWqe(wqes, sq, head, count);" in header
     assert "ld_dev(" not in header
+    if mte_status:
+        marker = "        reinterpret_cast<__gm__ uint32_t *>(args.status)[core] = LocalUrmaSend::Run(view, writer, args.profiling != nullptr);"
+        assert header.count(marker) == 1
+        replacement = """        const uint32_t sendStatus = LocalUrmaSend::Run(view, writer, args.profiling != nullptr);
+        TPipe statusPipe;
+        TBuf<QuePosition::VECCALC> statusBuffer;
+        statusPipe.InitBuffer(statusBuffer, kUbAlign);
+        auto statusUb = statusBuffer.Get<uint32_t>();
+        statusUb.SetValue(0U, sendStatus == 0U ? (0xa5000000U | (args.config.rank << 8U) | core) : sendStatus);
+        NativeStore(reinterpret_cast<__gm__ uint32_t *>(args.status) + core, statusUb, 1U);"""
+        header = header.replace(marker, replacement)
     (folder / "combine_ht_kernel.h").write_text(header)
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4,
-            "force_inline": force_inline}
+            "force_inline": force_inline, "mte_status": mte_status}
 
 
 def stop_at_boundary(header, boundary):
@@ -112,7 +123,7 @@ def stop_at_boundary(header, boundary):
     return header[:begin] + body.replace(marker, replacement) + header[end:]
 
 
-def capture(folder, specs, prepared, snapshot, boundary="none"):
+def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False):
     run = folder / "capture"
     workload = sst.create_workload(run, specs, prepared, 1)
     for rank, spec in enumerate(specs):
@@ -134,7 +145,9 @@ def capture(folder, specs, prepared, snapshot, boundary="none"):
     out = dict(diagnostic_only=True, returncode=p.returncode, wall_s=time.monotonic() - started,
                wqe_verified=False, checked_wqes=0, mismatch_count=0, first_mismatch=[], status_words=[],
                checked_wqe_fields=["source", "destination", "length"], stop_boundary=boundary,
-               checked_status_words=0, nonzero_status_words=0, untouched_snapshots=0)
+               checked_status_words=0, nonzero_status_words=0, status_mismatch_count=0, untouched_snapshots=0,
+               status_guard_failures=0,
+               status_encoding="rank_core_marker" if mte_status else "plain_status")
     if p.returncode:
         file = run / "sim.log"
         with file.open("rb") as log:
@@ -155,6 +168,9 @@ def capture(folder, specs, prepared, snapshot, boundary="none"):
         status_words = struct.unpack_from("<8I", values)
         out["checked_status_words"] += len(status_words)
         out["nonzero_status_words"] += sum(value != 0 for value in status_words)
+        expected_status = tuple((0xa5000000 | (rank << 8) | core) if mte_status else 0 for core in range(8))
+        out["status_mismatch_count"] += sum(actual != expected for actual, expected in zip(status_words, expected_status))
+        out["status_guard_failures"] += values[32:] != bytes(len(values) - 32)
         out["untouched_snapshots"] += raw == b"\xcd" * len(raw)
         if rank == 0:
             out["status_words"] = list(status_words)
@@ -186,11 +202,12 @@ def capture(folder, specs, prepared, snapshot, boundary="none"):
                         mismatches.append(dict(rank=rank, gateway=gateway, stage=stage, row=row,
                                                expected=[source, destination, length], actual=actual))
     sst.write_json(folder / "mismatches.json", mismatches)
-    out.update(wqe_verified=not mismatches and out["checked_wqes"] > 0 and out["nonzero_status_words"] == 0,
+    out.update(wqe_verified=not mismatches and out["checked_wqes"] > 0 and
+               out["status_mismatch_count"] == 0 and out["status_guard_failures"] == 0,
                mismatch_count=len(mismatches), first_mismatch=mismatches[:1])
     if boundary == "before_builder":
         out["boundary_verified"] = (out["checked_status_words"] == 64 and
-            out["nonzero_status_words"] == 0 and out["untouched_snapshots"] == 8)
+            out["status_mismatch_count"] == 0 and out["status_guard_failures"] == 0 and out["untouched_snapshots"] == 8)
     return out
 
 
@@ -201,7 +218,8 @@ def main(args):
     result = {"ok": False, "baseline_commit": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
               "variant": "mte_queue_state_" + builder + "_simd", "source_ranks": 64,
               "ranks": 8, "bs": 4, "topk": 16, "hidden": 256, "report": str(folder),
-              "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none")}
+              "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none"),
+              "mte_status": args.get("mte_status", False)}
     try:
         baseline = Path("/baseline")
         snapshot = json.loads((baseline / "environment.snapshot.json").read_text())
@@ -210,7 +228,7 @@ def main(args):
         assert revisions["candidate"] == result["baseline_commit"]
         result["baseline_object_sha256"] = sst.checksum(sst.KERNEL)
         assert result["baseline_object_sha256"] == "c95c61586a5f9e97c83eb862e83b3cfde3ac9a22dec0b6a3332c67434b7ac85e"
-        result["changes"] = patch(folder, builder=builder, force_inline=result["force_inline"])
+        result["changes"] = patch(folder, builder=builder, force_inline=result["force_inline"], mte_status=result["mte_status"])
         if args.get("capture"):
             path = folder / "combine_ht_kernel.h"
             header = path.read_text()
@@ -237,7 +255,7 @@ def main(args):
         assert result["send_rows"] == 260
         sst.KERNEL = binary
         if args.get("capture"):
-            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"]))
+            result.update(capture(folder, specs, prepared, snapshot, result["stop_boundary"], result["mte_status"]))
             result["ok"] = result.get("boundary_verified", result["wqe_verified"])
             return save(folder, result)
         stages = []

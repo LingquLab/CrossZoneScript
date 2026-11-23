@@ -48,7 +48,8 @@ def main(args):
         out = {k: value[k] for k in ("ok", "variant", "build_completed", "send_verified", "verified_ranks",
                "baseline_object_sha256", "object_sha256", "route_sha256", "send_rows", "error", "failure",
                "force_inline", "outlined_builders", "stop_boundary", "boundary_verified",
-               "checked_status_words", "nonzero_status_words", "untouched_snapshots") if k in value}
+               "checked_status_words", "nonzero_status_words", "status_mismatch_count", "status_encoding",
+               "mte_status", "untouched_snapshots") if k in value}
         out["stages"] = [{k: s[k] for k in ("returncode", "wall_s", "completed", "simulated_us", "failure") if k in s}
                          for s in value.get("stages", [])]
         folder = work / Path(value["report"]).relative_to("/work")
