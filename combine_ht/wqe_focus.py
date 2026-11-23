@@ -8,6 +8,7 @@ loops or synchronization. Host validation compares descriptors with the fixture.
 
 from contextlib import redirect_stdout
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -24,18 +25,21 @@ def main():
     snapshot = json.loads((case / "send-only/environment.snapshot.json").read_text())
     sst.verify_environment(snapshot)
     report = Path(mkdtemp(prefix="wqe-focus-", dir=case))
-    source_dir = sst.WORK / "candidate/src/moonep/combine_ht/kernels"
+    candidate = case / "gm-state-trial-gj7pvwdr"
+    assert (candidate / "gm_state_candidate.o").is_file()
+    source_dir = candidate
     header = (source_dir / "combine_ht_kernel.h").read_text()
     for old, new in (("TileXR::UDMARingDoorbell(head, sq);", "(void)sq; // Diagnostic: no transport submission."),
                      ("status = batch.Quiet();", "status = TileXR::TILEXR_UDMA_STATUS_SUCCESS; // Diagnostic: no CQ wait.")):
         assert header.count(old) == 1
         header = header.replace(old, new)
     (report / "combine_ht_kernel.h").write_text(header)
+    shutil.copyfile(candidate / "simd_wqe_interleave.h", report / "simd_wqe_interleave.h")
     source = report / "combine_ht.cpp"
     shutil.copyfile(source_dir / "combine_ht.cpp", source)
     binary = report / "wqe_capture.o"
     with (report / "build.log").open("wb") as log:
-        sst.build_kernel(snapshot["settings"], log, source=source, binary=binary, address_transform=False)
+        sst.build_kernel(snapshot["settings"], log, source=source, binary=binary, include_overrides=[candidate / "include"])
     specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
     prepared = [rank.serialize() for rank in specs]
     run = report / "capture"
@@ -65,11 +69,14 @@ def main():
             code = process.returncode
         except subprocess.TimeoutExpired:
             code = 124
-    result = dict(report=str(report), diagnostic_only=True, compiler_address_transform=False, returncode=code, wall_s=round(time.monotonic()-start, 3),
+    result = dict(report=str(report), diagnostic_only=True, wqe_builder="simd_interleave_post_increment", queue_state="plain_gm", returncode=code, wall_s=round(time.monotonic()-start, 3),
                   baseline_kernel_sha256=sst.checksum(original_binary), diagnostic_kernel_sha256=sst.checksum(binary))
     prior_logs = sorted(case.glob("scalar-address-*/compile.log"), key=lambda path: path.stat().st_mtime)
     if prior_logs:
         result["prior_assembly_errors"] = [line[:400] for line in prior_logs[-1].read_text(errors="replace").splitlines() if "error:" in line][:2]
+    prior_simlog = candidate / "send-only/sim.log"
+    prior_lines = prior_simlog.read_text(errors="replace").splitlines()
+    result["prior_abort_stack"] = [line[:600] for line in prior_lines if re.search(r"^\[[^]]+\]\s*\[\s*\d+\]", line)][:12]
     checked, mismatches = 0, []
     if code == 0:
         for rank, spec in enumerate(specs):
