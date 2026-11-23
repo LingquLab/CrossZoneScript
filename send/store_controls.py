@@ -202,7 +202,7 @@ def summarize_batch(value):
             "backward_record_bytes", "stop_boundary", "error", "failure", "fatal",
             "probe_kind", "probe_mismatch_count", "probe_first_mismatches", "compile_errors")
     keys += ("reference_compat", "changes", "object_bytes", "raw_object_bytes", "raw_object_sha256")
-    keys += ("builder_ir",)
+    keys += ("builder_ir", "vf_stack_off", "vf_stack_control")
     return {"ok": value["ok"], "diagnostic_only": True,
             "controls": value.get("controls", "full-tile"), "simulation_only": True,
             "artifacts": value.get("artifacts", []),

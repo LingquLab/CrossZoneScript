@@ -311,6 +311,7 @@ def main(args):
               "force_inline": args.get("force_inline", False), "stop_boundary": args.get("stop_boundary", "none"),
               "mte_status": args.get("mte_status", False), "backward_record_bytes": args.get("backward_record_bytes", 24),
               "reference_compat": args.get("reference_compat", False)}
+    result["vf_stack_off"] = args.get("vf_stack_off", False)
     try:
         baseline = Path("/baseline")
         snapshot = json.loads((baseline / "environment.snapshot.json").read_text())
@@ -331,7 +332,11 @@ def main(args):
             path.write_text(header)
         binary = folder / "send.o"
         with (folder / "build.log").open("wb") as log:
-            sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
+            if result["vf_stack_off"]:
+                from vf_stack_control import build as build_vf_stack_control
+                result["vf_stack_control"] = build_vf_stack_control(folder, builder, snapshot["settings"], log)
+            else:
+                sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
         if result["reference_compat"]:
             raw = binary.read_bytes()
             assert 0 < len(raw) <= 10485760
