@@ -82,7 +82,7 @@ def main(args):
             procs = remote(["docker", "top", container, "-eo", "pid,comm,stat"], 30).decode().splitlines()[1:]
             if any(line.split()[1] in ("sst", "sstsim.x") and not line.split()[2].startswith("Z") for line in procs):
                 raise RuntimeError("SST already active in the diagnostic container")
-            for name in (("send_fault.py", "sst_fault.c") if stage == "send-fault" else ("debug_fault.py",)):
+            for name in (("send_fault.py", "native_trace.c") if stage == "send-fault" else ("debug_fault.py",)):
                 upload(Path(__file__).with_name(name))
             output = remote(["timeout", "--kill-after=25", "510", "docker", "exec", container,
                              "python3", "/work/" + ("send_fault.py" if stage == "send-fault" else "debug_fault.py")], 565)

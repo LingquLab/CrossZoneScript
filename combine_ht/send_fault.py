@@ -48,19 +48,22 @@ def main():
             shutil.copytree(path, case / path.name)
         elif path.name in ("installed_model.py", "test_UBusSim.py", "workload.yml", "environment.snapshot.json"):
             shutil.copyfile(path, case / path.name)
-    library = case / "sst_fault.so"
-    source = Path(__file__).with_name("sst_fault.c")
+    library = case / "sst_trace"
+    source = Path(__file__).with_name("native_trace.c")
     compiler = shutil.which("cc") or shutil.which("gcc")
     if not compiler:
         raise RuntimeError("native compiler unavailable")
     with (case / "build.log").open("wb") as log:
-        subprocess.run([compiler, "-Wall", "-Wextra", "-O2", "-shared", "-fPIC",
-                        str(source), "-ldl", "-o", str(library)], stdout=log,
+        subprocess.run([compiler, "-Wall", "-Wextra", "-O2",
+                        str(source), "-o", str(library)], stdout=log,
                        stderr=subprocess.STDOUT, timeout=30, check=True)
+    preflight = subprocess.run([str(library), str(case / "preflight.txt"), "/bin/true"], capture_output=True, timeout=10)
+    if preflight.returncode:
+        print(json.dumps(dict(report=str(case), ptrace_preflight_exit=preflight.returncode, run_skipped=True)))
+        return
     env = snapshot["settings"]
     fault_path = case / "fault-addresses.txt"
-    cmd = sst.shell_command(env, "sst", ["env", "TILEXR_SST_FAULT_FILE=" + str(fault_path),
-                           "LD_PRELOAD=" + str(library), "/opt/sim/local/sstcore/libexec/sstsim.x", "-n", "16",
+    cmd = sst.shell_command(env, "sst", [str(library), str(fault_path), "/opt/sim/local/sstcore/libexec/sstsim.x", "-n", "16",
                            case / "test_UBusSim.py"])
     with (case / "sim.log").open("wb") as log:
         start = time.monotonic()
@@ -71,6 +74,7 @@ def main():
             returncode = 124
     result = dict(report=str(case), returncode=returncode, wall_s=round(time.monotonic() - start, 3))
     result["fault_file_bytes"] = fault_path.stat().st_size if fault_path.exists() else None
+    result["ptrace_preflight_exit"] = 0
     result["sst_launcher"] = "/opt/sim/local/sstcore/libexec/sstsim.x"
     lifecycle = Path(str(fault_path) + ".lifecycle")
     result["recorder_lifecycle"] = lifecycle.read_text().splitlines()[-12:] if lifecycle.exists() else []
