@@ -5,6 +5,7 @@ The host verifies this session's isolated container. Its container process write
 preprocessed input, assembly and bounded compiler reports in a new subdirectory.
 """
 import hashlib
+from collections import Counter
 import json
 from pathlib import Path
 import re
@@ -22,6 +23,43 @@ def command_for(command, mode, destination):
     command[command.index("-c")] = mode
     command[command.index("-o") + 1] = str(destination)
     return command
+
+
+def focus_calls(folder, report):
+    text = (folder / "object-evidence-1/disassembly-0.log").read_text(errors="replace").split("\nSTDERR\n", 1)[0]
+    functions = {}
+    current = "<unlabelled>"
+    for line in text.splitlines():
+        label = re.match(r"^\s*([0-9a-f]+)\s+<([^>]+)>:\s*$", line, re.I)
+        if label:
+            current = label[2]
+            continue
+        instruction = re.match(r"^\s*([0-9a-f]+):\s+(.+)", line, re.I)
+        if not instruction:
+            continue
+        tokens = instruction[2].split()
+        while tokens and re.fullmatch(r"(?:[0-9a-f]{2}|[0-9a-f]{4}|[0-9a-f]{8}|[0-9a-f]{16})", tokens[0], re.I):
+            tokens.pop(0)
+        if tokens:
+            functions.setdefault(current, []).append((line.strip(), tokens[0].lower()))
+    rows, samples = [], []
+    for name, instructions in functions.items():
+        counts = Counter(mnemonic for _, mnemonic in instructions)
+        control = {key: value for key, value in counts.items() if re.search(r"call|branch|ret|jmp|jump|bal|jal|^bl$|^br$", key)}
+        if "BuildPutWqes" in name or "tilexr_moonep_combine_ht_kernel" in name or name == "<unlabelled>":
+            rows.append({"name": name[:180], "instruction_count": len(instructions),
+                         "common_opcodes": dict(counts.most_common(6)), "control_opcodes": control})
+        if "BuildPutWqes" in name:
+            samples.extend(line[:240] for line, _ in instructions[:2])
+    kernel = next((instructions for name, instructions in functions.items()
+                   if "tilexr_moonep_combine_ht_kernel" in name), [])
+    samples.extend(line[:240] for line, _ in kernel[:4])
+    if not samples:
+        samples = [line[:240] for instructions in functions.values() for line, _ in instructions][:8]
+    out = {"ok": True, "report": str(report), "object_sha256": EXPECTED_OBJECT,
+           "simulator_launched": False, "function_count": len(functions), "functions": rows[:6],
+           "instruction_samples": samples[:8]}
+    return out
 
 
 def inspect_object(folder, report, env, sst):
@@ -83,12 +121,14 @@ def inspect_container(args):
     folder.relative_to(work)
     assert folder.name == "mte-interleave-1"
     assert hashlib.sha256((folder / "send.o").read_bytes()).hexdigest() == EXPECTED_OBJECT
-    prefix = "object-evidence-" if args["action"] == "object-inspect" else "compiler-evidence-"
+    prefix = {"object-inspect": "object-evidence-", "call-focus": "call-evidence-"}.get(args["action"], "compiler-evidence-")
     report = folder / (prefix + str(args["inspection_attempt"]))
     report.mkdir()
     out = {"ok": False, "report": str(report), "object_sha256": EXPECTED_OBJECT,
            "stages": [], "simulator_launched": False}
     try:
+        if args["action"] == "call-focus":
+            return save_result(work, report, focus_calls(folder, report))
         snapshot = json.loads(Path("/baseline/environment.snapshot.json").read_text())
         env = snapshot["settings"]
         if args["action"] == "object-inspect":

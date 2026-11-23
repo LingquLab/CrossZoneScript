@@ -18,7 +18,7 @@ WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 
 def main(args):
     assert args["ssh_target"] == "root@141.61.94.26"
-    assert args["action"] in ("mte-trial", "trial-result", "outline", "compiler-inspect", "object-inspect", "compiler-result")
+    assert args["action"] in ("mte-trial", "trial-result", "outline", "compiler-inspect", "object-inspect", "call-focus", "compiler-result")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", args["ssh_target"]]
@@ -36,7 +36,7 @@ def main(args):
     call(["mkdir", "-p", WORK])
     if args["action"] == "mte-trial":
         names, entry, budget = ("host_trial.py", "trial.py", "mte_state.h", "simd_wqe_interleave.h"), "host_trial.py", 430
-    elif args["action"] in ("compiler-inspect", "object-inspect", "compiler-result"):
+    elif args["action"] in ("compiler-inspect", "object-inspect", "call-focus", "compiler-result"):
         names, entry, budget = ("compiler_inspect.py",), "compiler_inspect.py", 210
     else:
         names, entry, budget = ("evidence.py",), "evidence.py", 40
