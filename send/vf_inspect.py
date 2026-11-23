@@ -158,7 +158,7 @@ def host(args, entry="vf_inspect.py", directory="vf-inspection-1", timeout=300):
     assert (entry, directory) in (("vf_inspect.py", "vf-inspection-1"), ("vf_ir.py", "vf-ir-inspection-1"),
                                 ("vf_text.py", "vf-text-inspection-1"), ("vf_decode.py", "vf-decode-inspection-1"),
                                 ("vf_asm.py", "vf-asm-inspection-1"), ("vf_machine.py", "vf-machine-inspection-1"),
-                                ("scalar_send.py", "scalar-send-34"))
+                                ("scalar_send.py", "scalar-send-34"), ("scalar_fault.py", "scalar-fault-34-1"))
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
     root = Path(__file__).resolve().parent
     assert root.name == "tilexr-combine-ht-" + SESSION + "-v11"
