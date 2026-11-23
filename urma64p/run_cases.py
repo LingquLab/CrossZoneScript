@@ -1,9 +1,9 @@
 """Run Full AllToAll cases against an isolated server-30 SST container."""
 
 import argparse
+import base64
 import json
 import re
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -39,11 +39,13 @@ ssh = [
     "root@141.61.94.30",
 ]
 remote = (directory / "remote-cases.py").read_text(encoding="utf-8")
-prepare = (directory / "prepare_case.py").read_text(encoding="utf-8")
-cmd = "python3 -u - " + shlex.quote(json.dumps(dict(args, prepare=prepare)))
+prepare = (directory / "prepare_case.py").read_bytes()
+payload = json.dumps(dict(args, prepare_b64=base64.b64encode(prepare).decode("ascii")))
+encoded = base64.b64encode(payload.encode()).decode("ascii")
+bootstrap = f"import base64, json\nargs = json.loads(base64.b64decode({encoded!r}))\n"
 with Path("urma64p-ssh.stderr.log").open("wb") as errors:
-    with subprocess.Popen(ssh + [cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors) as proc:
-        proc.stdin.write(remote.encode())
+    with subprocess.Popen(ssh + ["python3 -u -"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors) as proc:
+        proc.stdin.write((bootstrap + remote).encode())
         proc.stdin.close()
         for line in proc.stdout:
             print(json.dumps(json.loads(line)), flush=True)

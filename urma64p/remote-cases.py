@@ -1,14 +1,13 @@
 """Select the retained reference and run new cases in a dedicated container."""
 
+import base64
 import json
 import re
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
 
-args = json.loads(sys.argv[1])
 build = Path(args["build"])
 kind = args["kind"]
 size = args["size"]
@@ -33,8 +32,10 @@ assert local_image == image
 items = json.loads((build / "objects.json").read_text())
 assert items["revision"] == "bde4640832397f70516194515f9734ac4c8d8393" and items["passed"]
 
+source = base64.b64decode(args["prepare_b64"], validate=True)
+compile(source, "prepare_case.py", "exec")
 run = Path(tempfile.mkdtemp(prefix="urma64p-cases.", dir="/opt"))
-(run / "prepare.py").write_text(args["prepare"])
+(run / "prepare.py").write_bytes(source)
 name = run.name.replace(".", "-")
 print(json.dumps({"stage": "campaign_start", "run_dir": str(run), "schedules": args["schedules"],
                   "kind": kind, "size": size, "deadline": args["deadline"], "revision": items["revision"]}), flush=True)
@@ -48,7 +49,7 @@ def command(argv, log, timeout):
 def safe_error(log):
     content = log.read_text(errors="replace")[-12000:]
     patterns = (
-        r"(?m)^(?:ValueError|AssertionError|KeyError|FileNotFoundError|RuntimeError|PermissionError|TimeoutError):[^\n]{0,220}",
+        r"(?m)^(?:ValueError|AssertionError|KeyError|FileNotFoundError|RuntimeError|PermissionError|TimeoutError|SyntaxError):[^\n]{0,220}",
         r"(?mi)^docker: Error response from daemon:[^\n]{0,200}",
         r"(?mi)^unknown flag:[^\n]{0,200}",
     )
