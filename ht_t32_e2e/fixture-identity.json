@@ -1,0 +1,24 @@
+{
+  "tokens": 32,
+  "hidden": 256,
+  "rows": 59,
+  "chunks": 4,
+  "world": 64,
+  "topk": 6,
+  "row_bytes": 1024,
+  "return_slots": 8,
+  "entry": "tilexr_ep_ht_combine_sst_fp32",
+  "block_dim": 16,
+  "ready_epoch": 4,
+  "magic": 2026,
+  "validation": "generated_not_simulated",
+  "wire_dtype": "float32",
+  "stages": [
+    "inter_server_send",
+    "final_reduce"
+  ],
+  "input_archive_sha256": "282ff2b9fddf3b49a09538a57933c8d3f09eadd41c4f91b85cd4c432e9ec2cce",
+  "kernel_sha256": "c4297a5184e94d69f738306752e5c63d460e57bf7f39e2ad9a2ce6be1a6a1e97",
+  "runtime_root": "/work/inter-server-native/t32-combine-fp32-data",
+  "commit": "b13556eb4f84afc103ba993f4e9151dc104d2b95"
+}
