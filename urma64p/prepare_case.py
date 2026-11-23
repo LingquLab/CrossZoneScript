@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+import yaml
 
 record = json.loads(sys.argv[1])
 contract = record["contract"]
@@ -101,12 +102,30 @@ if record["schedule"] == "clock":
     args = sorted((case / "input_bin").glob("rank*/kernel_args.bin"))
     if len(args) != 64:
         raise ValueError("expected all 64 launch parameter images")
+    old_deadlines = {}
     for path in args:
         data = bytearray(path.read_bytes())
         if len(data) != contract["abi_size"]:
             raise ValueError("unexpected launch ABI in " + path.parent.name)
+        rank = int(path.parent.name.removeprefix("rank"))
+        old_deadlines[rank] = struct.unpack_from("<Q", data, 48)[0]
         struct.pack_into("<Q", data, 48, record["deadline"])
         path.write_bytes(data)
+    for relative_path in ("workload.yml", "v310_config/workload_config.yml"):
+        path = case / relative_path
+        workload_config = yaml.safe_load(path.read_text())
+        chips = workload_config["workload_config"]
+        if set(chips) != {f"chip{rank}" for rank in old_deadlines}:
+            raise ValueError("unexpected Full workload ranks")
+        for rank, original in old_deadlines.items():
+            params = chips[f"chip{rank}"]["kernel_param"].values()
+            fields = [param for param in params if int(str(param["param_offset"]), 0) == 48]
+            if (len(fields) != 1 or "input_bin" in fields[0] or
+                    int(str(fields[0]["value"]), 0) != original):
+                raise ValueError("Full clock ABI binding mismatch for rank " + str(rank))
+            field = fields[0]
+            field["value"] = str(record["deadline"]) if isinstance(field["value"], str) else record["deadline"]
+        path.write_text(yaml.safe_dump(workload_config, sort_keys=False))
 
 scenario = json.loads(json.dumps(scenario).replace(str(reference), str(case)))
 scenario["candidate_revision"] = record["revision"]
