@@ -73,10 +73,10 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert after.count("writer, detailed};") == 1
     after = after.replace("writer, detailed};", "writer, detailed, queueRead, queueWrite};")
     header = before + after
-    if builder in ("interleave", "interleave_packed", "scalar_control"):
+    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe"):
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
-        builder_name = "scalar_wqe_control.h" if builder == "scalar_control" else "simd_wqe_interleave.h"
+        builder_name = "scalar_wqe_control.h" if builder in ("scalar_control", "scalar_simd_probe") else "simd_wqe_interleave.h"
         header = header[:begin] + '#include "' + builder_name + '"\n' + header[end:]
         builder_text = (WORK / builder_name).read_text()
         if builder == "interleave_packed":
@@ -87,6 +87,23 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
             assert builder_text.count(marker) == 1
             builder_text = builder_text.replace(marker, "__attribute__((always_inline)) inline __aicore__ void BuildPutWqes(")
         (folder / builder_name).write_text(builder_text)
+        if builder == "scalar_simd_probe":
+            helper = "minimal_simd_probe.h"
+            header = header.replace('#include "' + builder_name + '"', '#include "' + builder_name + '"\n#include "' + helper + '"')
+            shutil.copyfile(WORK / helper, folder / helper)
+            begin = header.index("struct LocalPutBatch")
+            end = header.index("struct LocalUrmaSend", begin)
+            body = header[begin:end]
+            marker = "        SetFlag<HardEvent::V_MTE3>(EVENT_ID0);"
+            assert body.count(marker) == 1
+            probe = """        TileXR::UDMASyncEvent<AscendC::HardEvent::S_V>();
+        ProbeMinimalSimd(reinterpret_cast<__ubuf__ uint32_t *>(stateRead.GetPhyAddr()));
+        TileXR::UDMASyncEvent<AscendC::HardEvent::V_S>();
+        for (uint32_t word = 0U; word < 16U; ++word) {
+            if (stateRead.GetValue(word) != kMinimalSimdProbeValue) return TileXR::TILEXR_UDMA_STATUS_INVALID;
+        }
+"""
+            header = header[:begin] + body.replace(marker, probe + marker) + header[end:]
     else:
         assert builder == "original" and not force_inline
     assert "TileXR::UDMARingDoorbell(head, sq);" in header
@@ -107,7 +124,7 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4,
             "force_inline": force_inline, "mte_status": mte_status,
-            "packed_builder": builder == "interleave_packed"}
+            "packed_builder": builder == "interleave_packed", "minimal_simd_probe": builder == "scalar_simd_probe"}
 
 
 def stop_at_boundary(header, boundary):
@@ -252,6 +269,8 @@ def main(args):
                                  text=True, timeout=15).stdout
         result["outlined_builders"] = [line.split()[-1] for line in symbols.splitlines()
             if " FUNC " in line and "BuildPutWqes" in line and line.split()[-1].endswith(".vector.thread")]
+        result["simd_probe_functions"] = [line.split()[-1] for line in symbols.splitlines()
+            if " FUNC " in line and "ProbeMinimalSimd" in line]
         specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
         prepared = [x.serialize() for x in specs]
         route_bytes = json.dumps(routes, separators=(",", ":")).encode()
