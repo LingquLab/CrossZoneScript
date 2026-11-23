@@ -54,7 +54,7 @@ def main(args):
     assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "scalar_control")
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control")
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"

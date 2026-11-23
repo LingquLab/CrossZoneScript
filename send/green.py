@@ -35,7 +35,7 @@ def main(args):
 
     call(["mkdir", "-p", WORK])
     if args["action"] in ("mte-trial", "boundary-probe"):
-        names, entry, budget = ("host_trial.py", "trial.py", "mte_state.h", "simd_wqe_interleave.h", "scalar_wqe_control.h"), "host_trial.py", 430
+        names, entry, budget = ("host_trial.py", "trial.py", "packed_builder.py", "mte_state.h", "simd_wqe_interleave.h", "scalar_wqe_control.h"), "host_trial.py", 430
         if args["action"] == "boundary-probe":
             budget = 850
     elif args["action"] in ("compiler-inspect", "object-inspect", "call-focus", "compiler-result"):

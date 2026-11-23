@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import time
+from packed_builder import transform as pack_builder
 
 sys.path.insert(0, "/baseline")
 import sst
@@ -72,12 +73,14 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     assert after.count("writer, detailed};") == 1
     after = after.replace("writer, detailed};", "writer, detailed, queueRead, queueWrite};")
     header = before + after
-    if builder in ("interleave", "scalar_control"):
+    if builder in ("interleave", "interleave_packed", "scalar_control"):
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
-        builder_name = "simd_wqe_interleave.h" if builder == "interleave" else "scalar_wqe_control.h"
+        builder_name = "scalar_wqe_control.h" if builder == "scalar_control" else "simd_wqe_interleave.h"
         header = header[:begin] + '#include "' + builder_name + '"\n' + header[end:]
         builder_text = (WORK / builder_name).read_text()
+        if builder == "interleave_packed":
+            header, builder_text = pack_builder(header, builder_text)
         if force_inline:
             assert builder == "interleave"
             marker = "__aicore__ inline void BuildPutWqes("
@@ -103,7 +106,8 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     (folder / "combine_ht_kernel.h").write_text(header)
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4,
-            "force_inline": force_inline, "mte_status": mte_status}
+            "force_inline": force_inline, "mte_status": mte_status,
+            "packed_builder": builder == "interleave_packed"}
 
 
 def stop_at_boundary(header, boundary):
