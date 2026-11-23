@@ -35,7 +35,7 @@ def main(args):
 
     call(["mkdir", "-p", WORK])
     if args["action"] in ("mte-trial", "boundary-probe", "simd-probes", "store-controls"):
-        names, entry, budget = ("host_trial.py", "trial.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "store_controls.py", "mte_state.h", "simd_wqe_interleave.h", "scalar_wqe_control.h", "minimal_simd_probe.h", "interleave_contract_host.py"), "host_trial.py", 430
+        names, entry, budget = ("host_trial.py", "trial.py", "packed_builder.py", "backward_alignment.py", "simd_probe_variants.py", "store_controls.py", "probe_artifacts.py", "mte_state.h", "simd_wqe_interleave.h", "scalar_wqe_control.h", "minimal_simd_probe.h", "interleave_contract_host.py"), "host_trial.py", 430
         if args["action"] in ("boundary-probe", "simd-probes"):
             budget = 850
         if args["action"] == "store-controls":

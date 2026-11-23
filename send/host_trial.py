@@ -11,8 +11,9 @@ import shutil
 import socket
 import subprocess
 import sys
-from store_controls import BASE_KINDS, POINTER_KINDS, COMPENSATION_KINDS, RUNTIME_KINDS, KINDS, summarize_batch
+from store_controls import BASE_KINDS, POINTER_KINDS, COMPENSATION_KINDS, RUNTIME_KINDS, VECTOR_KINDS, KINDS, summarize_batch
 from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract_contract
+from probe_artifacts import inspect as inspect_probe_artifacts
 
 SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
@@ -125,15 +126,18 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
-             "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS}[args.get("controls", "full-tile")]
+             "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS,
+             "vector": VECTOR_KINDS}[args.get("controls", "full-tile")]
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "store_controls_already_attempted"
     for offset, kind in enumerate(kinds):
         assert not (WORK / f"mte-scalar_{kind}-{args['attempt'] + offset}").exists()
     out = {"ok": False, "diagnostic_only": True, "results": [],
            "controls": args.get("controls", "full-tile")}
+    if args.get("controls") == "vector":
+        out["artifacts"] = [inspect_probe_artifacts(WORK / "mte-scalar_store_post_runtime-18")]
     source = CONTRACT_PRIOR / "mte-interleave-1/compiler-evidence-1/input.ii"
     assert 0 < source.stat().st_size < 16000000
     functions, snippets = extract_contract(source.read_text())
@@ -161,6 +165,8 @@ def run_store_controls(args):
                 result["compile_errors"] = [line[:220] for line in build_log.read_text(errors="replace").splitlines()
                                             if "error:" in line][:2]
         out["results"].append(result)
+        if args.get("controls") == "vector" and result.get("build_completed"):
+            out["artifacts"].append(inspect_probe_artifacts(report.parent))
         path.write_text(json.dumps(out, indent=2))
         (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
         if args.get("controls") in ("compensation", "runtime") and not result["ok"]:

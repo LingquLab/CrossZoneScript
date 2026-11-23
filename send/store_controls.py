@@ -4,7 +4,8 @@ BASE_KINDS = ("store_post", "interleave_post", "interleave_explicit")
 POINTER_KINDS = ("pointer64", "pointer256")
 COMPENSATION_KINDS = ("pointer1024", "store_post_compensated", "interleave_post_compensated")
 RUNTIME_KINDS = ("pointer_runtime64", "store_post_runtime", "interleave_post_runtime")
-KINDS = BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS + RUNTIME_KINDS
+VECTOR_KINDS = ("store_post_runtime_hi", "store_post_runtime_vector")
+KINDS = BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS + RUNTIME_KINDS + VECTOR_KINDS
 
 
 def pointer_strides(kind):
@@ -17,13 +18,17 @@ def generate(interleave_source, kind):
     if kind.startswith("pointer"):
         return generate_pointer(kind)
     compensated = kind.endswith("_compensated")
-    runtime = kind.endswith("_runtime")
-    base_kind = kind.rsplit("_", 1)[0] if compensated or runtime else kind
+    runtime = "_runtime" in kind
+    base_kind = "store_post" if kind.startswith("store_post") else (
+        "interleave_explicit" if kind == "interleave_explicit" else "interleave_post")
     begin = interleave_source.index("            Interleave(v0, v8, v0, v8);")
     end = interleave_source.index("            uint32_t remainingWords", begin)
     operations = "" if base_kind == "store_post" else interleave_source[begin:end]
     declarations = "        RegTensor<uint32_t> " + ", ".join(f"v{i}" for i in range(16)) + ";\n"
     duplicates = "".join(f"        Duplicate(v{i}, base + {i}U);\n" for i in range(16))
+    if kind.endswith("_vector"):
+        duplicates = "        Duplicate(v0, base);\n" + "".join(
+            f"        Adds(v{i}, v0, {i}U, mask);\n" for i in range(1, 16))
     if base_kind == "interleave_explicit":
         stores = "".join(
             f"        destination = output + {i}U * lanes;\n"
@@ -73,6 +78,10 @@ __aicore__ inline void ProbeOperation(__ubuf__ uint32_t *output)
 """.replace("EXPECTED", expected)
     if runtime:
         source, setup = runtime_stride(source, setup)
+    if kind.endswith("_hi"):
+        expression = "0xd0000000U | (index << 16U) | (actual & 0xffffU)"
+        assert setup.count(expression) == 1
+        setup = setup.replace(expression, "0xd0000000U | (index << 16U) | ((actual >> 16U) & 0xffffU)")
     return source, setup
 
 
@@ -163,9 +172,12 @@ def decode(status, kind):
                         0x13579be0 if stride <= index < stride + 64 else 0xc3c3c3c3)
         else:
             expected = 0x13579bdf + (index // 64 if kind.startswith("store_post") else index % 16)
-        return {"boundary": "tile", "word": index, "register_slot": index // 64,
-                "lane": index % 64, "expected_low16": expected & 0xffff,
-                "actual_low16": status & 0xffff}
+        row = {"boundary": "tile", "word": index, "register_slot": index // 64, "lane": index % 64}
+        if kind.endswith("_hi"):
+            row.update(expected_high16=expected >> 16, actual_high16=status & 0xffff)
+        else:
+            row.update(expected_low16=expected & 0xffff, actual_low16=status & 0xffff)
+        return row
     if prefix == 0xd4000000:
         return {"boundary": "tail_guard", "word": index, "actual_low16": status & 0xffff}
     if status == 0xd8000000:
@@ -181,6 +193,7 @@ def summarize_batch(value):
             "probe_kind", "probe_mismatch_count", "probe_first_mismatches", "compile_errors")
     return {"ok": value["ok"], "diagnostic_only": True,
             "controls": value.get("controls", "full-tile"), "simulation_only": True,
+            "artifacts": value.get("artifacts", []),
             "contract": value.get("contract"), "host_errors": value.get("host_errors", []),
             "results": [{key: row[key] for key in keys if key in row}
                         for row in value.get("results", [])]}
