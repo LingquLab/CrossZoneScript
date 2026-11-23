@@ -12,7 +12,7 @@ import sys
 import tarfile
 
 SESSION = "348041ae-83ce-4ec6-887b-07b0b991b38e"
-WORK = "/var/tmp/tilexr-combine-ht-" + SESSION
+WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 INPUTS = (
     ("candidate", "1c9d7fed6188e1093efc456579130de3ca8be4e6", ("include", "src/moonep/combine_ht")),
@@ -26,7 +26,7 @@ def main(args):
         raise ValueError("unknown stage")
     if not re.fullmatch(r"root@[0-9.]+", args["ssh_target"]) or not re.fullmatch(r"host-[0-9-]+", args["hostname"]):
         raise ValueError("invalid simulator target")
-    root = Path(os.environ["LOCALAPPDATA"]) / "CrossZone" / "tilexr" / SESSION
+    root = Path(os.environ["LOCALAPPDATA"]) / "CrossZone" / "tilexr" / (SESSION + "-v11")
     root.mkdir(parents=True, exist_ok=True)
     receipt = root / f"{stage}.json"
     log_path = root / f"{stage}.log"
@@ -73,7 +73,7 @@ def main(args):
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
 
-        timeout = 300 if stage == "setup" else 90
+        timeout = 930 if stage == "setup" else 90
         if stage == "run":
             timeout = len(args["rank_batch"]) * (2 * args["stage_timeout"] + 120) + 20
         result = json.loads(remote(["timeout", "--kill-after=25", str(timeout), "python3",

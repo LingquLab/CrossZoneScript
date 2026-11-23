@@ -22,7 +22,7 @@ WORK = Path(__file__).resolve().parent
 TOOLS = WORK / "tooling/tools/unitest/simulator"
 EXPERIMENT = TOOLS / "experiments/alltoall_udma"
 sys.path[:0] = [str(TOOLS), str(EXPERIMENT)]
-from case_tools import extract_die_output, verified_die_decoder
+from case_tools import extract_die_output
 from configuration import configure, UBUS_CONFIG, V310_CONFIG
 from kernel_build import find_linker
 import runtime as rt
@@ -38,6 +38,7 @@ CONFIG = ("rank", "world", "tokens", "hidden", "topk", "input_rows", "gather_row
 LAYOUT32 = ("chunks", "groups", "control_slots", "forward_capacity", "backward_capacity", "reserved")
 LAYOUT64 = ("gather_offset", "partial_offset", "workspace_bytes", "backward_range_elements")
 SIM_TIME = re.compile(r"Simulation is complete, simulated time:\s*([0-9.eE+-]+)\s+([munpf]?s)\b")
+V11_DIE_DECODER_SHA256 = "bf93fd6d0749fc3c6eaae365c7cba558988e1fa25c1b9a26e139be61b60a3da3"
 TIME_FACTORS = {"fs": 1e-9, "ps": 1e-6, "ns": 1e-3, "us": 1, "ms": 1e3, "s": 1e6}
 
 
@@ -228,8 +229,10 @@ def read_output(case, rank, output_name, address, size):
 
 
 def validate_send(case, workload, prepared):
-    if verified_die_decoder(case) is None:
-        raise ValueError("SST dump has no verified Die decoder")
+    snapshot = json.loads((case / "environment.snapshot.json").read_text())
+    library = Path(snapshot["settings"]["library_dir"]) / "libDavinciSimulator.so"
+    if checksum(library) != V11_DIE_DECODER_SHA256:
+        raise ValueError("V1.1.0 dump has no verified Die decoder")
     retained = {}
     for rank, (_, expected, _) in enumerate(prepared):
         outputs = workload["workload_config"][f"chip{rank}"]["output_param"]

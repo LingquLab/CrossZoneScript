@@ -9,9 +9,10 @@ import sys
 
 WORK = Path(__file__).resolve().parent
 PREFIX = "tilexr-combine-ht-"
-SESSION = WORK.name[len(PREFIX):]
-NAME = PREFIX + SESSION[:8]
-IMAGE = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
+SESSION = WORK.name[len(PREFIX):-len("-v11")]
+NAME = PREFIX + SESSION[:8] + "-v11"
+IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
+ARCHIVE = Path("/mnt/share/simulator/images/tilexr-sim-9.1-aarch64-v1.1.0.tar.gz")
 REVISIONS = {
     "candidate": "1c9d7fed6188e1093efc456579130de3ca8be4e6",
     "tooling": "23a542b2e6bfcc34f85313d02677a4aafdfc3efb",
@@ -43,7 +44,14 @@ def run_sst(args, timeout):
 
 
 def setup():
-    if call("docker", "image", "inspect", "--format", "{{.Id}} {{.Os}}/{{.Architecture}}", IMAGE) != IMAGE + " linux/arm64":
+    image_check = ["docker", "image", "inspect", "--format", "{{.Id}} {{.Os}}/{{.Architecture}}", IMAGE]
+    result = subprocess.run(image_check, capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        if ARCHIVE.stat().st_size != 4107108475:
+            raise ValueError("V1.1.0 archive size mismatch")
+        output = call("docker", "load", "-i", ARCHIVE, timeout=600)
+        (WORK / "docker-load.log").write_text(output + "\n")
+    if call(*image_check) != IMAGE + " linux/arm64":
         raise ValueError("image identity mismatch")
     for name in REVISIONS:
         folder = WORK / name
