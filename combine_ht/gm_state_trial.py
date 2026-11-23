@@ -54,6 +54,10 @@ def main():
     source = report / "combine_ht.cpp"
     shutil.copyfile(source_dir / "combine_ht.cpp", source)
     header, kernel_changes = patch((source_dir / "combine_ht_kernel.h").read_text(), "TileXR::")
+    begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
+    end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
+    header = header[:begin] + '#include "simd_wqe_interleave.h"\n' + header[end:]
+    shutil.copyfile(Path(__file__).with_name("simd_wqe_interleave.h"), report / "simd_wqe_interleave.h")
     (report / "combine_ht_kernel.h").write_text(header)
     api = sst.WORK / "candidate/include/tilexr/comm/udma/device/api.h"
     patched, api_changes = patch(api.read_text(), "")
@@ -70,7 +74,7 @@ def main():
     prepared = [spec.serialize() for spec in specs]
     stages = []
     original = sst.KERNEL
-    result = dict(report=str(report), local_candidate=True, baseline_kernel_sha256=sst.checksum(original),
+    result = dict(report=str(report), local_candidate=True, wqe_builder="simd_interleave_contiguous_store", baseline_kernel_sha256=sst.checksum(original),
                   candidate_kernel_sha256=sst.checksum(binary), changes=dict(kernel=kernel_changes, api=api_changes), stages=stages)
     sst.KERNEL = binary
     try:
