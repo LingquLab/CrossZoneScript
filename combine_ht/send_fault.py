@@ -11,7 +11,7 @@ import time
 
 import sst
 
-BASELINE = Path("/work/cases/8p-bs4-20261123T031607038251/send-only")
+BASELINE = Path(json.loads((sst.WORK / "progress.json").read_text())["case"]) / "send-only"
 KERNEL_SHA = "c95c61586a5f9e97c83eb862e83b3cfde3ac9a22dec0b6a3332c67434b7ac85e"
 
 
@@ -35,8 +35,7 @@ def location(address, mappings, report):
 
 
 def main():
-    progress = json.loads((BASELINE.parent / "reduce-only/run.json").read_text())
-    assert progress["stage"] == "reduce-only" and "returncode" in progress
+    assert BASELINE.parent.parent == sst.WORK / "cases"
     baseline = json.loads((BASELINE / "run.json").read_text())
     assert baseline["returncode"] == -11
     assert sst.checksum(sst.KERNEL) == KERNEL_SHA
@@ -83,6 +82,8 @@ def main():
                     mappings.append((begin, end, int(fields[2], 16), fields[5]))
             result.update(pc=location(pc, mappings, case), link=location(link, mappings, case),
                           fault_address=hex(fault_address))
+    result["baseline_report"] = str(BASELINE)
+    result["kernel_sha256"] = sst.checksum(sst.KERNEL)
     sst.write_json(case / "diagnosis.json", result)
     print(json.dumps(result, ensure_ascii=True))
 
