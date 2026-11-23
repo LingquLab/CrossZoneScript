@@ -6,7 +6,11 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
+from contextlib import nullcontext
+
+from green_auth import askpass_environment
 
 root = Path(__file__).resolve().parent
 identity = json.loads((root / "fixture-identity.json").read_text())
@@ -27,32 +31,52 @@ runner = runner.replace("assert tokens == 4", "assert tokens == 32")
 source = "\n".join((runner, (root/"prepare.py").read_text(), (root/"remote.py").read_text(),
                     f"print(json.dumps(run_e2e({request!r}), separators=(',', ':')))" ))
 compile(source, "<t32_fused_remote>", "exec")
-ssh = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-       "-o", "ConnectTimeout=8", "root@141.61.94.58", "python3", "-"]
+password_auth = (
+    sys.argv[1:2] == ["--args-file"] and json.loads(Path(sys.argv[2]).read_text()).get("local_auth_note") is True
+)
+ssh = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8"]
+if password_auth:
+    ssh.extend(["-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1",
+                "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"])
+else:
+    ssh.extend(["-o", "BatchMode=yes"])
+ssh.extend(["root@141.61.94.58", "python3", "-"])
 
-deadline = time.monotonic() + 540
-failures = []
-while True:
-    try:
-        reply = subprocess.run(ssh, input=source.encode(), capture_output=True, timeout=2200)
-    except subprocess.TimeoutExpired:
-        print(json.dumps({"transport_error": "command_timed_out", "check_retained_run": True}))
-        break
-    if reply.returncode == 0:
-        print(json.dumps(json.loads(reply.stdout), separators=(",", ":")))
-        break
-    stderr = reply.stderr.decode(errors="replace").lower()
-    reason = next((phrase for phrase in ("connection refused", "connection timed out") if phrase in stderr), None)
-    if reply.returncode == 255 and reason is not None:
-        failures.append(reason)
-        if time.monotonic() < deadline:
-            time.sleep(25)
-            continue
-        counts = {name: failures.count(name) for name in set(failures)}
-        print(json.dumps({"transport_error": "ssh_unavailable", "connect_failures": counts}))
-        break
-    classes = re.findall(r"(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception|Expired)):",
-                         reply.stderr.decode(errors="replace"))
-    print(json.dumps({"ssh_exit": reply.returncode, "remote_error_types": classes[-3:],
-                      "stderr_bytes": len(reply.stderr), "check_retained_run": True}))
-    break
+
+def run(environment):
+    deadline = time.monotonic() + 540
+    failures = []
+    while True:
+        try:
+            reply = subprocess.run(ssh, input=source.encode(), env=environment,
+                                   capture_output=True, timeout=2200)
+        except subprocess.TimeoutExpired:
+            return {"transport_error": "command_timed_out", "check_retained_run": True}
+        if reply.returncode == 0:
+            try:
+                return json.loads(reply.stdout)
+            except ValueError:
+                return {"transport_error": "invalid_receipt", "check_retained_run": True}
+        stderr = reply.stderr.decode(errors="replace").lower()
+        if reply.returncode == 255 and "permission denied" in stderr:
+            return {"transport_error": "authentication_denied"}
+        reason = next((phrase for phrase in ("connection refused", "connection timed out") if phrase in stderr), None)
+        if reply.returncode == 255 and reason is not None:
+            failures.append(reason)
+            if time.monotonic() < deadline:
+                time.sleep(25)
+                continue
+            return {"transport_error": "ssh_unavailable",
+                    "connect_failures": {name: failures.count(name) for name in set(failures)}}
+        classes = re.findall(r"(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception|Expired)):",
+                             reply.stderr.decode(errors="replace"))
+        return {"ssh_exit": reply.returncode, "remote_error_types": classes[-3:],
+                "stderr_bytes": len(reply.stderr), "check_retained_run": True}
+
+
+try:
+    with askpass_environment() if password_auth else nullcontext(None) as environment:
+        result = run(environment)
+except FileNotFoundError:
+    result = {"transport_error": "configured_local_auth_note_not_found"}
+print(json.dumps(result, separators=(",", ":")))

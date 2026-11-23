@@ -10,7 +10,15 @@ def run_e2e(request):
         prior = case / "e2e-summary.json"
         if prior.is_file():
             return json.loads(prior.read_text())
-        return dict(result, stage_error="existing_case", run_record=(case / "run.json").is_file())
+        result["retained_case"] = True
+        for name in ("run.json", "task-result.json"):
+            record = case / name
+            if record.is_file():
+                data = json.loads(record.read_text())
+                keys = ("status", "returncode", "guards", "run", "sst_simulated_microseconds",
+                        "runner_exit_code", "runner_exception_type", "exported_rank_count")
+                result[name] = {key: data[key] for key in keys if key in data}
+        return result
     NAME = "tilexr-cpu-b4f4660a-ht-t32-e2e-" + digest[:8]
     VARIANTS[digest] = variant
     image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
