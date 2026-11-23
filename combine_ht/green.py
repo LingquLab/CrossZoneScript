@@ -14,7 +14,7 @@ SESSION = "500e2a93-b84e-4d36-a9aa-8d2cd0321cdf"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 INPUTS = (
-    ("candidate", "1c9d7fed6188e1093efc456579130de3ca8be4e6",
+    ("candidate", "16080aad58ced172c6e6682cf7eb87da4847bdad",
      ("include", "src/moonep/combine_ht", "tests/moonep_combine_ht/combine_ht.mapping.template.json")),
     ("tooling", "23a542b2e6bfcc34f85313d02677a4aafdfc3efb", ("tools/unitest/simulator",)),
 )
