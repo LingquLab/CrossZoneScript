@@ -9,7 +9,8 @@ from vf_ir import summarize_ir
 
 def inspect(folder, env, sst):
     folder = Path(folder)
-    assert folder.parent == Path("/work") and folder.name == "mte-interleave_predicate_runtime-28"
+    assert folder.parent == Path("/work") and folder.name in (
+        "mte-interleave_predicate_runtime-28", "mte-interleave_vf_packed-32")
     report = folder / "ir-check"
     report.mkdir()
     inputs = [path for path in folder.iterdir() if path.suffix in (".cpp", ".h")]
@@ -43,7 +44,7 @@ def inspect(folder, env, sst):
     if output.is_file() and 0 < output.stat().st_size < 32 * 1024 * 1024:
         text = output.read_text()
         summary, snippets = summarize_ir(text)
-        function = next((item for item in summary["functions"] if "BuildPutWqesILb0" in item["name"]), None)
+        function = next((item for item in summary["functions"] if re.search(r"BuildPutWqes(?:Packed)?ILb0", item["name"])), None)
         if function:
             header = next(line for line in text.splitlines() if line.startswith("define ") and "@" + function["name"] + "(" in line)
             out.update(identified=True, function=function,

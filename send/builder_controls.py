@@ -2,7 +2,7 @@
 KINDS = ("interleave_local_mask", "interleave_local_mask_runtime", "interleave_predicate_runtime")
 
 
-def transform(source, kind):
+def transform(source, kind, runtime_from_packet=False):
     assert kind in KINDS
     external = "    uint32_t remaining = rows;\n"
     scope = "    __VEC_SCOPE__ {\n        using namespace MicroAPI;\n"
@@ -34,7 +34,11 @@ def transform(source, kind):
     if kind.endswith("_runtime"):
         declaration = "    const uint16_t repeats = (rows + lanes - 1U) / lanes;\n"
         assert source.count(declaration) == 1
-        source = source.replace(declaration, declaration + """    if (rows == 0U) return;
+        if runtime_from_packet:
+            source = source.replace(declaration, declaration +
+                "    const int32_t postStride = static_cast<int32_t>(parameters[12]);\n")
+        else:
+            source = source.replace(declaration, declaration + """    if (rows == 0U) return;
     // Seed the current tile's first UB word before its complete vector overwrite.
     auto *strideWord = reinterpret_cast<__ubuf__ volatile uint32_t *>(out);
     strideWord[0] = lanes;

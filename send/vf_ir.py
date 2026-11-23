@@ -46,13 +46,14 @@ def summarize_ir(text):
                           "alloca_count": len(re.findall(r"(?m)^\s*%[^=\n]+\s*=\s*alloca\b", block)),
                           "trunc_to_i16_count": len(re.findall(r"\btrunc\b[^\n]*\bto i16\b", block)),
                           "stack_named_operations": sum("stack" in line.lower() for line in block.splitlines()),
+                          "volatile_load_count": len(re.findall(r"\bload volatile\b", block)),
                           "relevant_call_counts": {key[:100]: count for key, count in relevant.most_common(6)},
                           "intrinsic_callees": [value[:80] for value in names
                                                 if re.search(r"vf|simd|vdup|vst|stack", value, re.I)][:4]}
         records.append((record, header[:550]))
     selected = sorted(records, key=lambda pair: ("vector" not in pair[0]["name"],
                                                  "ProbeOperation" not in pair[0]["name"],
-                                                 "BuildPutWqesILb0" not in pair[0]["name"]))[:2]
+                                                 not re.search(r"BuildPutWqes(?:Packed)?ILb0", pair[0]["name"])))[:2]
     functions = [record for record, _ in selected]
     snippets = [header for _, header in selected]
     triple = re.search(r'(?m)^target triple = "([^"\n]+)"', text)

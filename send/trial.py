@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from packed_builder import transform as pack_builder
+from packed_builder import VF_BUILDERS, transform_vf as pack_builder_in_vf
 from backward_alignment import repack as repack_backward, write_common_header
 from simd_probe_variants import install as install_simd_probe
 from store_controls import KINDS as STORE_KINDS, decode as decode_store_status
@@ -94,7 +95,7 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
         assert body.count("gm.SetGlobalBuffer(source);") == 1
         body = body.replace("gm.SetGlobalBuffer(source);", "gm.SetGlobalBuffer(source);\n    gm.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);")
         header = header[:begin] + body + header[end:]
-    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS + MASK_BUILDERS:
+    if builder in ("interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + STORE_BUILDERS + MASK_BUILDERS + VF_BUILDERS:
         begin = header.index("// Reuse the EP UBX Gather/Mull/Scatter pattern.")
         end = header.index("#else\nconstexpr uint32_t kWqeWords", begin)
         builder_name = "scalar_wqe_control.h" if builder.startswith("scalar_") else "simd_wqe_interleave.h"
@@ -104,6 +105,8 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
             builder_text = local_mask_builder(builder_text, builder)
         if builder == "interleave_packed":
             header, builder_text = pack_builder(header, builder_text)
+        if builder in VF_BUILDERS:
+            header, builder_text = pack_builder_in_vf(header, builder_text)
         if force_inline:
             assert builder == "interleave"
             marker = "__aicore__ inline void BuildPutWqes("
@@ -154,7 +157,8 @@ def patch(folder, baseline=Path("/baseline"), builder="original", force_inline=F
     shutil.copyfile(original / "combine_ht.cpp", folder / "combine_ht.cpp")
     return {"poll_loads": poll_loads, "send_loads": flush_loads + run_loads, "state_stores": 4,
             "force_inline": force_inline, "mte_status": mte_status,
-            "packed_builder": builder == "interleave_packed", "minimal_simd_probe": builder == "scalar_simd_probe",
+            "packed_builder": builder == "interleave_packed" or builder in VF_BUILDERS,
+            "decode_inside_vf": builder in VF_BUILDERS, "minimal_simd_probe": builder == "scalar_simd_probe",
             "backward_record_bytes": backward_record_bytes,
             "reference_compat": reference_compat, "state_read_bytes": 4 if reference_compat else 64,
             "status_slot_bytes": 32 if reference_compat else 4, "native_load_disables_l2": reference_compat,
@@ -301,6 +305,16 @@ def capture(folder, specs, prepared, snapshot, boundary="none", mte_status=False
     return out
 
 
+def verify_builder_interface(folder, builder, env, result):
+    from vf_codegen import inspect as inspect_generated_ir
+    result["builder_ir"] = inspect_generated_ir(folder, env, sst)
+    check = result["builder_ir"]
+    assert (check.get("compile_returncode") == check.get("decode_returncode") == 0
+            and check.get("identified") and check.get("generic_pointer_parameter_count") == 0), "predicate_vf_interface_check_failed"
+    if builder in VF_BUILDERS:
+        assert check["function"]["parameter_count"] == 1, "packed_vf_did_not_keep_one_parameter"
+
+
 def main(args):
     builder = args.get("builder", "original")
     folder = WORK / ("mte-" + builder + "-" + str(args["attempt"]))
@@ -334,7 +348,8 @@ def main(args):
         with (folder / "build.log").open("wb") as log:
             if result["vf_stack_off"]:
                 from vf_stack_control import build as build_vf_stack_control
-                result["vf_stack_control"] = build_vf_stack_control(folder, builder, snapshot["settings"], log)
+                preflight = (lambda: verify_builder_interface(folder, builder, snapshot["settings"], result)) if builder in VF_BUILDERS else None
+                result["vf_stack_control"] = build_vf_stack_control(folder, builder, snapshot["settings"], log, preflight=preflight)
             else:
                 sst.build_kernel(snapshot["settings"], log, source=folder / "combine_ht.cpp", binary=binary)
         if result["reference_compat"]:
@@ -346,11 +361,7 @@ def main(args):
         result["object_sha256"] = sst.checksum(binary)
         result["build_completed"] = True
         if builder == "interleave_predicate_runtime":
-            from vf_codegen import inspect as inspect_generated_ir
-            result["builder_ir"] = inspect_generated_ir(folder, snapshot["settings"], sst)
-            check = result["builder_ir"]
-            assert (check.get("compile_returncode") == check.get("decode_returncode") == 0
-                    and check.get("identified") and check.get("generic_pointer_parameter_count") == 0), "predicate_vf_interface_check_failed"
+            verify_builder_interface(folder, builder, snapshot["settings"], result)
         symbols = subprocess.run(["readelf", "-sW", str(binary)], check=True, capture_output=True,
                                  text=True, timeout=15).stdout
         result["outlined_builders"] = [line.split()[-1] for line in symbols.splitlines()

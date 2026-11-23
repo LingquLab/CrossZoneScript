@@ -16,6 +16,7 @@ from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract
 from probe_artifacts import inspect as inspect_probe_artifacts
 from builder_controls import KINDS as MASK_BUILDERS
 from vf_stack_control import BUILDERS as STACK_BUILDERS
+from packed_builder import VF_BUILDERS
 
 SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
@@ -55,16 +56,17 @@ def main(args):
     assert type(args.get("mte_status", False)) is bool
     assert type(args.get("reference_compat", False)) is bool
     assert type(args.get("vf_stack_off", False)) is bool
-    assert not args.get("vf_stack_off") or args.get("controls") == "vf-stack"
+    assert not args.get("vf_stack_off") or args.get("controls") in ("vf-stack", "vf-packed")
     assert not args.get("reference_compat") or args.get("mte_status") is True
     assert type(args.get("backward_record_bytes", 24)) is int and args.get("backward_record_bytes", 24) in (24, 32)
     assert not args.get("mte_status") or args.get("capture") is True
     boundary = args.get("stop_boundary", "none")
     assert boundary in ("none", "before_builder", "before_sq_publish")
     assert boundary == "none" or args.get("capture") is True
-    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 31
+    assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 32
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS) + MASK_BUILDERS
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS) + MASK_BUILDERS + VF_BUILDERS
+    assert builder not in VF_BUILDERS or (args.get("vf_stack_off") is True and args.get("controls") == "vf-packed")
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -79,7 +81,7 @@ def main(args):
     else:
         shutil.copyfile(prior / config.name, config)
     call(["docker", "exec", NAME, "python3", "/work/trial.py", json.dumps(args)],
-         timeout=510 if builder == "interleave_predicate_runtime" else 400)
+         timeout=510 if builder == "interleave_predicate_runtime" or builder in VF_BUILDERS else 400)
     result = json.loads((WORK / "trial-result.json").read_text())
     assert result["ok"]
     result["container_id"] = info["Id"]
@@ -133,7 +135,7 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local", "mask-predicate", "vf-stack")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime", "vector", "sst-compat", "ub-gather", "mask-local", "mask-predicate", "vf-stack", "vf-packed")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
              "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS,
              "vector": VECTOR_KINDS,
@@ -141,9 +143,10 @@ def run_store_controls(args):
              "mask-local": MASK_BUILDERS[:2],
              "mask-predicate": MASK_BUILDERS[2:],
              "vf-stack": STACK_BUILDERS,
+             "vf-packed": VF_BUILDERS,
              "sst-compat": ("control", "interleave", "store_post_runtime_vector")}[args.get("controls", "full-tile")]
     def builder_for(kind):
-        if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack"):
+        if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack", "vf-packed"):
             return kind
         return kind if args.get("controls") == "sst-compat" and kind == "interleave" else "scalar_" + kind
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
@@ -170,7 +173,7 @@ def run_store_controls(args):
     assert (functions and functions[0]["destination_by_reference"]
             and functions[0]["source_register_count"] == 1), "post_update_contract_missing"
     out["contract"] = {"functions": functions[:2],
-                       "source_snippets": [] if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack") else snippets}
+                       "source_snippets": [] if args.get("controls") in ("mask-local", "mask-predicate", "vf-stack", "vf-packed") else snippets}
     for offset, kind in enumerate(kinds):
         child = {**args, "action": "mte-trial", "builder": builder_for(kind),
                  "attempt": args["attempt"] + offset, "capture": True,
@@ -179,6 +182,8 @@ def run_store_controls(args):
             child["reference_compat"] = True
         if args.get("controls") == "vf-stack":
             child.update(vf_stack_off=True, reference_compat=offset != 0)
+        if args.get("controls") == "vf-packed":
+            child.update(vf_stack_off=True, reference_compat=True)
         expected = f"/work/mte-{child['builder']}-{child['attempt']}"
         try:
             with (WORK / "store-host.log").open("a") as log, redirect_stdout(log):

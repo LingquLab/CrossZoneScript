@@ -27,16 +27,19 @@ def commands_for(commands, prior, folder):
     return rewritten
 
 
-def build(folder, builder, env, log):
+def build(folder, builder, env, log, preflight=None):
     import sst
     folder = Path(folder)
-    assert folder.parent == Path("/work") and builder in BASELINES
-    name, digest = BASELINES[builder]
+    baseline_builder = "interleave" if builder == "interleave_vf_packed" else builder
+    assert folder.parent == Path("/work") and baseline_builder in BASELINES
+    name, digest = BASELINES[baseline_builder]
     prior = folder.parent / name
     binary = prior / "send.o"
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
     before = source_hashes(prior)
-    assert before == source_hashes(folder), "vf_stack_source_profile_mismatch"
+    candidate = source_hashes(folder)
+    identical = before == candidate
+    assert identical or builder == "interleave_vf_packed", "vf_stack_source_profile_mismatch"
     original = json.loads((prior / "build.json").read_text())
     assert original[0][0] == env["compiler"] and original[0].count("-c") == original[0].count("-o") == 1
     assert Path(original[0][original[0].index("-c") + 1]) == prior / "combine_ht.cpp"
@@ -44,12 +47,14 @@ def build(folder, builder, env, log):
     assert Path(commands[0][commands[0].index("-c") + 1]) == folder / "combine_ht.cpp"
     assert Path(commands[1][commands[1].index("-o") + 1]) == folder / "send.o"
     (folder / "build.json").write_text(json.dumps(commands, indent=2))
+    if preflight is not None:
+        preflight()
     for command in commands:
         subprocess.run(sst.shell_command(env, "cann", command),
                        check=True, stdout=log, stderr=subprocess.STDOUT, timeout=65)
     assert (folder / "send.o").read_bytes()[:4] == b"\x7fELF"
-    assert before == source_hashes(prior) == source_hashes(folder)
+    assert before == source_hashes(prior) and candidate == source_hashes(folder)
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
-    return {"baseline_case": name, "baseline_object_sha256": digest, "source_identical": True,
-            "source_profile_sha256": hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),
+    return {"baseline_case": name, "baseline_object_sha256": digest, "source_identical": identical,
+            "source_profile_sha256": hashlib.sha256(json.dumps(candidate, sort_keys=True).encode()).hexdigest(),
             "compiler_flag": FLAG}

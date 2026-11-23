@@ -5,6 +5,7 @@ Flush reuses the first 48 bytes of its completed queue-read scratch. The builder
 reads those values before vector work; the following queue load refills scratch.
 The vector instruction body and the snapshot/publication path are preserved.
 """
+VF_BUILDERS = ("interleave_vf_packed",)
 
 
 def call_block(template, row_begin, row_end):
@@ -48,4 +49,29 @@ __aicore__ inline void BuildPutWqesPacked(__ubuf__ const uint32_t *parameters)
     ):
         assert header.count(marker) == 1
         header = header.replace(marker, replacement)
+    return header, builder
+
+
+def transform_vf(header, builder):
+    """Keep volatile argument reads and scalar control calculations inside VF."""
+    from builder_controls import transform as predicate_builder
+    builder = predicate_builder(builder, "interleave_predicate_runtime", runtime_from_packet=True)
+    header, builder = transform(header, builder)
+    signature = "BuildPutWqesPacked(__ubuf__ const uint32_t *parameters)"
+    assert builder.count(signature) == 1
+    builder = builder.replace(signature, "BuildPutWqesPacked(__ubuf__ const volatile uint32_t *parameters)")
+    begin = builder.index("{", builder.index("template <bool Signal, bool Sample = false>"))
+    scope = "    __VEC_SCOPE__ {\n"
+    split = builder.index(scope, begin)
+    setup = builder[begin + 1:split]
+    setup = "".join("    " + line if line.strip() else line for line in setup.splitlines(keepends=True))
+    builder = builder[:begin + 1] + "\n" + scope + setup + builder[split + len(scope):]
+    assertion = "static_assert(12U * sizeof(uint32_t) <= 64U"
+    assert header.count(assertion) == 2
+    header = header.replace(assertion, "static_assert(13U * sizeof(uint32_t) <= 64U")
+    import re
+    pattern = r"(?m)^([ \t]*)stateRead\.SetValue\(11U, ([^\n]+)\);$"
+    assert len(re.findall(pattern, header)) == 2
+    header = re.sub(pattern, lambda match: match[0] + "\n" + match[1] +
+                    "stateRead.SetValue(12U, 64U);", header)
     return header, builder
