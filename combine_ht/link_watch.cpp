@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 TileXR Project.
  * Captures the SST name before the pinned BA library sends through a null link.
- * Loaded only by the diagnostic runner; the baseline library is unchanged.
+ * Loaded only by the diagnostic runner; child MPI helpers do not inherit the
+ * preload setting. The baseline library is unchanged.
  */
 #include <sst/core/sst_config.h>
 #include <sst/core/component.h>
@@ -8,6 +9,12 @@
 #include <cstdlib>
 #include <dlfcn.h>
 #include <unistd.h>
+
+__attribute__((constructor)) static void KeepPreloadInSst()
+{
+    // The library remains loaded here; orted has no SST symbols to resolve it.
+    unsetenv("LD_PRELOAD");
+}
 
 extern "C" void WatchLink(void *object, void *event)
     asm("_ZN3SST7Davinci7BaLayer17sendReqToBusEventEPNS0_15BusPayloadEventE");
