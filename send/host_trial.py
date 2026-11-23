@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 import sys
-from store_controls import BASE_KINDS, POINTER_KINDS, COMPENSATION_KINDS, summarize_batch
+from store_controls import BASE_KINDS, POINTER_KINDS, COMPENSATION_KINDS, RUNTIME_KINDS, KINDS, summarize_batch
 from interleave_contract_host import PRIOR as CONTRACT_PRIOR, extract as extract_contract
 
 SESSION = "7626e689-38e9-468b-9a82-63673422e9d3"
@@ -57,7 +57,7 @@ def main(args):
     assert boundary == "none" or args.get("capture") is True
     assert type(args["attempt"]) is int and 1 <= args["attempt"] <= 20
     builder = args.get("builder", "original")
-    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS)
+    assert builder in ("original", "interleave", "interleave_packed", "scalar_control", "scalar_simd_probe", "scalar_simd_gather", "scalar_simd_interleave") + tuple("scalar_" + kind for kind in KINDS)
     folder = "mte-" + builder + "-" + str(args["attempt"])
     assert not (WORK / folder).exists(), "candidate already attempted"
     old_result = WORK / "trial-result.json"
@@ -125,9 +125,9 @@ def probe_boundaries(args):
 def run_store_controls(args):
     assert args["backward_record_bytes"] == 32 and args["mte_status"] is True
     assert socket.gethostname().split(".")[0] == args["hostname"] == "host-94-26"
-    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation")
+    assert args.get("controls", "full-tile") in ("full-tile", "pointer", "compensation", "runtime")
     kinds = {"full-tile": BASE_KINDS, "pointer": POINTER_KINDS,
-             "compensation": COMPENSATION_KINDS}[args.get("controls", "full-tile")]
+             "compensation": COMPENSATION_KINDS, "runtime": RUNTIME_KINDS}[args.get("controls", "full-tile")]
     path = WORK / ("store-result-" + str(args["attempt"]) + ".json")
     assert not path.exists(), "store_controls_already_attempted"
     for offset, kind in enumerate(kinds):
@@ -163,7 +163,7 @@ def run_store_controls(args):
         out["results"].append(result)
         path.write_text(json.dumps(out, indent=2))
         (WORK / "store-result.json").write_text(json.dumps(out, indent=2))
-        if args.get("controls") == "compensation" and not result["ok"]:
+        if args.get("controls") in ("compensation", "runtime") and not result["ok"]:
             break
         # Continue only after an observed terminal simulator exit, never a timeout.
         if not result["ok"] and result.get("returncode") not in (0, 255):

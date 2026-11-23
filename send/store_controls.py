@@ -3,19 +3,22 @@
 BASE_KINDS = ("store_post", "interleave_post", "interleave_explicit")
 POINTER_KINDS = ("pointer64", "pointer256")
 COMPENSATION_KINDS = ("pointer1024", "store_post_compensated", "interleave_post_compensated")
-KINDS = BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS
+RUNTIME_KINDS = ("pointer_runtime64", "store_post_runtime", "interleave_post_runtime")
+KINDS = BASE_KINDS + POINTER_KINDS + COMPENSATION_KINDS + RUNTIME_KINDS
 
 
 def pointer_strides(kind):
-    return {"pointer64": (64, 64), "pointer256": (256, 256), "pointer1024": (1024, 64)}[kind]
+    return {"pointer64": (64, 64), "pointer256": (256, 256), "pointer1024": (1024, 64),
+            "pointer_runtime64": (64, 64)}[kind]
 
 
 def generate(interleave_source, kind):
     assert kind in KINDS
-    if kind in POINTER_KINDS or kind == "pointer1024":
+    if kind.startswith("pointer"):
         return generate_pointer(kind)
     compensated = kind.endswith("_compensated")
-    base_kind = kind[:-len("_compensated")] if compensated else kind
+    runtime = kind.endswith("_runtime")
+    base_kind = kind.rsplit("_", 1)[0] if compensated or runtime else kind
     begin = interleave_source.index("            Interleave(v0, v8, v0, v8);")
     end = interleave_source.index("            uint32_t remainingWords", begin)
     operations = "" if base_kind == "store_post" else interleave_source[begin:end]
@@ -26,7 +29,7 @@ def generate(interleave_source, kind):
             f"        destination = output + {i}U * lanes;\n"
             f"        DataCopy<uint32_t>(destination, v{i}, mask);\n" for i in range(16))
     else:
-        stride = "lanes * 16U" if compensated else "lanes"
+        stride = "postStride" if runtime else "lanes * 16U" if compensated else "lanes"
         stores = "".join(
             f"        DataCopy<uint32_t, PostLiteral::POST_MODE_UPDATE>(destination, v{i}, {stride}, mask);\n"
             for i in range(16))
@@ -68,6 +71,8 @@ __aicore__ inline void ProbeOperation(__ubuf__ uint32_t *output)
             }
         }
 """.replace("EXPECTED", expected)
+    if runtime:
+        source, setup = runtime_stride(source, setup)
     return source, setup
 
 
@@ -126,6 +131,20 @@ __aicore__ inline void ProbeOperation(__ubuf__ uint32_t *output)
             if (actual != kStoreProbeSentinel) return 0xd4000000U | (index << 16U) | (actual & 0xffffU);
         }
 """
+    if kind == "pointer_runtime64":
+        assert source.count("kStoreProbeStride, mask") == 2
+        source = source.replace("kStoreProbeStride, mask", "postStride, mask")
+        source, setup = runtime_stride(source, setup)
+    return source, setup
+
+
+def runtime_stride(source, setup):
+    declaration = "    const uint32_t base = output[0];"
+    assert source.count(declaration) == 1
+    source = source.replace(declaration, declaration + "\n    const int32_t postStride = static_cast<int32_t>(reinterpret_cast<__ubuf__ volatile uint32_t *>(output)[1]);")
+    seed = "        probeWqes.SetValue(0U, kStoreProbeBase);"
+    assert setup.count(seed) == 1
+    setup = setup.replace(seed, seed + "\n        probeWqes.SetValue(1U, 64U);")
     return source, setup
 
 
@@ -138,7 +157,7 @@ def decode(status, kind):
                 "actual_delta_words": status & 0x00ffffff,
                 "metadata_matches_sentinel": (status & 0x00ffffff) == 0x00c3c3c3}
     if prefix == 0xd0000000:
-        if kind in POINTER_KINDS or kind == "pointer1024":
+        if kind.startswith("pointer"):
             _, stride = pointer_strides(kind)
             expected = (0x13579bdf if index < 64 else
                         0x13579be0 if stride <= index < stride + 64 else 0xc3c3c3c3)
