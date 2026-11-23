@@ -111,7 +111,7 @@ public:
     }
     __aicore__ Range LoadRange(uint32_t peer, uint32_t slot, uint32_t chunk)
     {
-        StageScope timing(trace_, RouteRead);
+        StageScope timing(trace_, RouteRead);  // Perfetto 11 begin, 12 end (send_read_routes)
         cachePeer_[slot] = peer;
         auto ranges = rangesCache_.Get<int32_t>()[slot * RangeCacheStride()];
         const uint32_t mask = uint32_t(1) << slot;
@@ -132,7 +132,7 @@ public:
     }
     __aicore__ int32_t LoadCount(uint32_t peer)
     {
-        StageScope timing(trace_, RouteRead);
+        StageScope timing(trace_, RouteRead);  // Perfetto 11 begin, 12 end (send_read_routes)
         const int32_t count = Load<int32_t>(counts_ + peer * 4, 1, metadata_.Get<int32_t>()).GetValue(0);
         const uint32_t slot = CacheSlot(peer);
         if (slot < kMaxPeersPerOwner) {
@@ -142,7 +142,7 @@ public:
     }
     __aicore__ Record LoadRecord(uint32_t peer, uint32_t row)
     {
-        StageScope timing(trace_, RouteRead);
+        StageScope timing(trace_, RouteRead);  // Perfetto 11 begin, 12 end (send_read_routes)
         const uint32_t slot = CacheSlot(peer);
         const uint32_t first = row / kForwardPageRows * kForwardPageRows;
         auto page = forwardCache_.Get<int32_t>()[slot * kForwardPageRows * kUbBlockBytes / sizeof(int32_t)];
@@ -170,7 +170,7 @@ public:
     }
     __aicore__ uint32_t WaitReady(uint32_t chunk)
     {
-        StageScope timing(trace_, LocalReady);
+        StageScope timing(trace_, LocalReady);  // Perfetto 9 begin, 10 end (send_wait_local_ready)
         const int64_t epoch = int64_t(chunk) + 1;
         if (readyThrough_ >= epoch) {
             return Success;
@@ -230,7 +230,7 @@ public:
     }
     __aicore__ uint32_t Notify(uint32_t peer, uint32_t lane, uint32_t chunk)
     {
-        StageScope timing(trace_, SubmitSO);
+        StageScope timing(trace_, SubmitSO);  // Perfetto 17 begin, 18 end (send_submit_so)
         const uint32_t qp = kLanes * owner_ + lane;
         auto source = reinterpret_cast<__gm__ uint64_t *>(workspace_ + c_.signalOffset + uint64_t(owner_) * kSlotBytes);
         const uint32_t ret = TileXR::UDMAPutNbiOnQp<uint64_t>(
@@ -249,7 +249,7 @@ public:
                     (unpublished_[lane] & PeerBit(peer)) ? TileXR::UDMAFlushQpDoorbell(args_, peer, qp) : 0;
                 uint32_t quiet;
                 {
-                    StageScope timing(trace_, WaitCQ);
+                    StageScope timing(trace_, WaitCQ);  // Perfetto 19 begin, 20 end (send_wait_cq)
                     quiet = TileXR::UDMAQuietStatusOnQp(args_, peer, qp);
                 }
                 if (flush || quiet) {
@@ -323,7 +323,7 @@ private:
 
     __aicore__ uint32_t PostPeerBatch(uint32_t peer, uint32_t lane, uint32_t rows)
     {
-        StageScope timing(trace_, PostBatch);
+        StageScope timing(trace_, PostBatch);  // Perfetto 13 begin, 14 end (send_post_batch)
         const uint32_t qp = kLanes * owner_ + lane;
         if (!TileXR::UDMAQueueOperationValid(args_, peer, qp)) {
             return TransportError;
@@ -391,7 +391,7 @@ private:
         TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount + count);
         touched_[lane] |= PeerBit(peer);
         {
-            StageScope timing(trace_, Doorbell);
+            StageScope timing(trace_, Doorbell);  // Perfetto 15 begin, 16 end (send_ring_doorbell)
             TileXR::UDMARingDoorbell(head + count, context);
         }
         return Success;
@@ -574,7 +574,7 @@ public:
 
     __aicore__ bool WaitWindow(uint32_t window, uint32_t first, uint32_t last)
     {
-        StageScope timing(trace_, WaitRemoteSO);
+        StageScope timing(trace_, WaitRemoteSO);  // Perfetto 25 begin, 26 end (reduce_wait_remote_so_and_local_ready)
         const uint32_t serverBegin = config_.rank / kRanksPerServer * kRanksPerServer;
         const uint64_t remote = ~(uint64_t {(1U << kRanksPerServer) - 1} << serverBegin);
         uint64_t previous = 0;
@@ -625,7 +625,7 @@ public:
 
     __aicore__ uint32_t ReduceTokens(uint32_t begin, uint32_t end)
     {
-        StageScope timing(trace_, ReduceRows);
+        StageScope timing(trace_, ReduceRows);  // Perfetto 27 begin, 28 end (reduce_rows)
 #ifndef TILEXR_EP_HT_FINAL_REDUCE_SST_FP32
         uint64_t rowOffset = uint64_t(begin) * tokenStride_;
 #endif
@@ -730,17 +730,17 @@ private:
                 workspace_ + ReturnOffset(config_, token, server * kRanksPerServer, sizeof(float))));
             returned.SetL2CacheHint(CacheMode::CACHE_MODE_DISABLE);
             {
-                StageScope timing(trace_, LoadPartial);
+                StageScope timing(trace_, LoadPartial);  // Perfetto 29 begin, 30 end (reduce_load_partial)
                 DataCopy(row, returned, hidden);
                 Sync<HardEvent::MTE2_V>();
             }
             {
-                StageScope timing(trace_, AddPartial);
+                StageScope timing(trace_, AddPartial);  // Perfetto 31 begin, 32 end (reduce_add_partial)
                 Add(output, output, row, hidden);
                 Sync<HardEvent::V_MTE2>();
             }
         }
-        StageScope timing(trace_, StoreOutput);
+        StageScope timing(trace_, StoreOutput);  // Perfetto 33 begin, 34 end (reduce_write_output)
         Sync<HardEvent::V_MTE3>();
         GlobalTensor<float> result;
         result.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(output_) + uint64_t(token) * hidden);
@@ -873,21 +873,21 @@ extern "C" __global__ __aicore__ void tilexr_ep_ht_combine_sst_fp32(
     TPipe pipe;
     StageTrace trace;
     trace.Init(pipe);
-    trace.Mark(2 * Kernel + 1);
+    trace.Mark(2 * Kernel + 1);  // Perfetto 1 begin (kernel)
     TBuf<QuePosition::VECCALC> queueStateScratch;
-    trace.Mark(2 * SendSetup + 1);
+    trace.Mark(2 * SendSetup + 1);  // Perfetto 3 begin (send_setup)
     pipe.InitBuffer(queueStateScratch, 32);
     const uint32_t block = GetBlockIdx();
     DeviceTransport transport(commArgs, workspace, forward, counts, ranges, config, block, pipe, trace);
-    trace.Mark(2 * SendSetup + 2);
+    trace.Mark(2 * SendSetup + 2);  // Perfetto 4 end (send_setup)
 
     uint32_t sendResult;
     {
-        StageScope timing(trace, SendSubmit);
+        StageScope timing(trace, SendSubmit);  // Perfetto 5 begin, 6 end (send_submit)
         sendResult = Submit(config, block, transport);
     }
     {
-        StageScope timing(trace, SendDrain);
+        StageScope timing(trace, SendDrain);  // Perfetto 7 begin, 8 end (send_drain)
         const uint32_t drained = Drain(transport);
         if (sendResult == Success) {
             sendResult = drained;
@@ -897,22 +897,22 @@ extern "C" __global__ __aicore__ void tilexr_ep_ht_combine_sst_fp32(
     pipe.InitBuffer(statusBuffer, 32);
     auto local = statusBuffer.Get<uint32_t>();
     {
-        StageScope timing(trace, WriteStatus);
+        StageScope timing(trace, WriteStatus);  // Perfetto 35 begin, 36 end (write_status)
         ExportStatus(local, status + block * 32, sendResult);
     }
-    trace.Mark(2 * ReduceSetup + 1);
+    trace.Mark(2 * ReduceSetup + 1);  // Perfetto 21 begin (reduce_setup)
     FinalReduceWorker worker(workspace, serverMask, localReady, output, config, pipe, trace);
-    trace.Mark(2 * ReduceSetup + 2);
+    trace.Mark(2 * ReduceSetup + 2);  // Perfetto 22 end (reduce_setup)
     uint32_t reduceResult;
     {
-        StageScope timing(trace, ReduceTotal);
+        StageScope timing(trace, ReduceTotal);  // Perfetto 23 begin, 24 end (reduce_total)
         reduceResult = ReduceWindows(config, block, GetBlockNum(), worker);
         worker.Drain();
     }
     {
-        StageScope timing(trace, WriteStatus);
+        StageScope timing(trace, WriteStatus);  // Perfetto 35 begin, 36 end (write_status)
         ExportStatus(local, status + GetBlockNum() * 32 + block * 32, reduceResult);
     }
-    trace.Mark(2 * Kernel + 2);
+    trace.Mark(2 * Kernel + 2);  // Perfetto 2 end (kernel)
     trace.Export(status + 4096 + uint64_t(block) * StageTrace::Bytes);
 }
