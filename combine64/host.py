@@ -61,6 +61,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         '--checker',runtime+'/'+CHECKER,'--environment',runtime+'/sst-environment.json','--threads','8','--timeout',str(seconds)],case/'runner.log',seconds+130)
     result={'case':str(case),'candidate_commit':REVISION,'world':64,'tokens':meta['tokens'],'hidden':128,'topk':6,'experts':256,
         'dtype':'fp32','phase':meta.get('phase',meta.get('stage','pipeline')),'runner_exit':code,
+        'compiler_scalar_dcci':meta.get('compiler_scalar_dcci',False),'pipeline_build_variant':meta.get('pipeline_build_variant'),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -285,7 +286,7 @@ def main(request):
             if code or action=='pipeline-build':return code
         if action in ('pipeline','qualify-pipeline','matrix-case','independent-bs'):
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
-                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',request.get('attempt','a1')],ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))),500)
+                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',request.get('attempt','a1'),'--build-variant',request.get('build_variant','original')],ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))),500)
             if code:
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))))}));return code
             case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,request.get('attempt','a1')))
