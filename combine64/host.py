@@ -125,14 +125,14 @@ def local(cid,tools,tokens,phase,attempt="a1"):
     write(case/'fixture-data/manifest.json',meta)
     return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel')
 
-def return_phase(cid,tools,tokens,stage):
+def return_phase(cid,tools,tokens,stage,attempt="a1"):
     runtime='/work/'+tools.name
     assert stage in ('return-independent','return','inter-send-independent','inter-send','final-independent','final-joint')
     code=execute(cid,['python3',runtime+'/return_fixture.py','--root','/work','--stage',stage,'--tokens',str(tokens),
-        '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-%d-%s.log'%(tokens,stage)),500)
+        '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',attempt],ROOT/('prepare-%d-%s-%s.log'%(tokens,stage,attempt)),500)
     if code:
         print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
-    case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
+    case=ROOT/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt));meta=json.loads((case/'fixture-data/manifest.json').read_text())
     return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
 
 def status(cid,info):
@@ -193,8 +193,12 @@ def main(request):
             return 0
         if action in ('return','qualify-return'):
             stages=[request['stage']] if action=='return' else ['return-independent','inter-send-independent','final-independent','return','inter-send','final-joint']
-            for stage in stages:
-                code=return_phase(cid,tools,tokens,stage)
+            first=request.get('start',0);assert isinstance(first,int) and 0<=first<len(stages)
+            for stage in stages[:first]:
+                candidates=list((ROOT/'cases').glob('64p-t%d-%s-*/phase-result.json'%(tokens,stage)))
+                assert any(json.loads(p.read_text()).get('qualified') is True for p in candidates),'skipped_stage_not_qualified'
+            for index,stage in enumerate(stages[first:],first):
+                code=return_phase(cid,tools,tokens,stage,request.get('attempt','a1') if index==first else 'a1')
                 if code:return code
             return 0
         if action=='local':return local(cid,tools,tokens,request['phase'],request.get('attempt','a1'))

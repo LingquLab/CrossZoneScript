@@ -15,7 +15,8 @@ def valid(case):
     p=case/'phase-result.json'
     assert p.is_file() and json.loads(p.read_text()).get('qualified') is True, 'predecessor_not_qualified'
 
-def main(root,stage,abis,tokens=16):
+def main(root,stage,abis,tokens=16,attempt="a1"):
+    assert attempt in ("a1","a2","a3")
     root=Path(root)
     world,hidden,topk=64,128,6
     assert tokens in (4,16,64,128)
@@ -27,7 +28,7 @@ def main(root,stage,abis,tokens=16):
     kind='return' if stage.startswith('return') else ('inter-send' if stage.startswith('inter-send') else 'final')
     local=root/'cases'/('64p-t%d-local-%s-a1'%(tokens,'send' if independent else 'fused'))
     if not independent: valid(local)
-    case=root/'cases'/('64p-t%d-%s-a1'%(tokens,stage))
+    case=root/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt))
     assert not case.exists(), 'case_already_exists'
     golden=case.with_name(case.name+'-golden')
     golden.mkdir(exist_ok=False)
@@ -37,9 +38,9 @@ def main(root,stage,abis,tokens=16):
     assert len(routes)==world*tokens
     build=json.loads((root/'profile-build/result.json').read_text())['targets']
     target=ENTRY[stage]
-    key={'return':'local_return','inter-send':'inter_server_send','final':'final_reduce'}[kind]
-    binary=root/build[key]['path']
-    assert digest(binary)==build[key]['sha256']
+    build_key={'return':'local_return','inter-send':'inter_server_send','final':'final_reduce'}[kind]
+    binary=root/build[build_key]['path']
+    assert digest(binary)==build[build_key]['sha256']
     padded=golden/'kernel.o'
     raw=binary.read_bytes()
     padded.write_bytes(raw+bytes(10485760-len(raw)))
@@ -200,7 +201,7 @@ def main(root,stage,abis,tokens=16):
           'input_mode':'independent_known_inputs' if independent else 'actual_predecessor_outputs',
           'consumed_actual_sha256':None if independent else provenance.hexdigest(),
           'consumed_input_sha256':provenance.hexdigest(),'blocks':blocks,'profiling_capacity':32,
-          'instrumentation_only':True,'stage_source_sha256':build[key]['original_sha256']}
+          'instrumentation_only':True,'stage_source_sha256':build[build_key]['original_sha256']}
     if (root/'adapter.json').is_file():
         adapter=json.loads((root/'adapter.json').read_text())
         meta['simulator_adapter']={k:adapter[k] for k in ('id','baseline_revision','overlay_api_sha256','overlay_inter_sha256')}
@@ -211,7 +212,8 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--root',required=True)
     p.add_argument('--stage',choices=list(ENTRY),required=True)
+    p.add_argument('--attempt',choices=('a1','a2','a3'),default='a1')
     p.add_argument('--tokens',type=int,choices=(4,16,64,128),default=16)
     p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args()
-    main(a.root,a.stage,json.loads(a.abis.read_text()),a.tokens)
+    main(a.root,a.stage,json.loads(a.abis.read_text()),a.tokens,a.attempt)
