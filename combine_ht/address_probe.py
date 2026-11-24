@@ -14,7 +14,9 @@ CONTAINER = "tilexr-combine-ht-f71d0252-v11"
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
-    assert json.loads(parser.parse_args().args_file.read_text(encoding="utf-8")) == {}
+    args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
+    assert args in ({}, {"trace": True}), "unexpected_arguments"
+    name = "stdev-address-trace-a1" if args.get("trace") else "stdev-address-a1"
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12", "root@141.61.94.26"]
@@ -31,13 +33,13 @@ def main():
     assert identity["Config"].get("Labels", {}).get("crosszone.session") == "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf", "unexpected_session_label"
     top = remote(["docker", "top", CONTAINER, "-eo", "pid,comm"]).decode().splitlines()[1:]
     assert not any(line.split()[-1] in ("sst", "sstsim.x") for line in top), "sst_already_active"
-    directory = WORK + "/diagnostics/stdev-address-a1"
+    directory = WORK + "/diagnostics/" + name
     remote(["mkdir", "-m", "700", directory])
     for name in ("address_probe.cpp", "address_probe_container.py"):
         remote(["bash", "-c", 'umask 077; set -C; cat > "$1"', "upload", directory + "/" + name],
                Path(__file__).with_name(name).read_bytes())
     result = json.loads(remote(["docker", "exec", CONTAINER, "python3",
-                               "/work/diagnostics/stdev-address-a1/address_probe_container.py"], timeout=330))
+                               "/work/diagnostics/" + name + "/address_probe_container.py"], timeout=330))
     print(json.dumps(result))
     return 0 if result["ok"] else 1
 

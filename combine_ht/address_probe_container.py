@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import signal
 import struct
 import subprocess
@@ -14,12 +16,23 @@ import sst
 
 def main():
     folder = Path(__file__).resolve().parent
-    assert folder.name == "stdev-address-a1"
+    assert folder.name in ("stdev-address-a1", "stdev-address-trace-a1")
+    tracing = folder.name == "stdev-address-trace-a1"
     assert not (folder / "run.json").exists(), "probe_already_attempted"
     config = json.loads(Path("/work/environment.snapshot.json").read_text())
     binary = folder / "probe.o"
-    with (folder / "build.log").open("wb") as log:
-        sst.build_kernel(config["settings"], log, source=folder / "address_probe.cpp", binary=binary)
+    if tracing:
+        original = folder.parent / "stdev-address-a1/probe.o"
+        assert sst.checksum(original) == "4a3749e99e95ec6b98a0077a478157039f2c9f181893c8d59c54d2b2ec9c49fd"
+        shutil.copyfile(original, binary)
+        configure = sst.configure
+        def trace_config(sources, args):
+            args.instruction_dump_chips = [0]
+            return configure(sources, args)
+        sst.configure = trace_config
+    else:
+        with (folder / "build.log").open("wb") as log:
+            sst.build_kernel(config["settings"], log, source=folder / "address_probe.cpp", binary=binary)
     poison = folder / "poison.bin"
     poison.write_bytes(bytes([0xCC]) * 32768)
     workload = {"workload_config": {}}
@@ -71,9 +84,36 @@ def main():
             for offset, value in values.items():
                 struct.pack_into("<I", expected, offset, value)
             actual = sst.read_output(folder, 0, "region" + str(index), address, 32768)
-            result["checks"].append(dict(address=hex(address), exact_match=actual == expected,
-                mismatched_bytes=sum(a != b for a, b in zip(actual, expected)), size=len(actual)))
+            changed = [i for i, value in enumerate(actual) if value != 0xCC]
+            entry = dict(address=hex(address), exact_match=actual == expected,
+                mismatched_bytes=sum(a != b for a, b in zip(actual, expected)), size=len(actual),
+                changed_bytes=len(changed), first_changes=[dict(offset=i, value=actual[i]) for i in changed[:20]])
+            entry["die_samples"] = []
+            for die in (1, 2):
+                path = folder / "bin" / ("david_0_die%d_region%d.bin" % (die, index))
+                raw = path.read_bytes()
+                entry["die_samples"].append(dict(die=die, bytes=len(raw),
+                    samples={str(i): raw[i:i+4].hex() for i in (0, 512, 1024, 1536, 8192)}))
+            result["checks"].append(entry)
         result["ok"] = bool(result["completions"]) and all(x["exact_match"] for x in result["checks"])
+    if tracing:
+        result["address_qualification_passed"] = result["ok"]
+        result["instructions"] = []
+        for path in sorted(folder.rglob("*sudetail.dump")):
+            for line in path.read_text(errors="replace").splitlines():
+                if "scalarStDev" in line:
+                    fields = {}
+                    for key in ("PC", "RAW", "xnValue", "xdValue", "dataType"):
+                        match = re.search(r"\b" + key + r"\s*=\s*([0-9A-Za-z]+)", line)
+                        if match:
+                            fields[key] = match.group(1)
+                    result["instructions"].append(fields)
+                if len(result["instructions"]) >= 3:
+                    break
+            if len(result["instructions"]) >= 3:
+                break
+        # Trace collection is a separate diagnostic; retain the negative guard result.
+        result["ok"] = process.returncode == 0 and bool(result["completions"]) and len(result["instructions"]) == 3
     (folder / "run.json").write_text(json.dumps(result, indent=2))
     return result
 
