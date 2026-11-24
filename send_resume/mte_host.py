@@ -10,6 +10,7 @@ import subprocess
 WORK = Path('/var/tmp/tilexr-combine-ht-500e2a93-b84e-4d36-a9aa-8d2cd0321cdf-v11')
 NAME = 'tilexr-combine-ht-500e2a93-v11'
 TRIAL_SOURCE = '__TRIAL_SOURCE__'
+TRIAL_NAME = 'mte-a1'
 
 
 def call(*argv):
@@ -34,14 +35,14 @@ def main():
     assert hashlib.sha256((WORK / 'tilexr_moonep_combine_ht_kernel.o').read_bytes()).hexdigest() == '2e31f0e06fe776f0a0feb5232f6c9593e3ca453a33e7a5983176dc8b7b7883fd'
     folder = WORK / 'resume-7de1'
     folder.mkdir(exist_ok=True)
-    assert not (folder / 'mte-a1').exists(), 'trial_already_attempted_read_saved_evidence'
-    script = folder / 'mte_trial-a1.py'
+    assert not (folder / TRIAL_NAME).exists(), 'trial_already_attempted_read_saved_evidence'
+    script = folder / (TRIAL_NAME + '.py')
     with script.open('x') as handle:
         handle.write(TRIAL_SOURCE)
-    proc = subprocess.run(['docker', 'exec', NAME, 'python3', '/work/resume-7de1/mte_trial-a1.py'],
+    proc = subprocess.run(['docker', 'exec', NAME, 'python3', '/work/resume-7de1/' + script.name],
                           capture_output=True, timeout=570)
-    (folder / 'mte-a1.stdout').write_bytes(proc.stdout)
-    (folder / 'mte-a1.stderr').write_bytes(proc.stderr)
+    (folder / (TRIAL_NAME + '.stdout')).write_bytes(proc.stdout)
+    (folder / (TRIAL_NAME + '.stderr')).write_bytes(proc.stderr)
     result = json.loads(proc.stdout)
     result['trial_exit_code'] = proc.returncode
     result['no_sst_active'] = not active_sst()

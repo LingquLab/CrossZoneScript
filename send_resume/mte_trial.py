@@ -13,6 +13,8 @@ import sst
 
 BASELINE = '2e31f0e06fe776f0a0feb5232f6c9593e3ca453a33e7a5983176dc8b7b7883fd'
 POLL_BEGIN = 'template <typename CompletionObserver>\n__aicore__ inline uint32_t UDMAPollCQUntilSqTail('
+TRIAL_NAME = 'mte-a1'
+AUTO_SYNC = True
 
 
 def once(text, before, after):
@@ -72,19 +74,31 @@ def adapt(folder, root=Path('/work')):
 
 
 def main():
-    folder = Path('/work/resume-7de1/mte-a1')
+    folder = Path('/work/resume-7de1') / TRIAL_NAME
     folder.mkdir(parents=True, exist_ok=False)
     result = dict(ok=False, diagnostic_only=True, baseline_kernel_sha256=BASELINE,
                   baseline_source_revision='16080aad58ced172c6e6682cf7eb87da4847bdad',
-                  variant='MTE_GM_QUEUE_STATE_AND_CQ_MIRROR', report=str(folder), send_verified=False)
+                  variant='MTE_GM_QUEUE_STATE_AND_CQ_MIRROR', auto_sync=AUTO_SYNC, report=str(folder), send_verified=False)
     try:
         assert sst.checksum(sst.KERNEL) == BASELINE
         snapshot = json.loads(Path('/work/environment.snapshot.json').read_text())
         sst.verify_environment(snapshot)
         result['adapted_source_sha256'] = adapt(folder)
         binary = folder / 'tilexr_moonep_combine_ht_kernel.o'
-        with (folder / 'build.log').open('wb') as log:
-            sst.build_kernel(snapshot['settings'], log, source=folder / 'combine_ht.cpp', binary=binary)
+        commands = []
+        original_shell = sst.shell_command
+        def build_shell(environment, stage, argv):
+            actual = [arg for arg in argv if AUTO_SYNC or arg != '--cce-auto-sync']
+            commands.append(list(map(str, actual)))
+            (folder / 'build.actual.json').write_text(json.dumps(commands, indent=2)+'\n')
+            return original_shell(environment, stage, actual)
+        sst.shell_command = build_shell
+        try:
+            with (folder / 'build.log').open('wb') as log:
+                sst.build_kernel(snapshot['settings'], log, source=folder / 'combine_ht.cpp', binary=binary)
+        finally:
+            sst.shell_command = original_shell
+        (folder / 'build.json').write_text(json.dumps(commands, indent=2)+'\n')
         result.update(build_completed=True, kernel_sha256=sst.checksum(binary))
         specs, routes = sst.fixtures.prepare(8, 4, 256, 16, 4, 40, 64)
         result['route_sha256'] = hashlib.sha256(json.dumps(routes, separators=(',', ':')).encode()).hexdigest()
@@ -95,6 +109,15 @@ def main():
         result['send'] = sst.run_phase(folder / 'send-only', 1, specs, [s.serialize() for s in specs], snapshot, args)
         result['send_verified'] = result['send']['ok']
         result['ok'] = result['send_verified']
+        log = folder / 'send-only/sim.log'
+        result['simulator_errors'] = []
+        if log.is_file():
+            with log.open(errors='replace') as handle:
+                for line in handle:
+                    if re.search(r'FATAL|Unknown low level|[Aa]ssertion|Segmentation fault', line):
+                        result['simulator_errors'].append(line.strip()[:700])
+                        if len(result['simulator_errors']) >= 3:
+                            break
     except Exception as error:
         result.update(error_type=type(error).__name__, detail=str(error)[:600])
         log = folder / 'build.log'
