@@ -48,7 +48,9 @@ def main():
     assert type(args.get('zero_logging', False)) is bool
     assert not (args.get('zero_logging') and args.get('ta_tp_info'))
     if 'ubus_replacement' in args:
-        assert args['ubus_replacement'] == '/home/l00654177/libUBusSimulator.so'
+        assert args['ubus_replacement'] in (
+            '/home/l00654177/libUBusSimulator.so',
+            '/home/l00654177/2-libUBusSimulator.so')
     if 'ubus_config_override' in args:
         assert args.get('zero_logging')
         assert args['ubus_config_override'] == (
