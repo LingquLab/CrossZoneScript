@@ -29,8 +29,8 @@ def main():
     assert identity["State"]["Running"], "container_not_running"
     assert identity["HostConfig"]["NetworkMode"] == "none", "unexpected_network_mode"
     assert identity["Config"].get("Labels", {}).get("crosszone.session") == "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf", "unexpected_session_label"
-    top = remote(["docker", "top", CONTAINER, "-eo", "comm"]).decode().splitlines()[1:]
-    assert not any(line.strip() in ("sst", "sstsim.x") for line in top), "sst_already_active"
+    top = remote(["docker", "top", CONTAINER, "-eo", "pid,comm"]).decode().splitlines()[1:]
+    assert not any(line.split()[-1] in ("sst", "sstsim.x") for line in top), "sst_already_active"
     directory = WORK + "/diagnostics/stdev-address-a1"
     remote(["mkdir", "-m", "700", directory])
     for name in ("address_probe.cpp", "address_probe_container.py"):
