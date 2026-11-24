@@ -18,8 +18,14 @@ import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 
-case = Path("/retained/clock")
+preserved = Path("/run-cases/clock")
+scratch = tempfile.TemporaryDirectory(prefix="clock-payload-")
+case = Path(scratch.name)
+for path in preserved.iterdir():
+    if path.name != "two_group_events.jsonl":
+        (case / path.name).symlink_to(path, target_is_directory=path.is_dir())
 scenario = json.loads((case / "scenario.json").read_text())
 assert scenario["candidate_revision"] == revision
 sys.path.insert(0, str(case))
@@ -59,7 +65,7 @@ image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5
 origin = "/home/h30059441/tilexr_sim_cc9_hapi_work"
 generator = "/work/coord_runner/full-matrix-fdcf9d52-20261119/generator"
 commands = ["docker", "run", "--rm", "-i", "--network", "none", "-v", origin + ":/work:ro",
-            "-v", args["run_dir"] + ":/retained:ro", "-e", "PYTHONPATH=" + generator,
+            "-v", args["run_dir"] + ":/run-cases:ro", "-e", "PYTHONPATH=" + generator,
             "--entrypoint", "python3", image, "-Bu", "-"]
 host = f"import subprocess,sys\ncall=subprocess.run({commands!r},input={runner.encode()!r},capture_output=True,timeout=135)\nsys.stdout.buffer.write(call.stdout)\nsys.stderr.buffer.write(call.stderr)\nsys.exit(call.returncode)\n"
 ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
