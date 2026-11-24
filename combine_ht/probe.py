@@ -10,9 +10,12 @@ def main(args):
         p=subprocess.run(ssh+[shlex.join(map(str,argv))],input=payload,capture_output=True,timeout=timeout)
         assert p.returncode==0, 'diagnostic_transport_exit_'+str(p.returncode)
         return p.stdout
-    for name in ['probe_container.py','sst_fault.c','stdev_probe.cpp']:
+    for name in ['probe_container.py','sst_fault.c','stdev_probe.cpp','v10_host.py']:
         call(['bash','-c','umask 077; cat > "$1"','upload',WORK+'/'+name],Path(__file__).with_name(name).read_bytes())
-    result=call(['docker','exec','tilexr-combine-ht-f71d0252-v11','python3','/work/probe_container.py',json.dumps(args)],timeout=args.get('timeout',360)+90)
+    if args['action']=='v10':
+        result=call(['timeout','--kill-after=30',str(args['timeout']),'python3',WORK+'/v10_host.py',json.dumps(args)],timeout=args['timeout']+45)
+    else:
+        result=call(['docker','exec','tilexr-combine-ht-f71d0252-v11','python3','/work/probe_container.py',json.dumps(args)],timeout=args.get('timeout',360)+90)
     value=json.loads(result)
     print(json.dumps(value))
     return 0 if value['ok'] else 1
