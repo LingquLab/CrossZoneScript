@@ -64,7 +64,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         'compiler_scalar_dcci':meta.get('compiler_scalar_dcci',False),'pipeline_build_variant':meta.get('pipeline_build_variant'),
         'stage_isolation_noinline':meta.get('stage_isolation_noinline',False),
         'barrier_algorithm':meta.get('barrier_algorithm'),
-        'extra_round_fence':meta.get('extra_round_fence',True),
+        'extra_round_fence':meta.get('extra_round_fence'),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -170,6 +170,17 @@ def return_phase(cid,tools,tokens,stage,attempt="a1"):
         print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
     case=ROOT/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt));meta=json.loads((case/'fixture-data/manifest.json').read_text())
     return run_case(cid,case,tools,'check_return.py',meta['entry'],{4:1000,16:1800,32:2700,64:3600,128:5400}[tokens])
+
+def pipeline_phase(cid,tools,tokens,request,seconds=None):
+    runtime='/work/'+tools.name;attempt=request.get('attempt','a1')
+    code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
+        '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',attempt,'--build-variant',request.get('build_variant','original')],
+        ROOT/('prepare-pipeline-%d-%s.log'%(tokens,attempt)),500)
+    if code:
+        print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d-%s.log'%(tokens,attempt)))}));return code
+    case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,attempt))
+    if seconds is None:seconds={4:2400,16:1800,32:2700,64:3600,128:5400}[tokens]
+    return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',seconds)
 
 def status(cid,info):
     result={'root':str(ROOT),'container_id':cid,'running':info['State']['Running'],'oom_killed':info['State']['OOMKilled']}
@@ -289,24 +300,45 @@ def main(request):
                 data=json.loads(report.read_text());files=data.get('dump_files',[]);data['dump_file_count']=len(files);data['dump_files']=files[:12];print(json.dumps(data,separators=(',',':')),flush=True)
             return code
         if action=='independent-bs':
-            import importlib.util
-            spec=importlib.util.spec_from_file_location('install_prepared',tools/'install_prepared.py')
-            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-            asset,identity=module.install(ROOT,request)
-            runtime_asset='/work/assets/'+asset.name
-            code=execute(cid,['c++','-O2','-std=c++14','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-I/work/source/include',
-                '/work/source/tools/unitest/simulator/experiments/inter_server_send/sst/abi_probe.cpp','-o',runtime_asset+'/abi-probe'],ROOT/('abi-verify-%d.log'%tokens),120)
-            assert code==0,'green_abi_probe_compile_failed'
-            for rank,expected in enumerate(request['portable']['abis']):
-                p=subprocess.run(['docker','exec',cid,runtime_asset+'/abi-probe',str(rank),str(tokens),'128','6',str(64*tokens*6),str(64*tokens*6),'2026','-','64'],capture_output=True,timeout=10)
-                assert p.returncode==0 and json.loads(p.stdout)==expected,'blue_green_abi_difference'
-            print(json.dumps(dict(stage='portable_fixture_installed',tokens=tokens,identity=identity),separators=(',',':')),flush=True)
-            for phase in ('send','reduce'):
-                code=local(cid,tools,tokens,phase)
-                if code:return code
-            for stage in ('return-independent','inter-send-independent','final-independent'):
-                code=return_phase(cid,tools,tokens,stage)
-                if code:return code
+            first=request.get('start_index',0)
+            assert tokens in (16,32,64,128) and isinstance(first,int) and 0<=first<6
+            stages=('local-send','local-reduce','return-independent','inter-send-independent','final-independent','pipeline')
+            if first==0:
+                import importlib.util
+                spec=importlib.util.spec_from_file_location('install_prepared',tools/'install_prepared.py')
+                module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                asset,identity=module.install(ROOT,request)
+                runtime_asset='/work/assets/'+asset.name
+                code=execute(cid,['c++','-O2','-std=c++14','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-I/work/source/include',
+                    '/work/source/tools/unitest/simulator/experiments/inter_server_send/sst/abi_probe.cpp','-o',runtime_asset+'/abi-probe'],ROOT/('abi-verify-%d.log'%tokens),120)
+                assert code==0,'green_abi_probe_compile_failed'
+                for rank,expected in enumerate(request['portable']['abis']):
+                    p=subprocess.run(['docker','exec',cid,runtime_asset+'/abi-probe',str(rank),str(tokens),'128','6',str(64*tokens*6),str(64*tokens*6),'2026','-','64'],capture_output=True,timeout=10)
+                    assert p.returncode==0 and json.loads(p.stdout)==expected,'blue_green_abi_difference'
+                print(json.dumps(dict(stage='portable_fixture_installed',tokens=tokens,identity=identity),separators=(',',':')),flush=True)
+            else:
+                identity=json.loads((ROOT/'assets'/('64p-t%d'%tokens)/'identity.json').read_text())
+                assert identity['candidate_commit']==REVISION and identity['kernel_binding']=='green_compiled_object' and identity['tokens']==tokens
+            overall=True
+            for stage in stages[:first]:
+                saved=json.loads((ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage))/'phase-result.json').read_text())
+                assert saved['candidate_commit']==REVISION and saved['run']['status'] not in ('running','unknown'),'skipped_case_not_terminal'
+                overall=overall and saved.get('operator_qualified',False)
+            results=[]
+            for stage in stages[first:]:
+                active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+                assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
+                if stage.startswith('local-'):code=local(cid,tools,tokens,stage.split('-',1)[1])
+                elif stage=='pipeline':code=pipeline_phase(cid,tools,tokens,request)
+                else:code=return_phase(cid,tools,tokens,stage)
+                results.append(dict(stage=stage,exit_code=code));overall=overall and code==0
+                if code:
+                    _,current=checked_container()
+                    if not current['State']['Running']:
+                        print(json.dumps(dict(stopped_on_container_exit=True,oom_killed=current['State']['OOMKilled'],results=results)),flush=True)
+                        return 1
+            print(json.dumps(dict(batch=tokens,overall_qualified=overall,stages_run=results),separators=(',',':')),flush=True)
+            return 0 if overall else 1
         if action in ('prepare','smoke','matrix-case'):
             code=prepare_asset(cid,tools,tokens)
             if code:return code
@@ -350,14 +382,8 @@ def main(request):
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code or action=='pipeline-build':return code
-        if action in ('pipeline','qualify-pipeline','matrix-case','independent-bs','isolate-pipeline'):
-            code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
-                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',request.get('attempt','a1'),'--build-variant',request.get('build_variant','original')],ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))),500)
-            if code:
-                print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))))}));return code
-            case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,request.get('attempt','a1')))
-            seconds=900 if action=='isolate-pipeline' else {4:2400,16:1800,32:2700,64:3600,128:5400}[tokens]
-            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',seconds)
+        if action in ('pipeline','qualify-pipeline','matrix-case','isolate-pipeline'):
+            return pipeline_phase(cid,tools,tokens,request,900 if action=='isolate-pipeline' else None)
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
             if (ROOT/'profile-build/result.json').is_file():

@@ -12,12 +12,13 @@ def main():
            'check_return.py','pipeline_kernel.cpp','pipeline_fixture.py','check_pipeline.py','pipeline_build.sh')
     files={name:(directory/name).read_text(encoding='utf-8') for name in names}
     request=dict(args,files=files)
-    if args['action']=='independent-bs':
+    if args['action']=='independent-bs' and args.get('start_index',0)==0:
         asset=directory/'data'/('64p-t%d'%args['tokens'])
         request['portable']=dict(identity=json.loads((asset/'identity.json').read_text()),abis=json.loads((asset/'send-abis.json').read_text()),archive=base64.b64encode((asset/'fixture.tar.gz').read_bytes()).decode())
     code=(directory/'host.py').read_text(encoding='utf-8')+'\nraise SystemExit(main('+repr(request)+'))\n'
     logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION;logs.mkdir(parents=True,exist_ok=True)
     stem=args['action']+'-'+str(args.get('tokens',4))+'-'+str(args.get('phase',args.get('stage','')))
+    if args['action']=='independent-bs':stem+='start'+str(args.get('start_index',0))
     seconds={'prepare':600,'smoke':1700,'qualify-local':2400,'local':1100,'instrument':700,'repair-profile-send':1800,'return':1250,'qualify-return':10000,'pipeline-build':400,'qualify-pipeline':3600,'pipeline':3300,'calibrate':1100,'matrix-case':7200,'independent-bs':19000,'trace-pipeline':950,'debug-pipeline':450,'pending-layout':120,'dcci-pipeline':2100,'snapshot-pipeline':1900,'isolate-pipeline':1900,'status':60,'batch-status':60,'stop':90}[args['action']]
     if args['action']=='independent-bs':seconds={16:12000,32:18000,64:24000,128:36000}[args['tokens']]
     cmd=['ssh','-T','-i',str(Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'),'-p','22','-o','BatchMode=yes',
