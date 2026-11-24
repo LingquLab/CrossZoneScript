@@ -1,0 +1,196 @@
+{
+  "timestamp_source": "SST_V310_SPR_SYS_CNT",
+  "cycles_per_us": 1650.0,
+  "frequency_hz": 1650000000,
+  "config_sha256": "8ee5a027f4e74b8d9cd11efa5674c42a86c1c2854f440c01f11d60513a7f11c2",
+  "config_path": "v310_config/davidV100_simulator_config.yml",
+  "frequency_field": "freq_aicore: 1.65GHz",
+  "source_commit": "40596e2d9d454b7a7b00b4b34b96d49158e1c3a3",
+  "image_id": "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5",
+  "receipt_event_id": "green-47bc1c1b34ed4685a7b57d9c3c574111",
+  "paired_samples": [
+    {
+      "instruction_id": 1365405,
+      "sys_counter": 4970,
+      "popped_core_tick": 4970,
+      "retired_core_tick": 4974,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 1367203,
+      "sys_counter": 4986,
+      "popped_core_tick": 4986,
+      "retired_core_tick": 4990,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 1545225,
+      "sys_counter": 5315,
+      "popped_core_tick": 5315,
+      "retired_core_tick": 5319,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 2657113,
+      "sys_counter": 8645,
+      "popped_core_tick": 8645,
+      "retired_core_tick": 8649,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 2669036,
+      "sys_counter": 8891,
+      "popped_core_tick": 8891,
+      "retired_core_tick": 8895,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 2754784,
+      "sys_counter": 8951,
+      "popped_core_tick": 8951,
+      "retired_core_tick": 8955,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3092566,
+      "sys_counter": 9603,
+      "popped_core_tick": 9603,
+      "retired_core_tick": 9607,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3265093,
+      "sys_counter": 9785,
+      "popped_core_tick": 9785,
+      "retired_core_tick": 9789,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3289395,
+      "sys_counter": 10031,
+      "popped_core_tick": 10031,
+      "retired_core_tick": 10035,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3480257,
+      "sys_counter": 10091,
+      "popped_core_tick": 10091,
+      "retired_core_tick": 10095,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3621749,
+      "sys_counter": 10205,
+      "popped_core_tick": 10205,
+      "retired_core_tick": 10209,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3672370,
+      "sys_counter": 10242,
+      "popped_core_tick": 10242,
+      "retired_core_tick": 10246,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3719158,
+      "sys_counter": 10488,
+      "popped_core_tick": 10488,
+      "retired_core_tick": 10492,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3896666,
+      "sys_counter": 10548,
+      "popped_core_tick": 10548,
+      "retired_core_tick": 10552,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 3978190,
+      "sys_counter": 10662,
+      "popped_core_tick": 10662,
+      "retired_core_tick": 10666,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 4005408,
+      "sys_counter": 10699,
+      "popped_core_tick": 10699,
+      "retired_core_tick": 10703,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 4032119,
+      "sys_counter": 10945,
+      "popped_core_tick": 10945,
+      "retired_core_tick": 10949,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 4191195,
+      "sys_counter": 11005,
+      "popped_core_tick": 11005,
+      "retired_core_tick": 11009,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 4253323,
+      "sys_counter": 11119,
+      "popped_core_tick": 11119,
+      "retired_core_tick": 11123,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 4649416,
+      "sys_counter": 12055,
+      "popped_core_tick": 12055,
+      "retired_core_tick": 12059,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 4783146,
+      "sys_counter": 12070,
+      "popped_core_tick": 12070,
+      "retired_core_tick": 12074,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 47483221,
+      "sys_counter": 71940,
+      "popped_core_tick": 71940,
+      "retired_core_tick": 71944,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 47871682,
+      "sys_counter": 78714,
+      "popped_core_tick": 78714,
+      "retired_core_tick": 78718,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 49884601,
+      "sys_counter": 80264,
+      "popped_core_tick": 80264,
+      "retired_core_tick": 80268,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 58172633,
+      "sys_counter": 102440,
+      "popped_core_tick": 102440,
+      "retired_core_tick": 102444,
+      "counter_minus_popped": 0
+    },
+    {
+      "instruction_id": 61537345,
+      "sys_counter": 109202,
+      "popped_core_tick": 109202,
+      "retired_core_tick": 109206,
+      "counter_minus_popped": 0
+    }
+  ],
+  "scope": "selected SST model configuration; maximum per-AIV Begin-to-End interval; no cross-rank alignment claim"
+}

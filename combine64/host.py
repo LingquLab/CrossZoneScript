@@ -93,7 +93,9 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
             program+=";result['local_details']=profile.summarize("+repr(runtime)+",8192,16,'local_profiling')"
         program+=";print(json.dumps(result))"
         profile_code=execute(cid,['python3','-c',program],case/'profiling-check.log',120)
-        if profile_code==0:result['profiling']=json.loads((case/'profiling-check.log').read_text())
+        if profile_code==0:
+            result['profiling']=json.loads((case/'profiling-check.log').read_text())
+            result['profiling_operator_us']=result['profiling'].get('operator_us')
         else:result['profiling_error']='see_profiling-check.log'
     result['qualified']=result['numerical_qualified'] and 'profiling' in result
     result['diagnostic_only']=meta.get('diagnostic_only',False)

@@ -1,6 +1,6 @@
 # Copyright (c) 2026 TileXR Project.
 """Serialize the shared DeviceView and check every expected profiling lane."""
-import json,statistics,struct
+import hashlib,json,statistics,struct
 from pathlib import Path
 LANES=16
 STATE_STRIDE=16
@@ -42,6 +42,19 @@ def summarize(case,cap,lanes=16,field="profiling"):
         median_lane_ticks=statistics.median(r['elapsed_ticks'] for r in records),
         stages={k:dict(max_lane_ticks=max(v),sum_lane_ticks=sum(v)) for k,v in intervals.items()},
         tick_frequency_hz=None,operator_us=None,conversion_status='awaiting_model_clock_evidence')
+    clock_file=Path(__file__).with_name('clock_evidence.json')
+    config_file=case/'v310_config/davidV100_simulator_config.yml'
+    if clock_file.is_file() and config_file.is_file():
+        evidence=json.loads(clock_file.read_text())
+        if hashlib.sha256(config_file.read_bytes()).hexdigest()==evidence['config_sha256']:
+            assert len(evidence['paired_samples'])==26 and all(q['sys_counter']==q['popped_core_tick'] for q in evidence['paired_samples'])
+            scale=evidence['cycles_per_us']
+            result.update(tick_frequency_hz=evidence['frequency_hz'],operator_us=result['max_lane_ticks']/scale,
+                conversion_status='verified_SST_SPR_SYS_CNT_matches_core_clock',
+                clock_basis_receipt=evidence['receipt_event_id'],time_scope='maximum per-AIV Begin-to-End; excludes profiling tail flush')
+            for stage in result['stages'].values():
+                stage['max_lane_us']=stage['max_lane_ticks']/scale
+                stage['sum_lane_us']=stage['sum_lane_ticks']/scale
     (case/(field+'-records.json')).write_text(json.dumps(records,indent=2))
     (case/(field+'-summary.json')).write_text(json.dumps(result,indent=2))
     return result
