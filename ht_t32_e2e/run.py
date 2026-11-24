@@ -49,7 +49,10 @@ elif args.get("local_ht") is True:
     identity_name = "local-ht/fixture-identity.json"
     fixture_name = "local-ht/fixture-images.tar.gz"
     object_name = "local-ht/inter_server_send.o.gz"
-    if args.get("local_ht_cq_gate") is True:
+    if args.get("local_ht_aligned_forward") is True:
+        identity_name = "local-ht/aligned-forward-identity.json"
+        object_name = "local-ht/aligned-forward.o.gz"
+    elif args.get("local_ht_cq_gate") is True:
         identity_name = "local-ht/cq-gate-identity.json"
         object_name = "local-ht/cq-gate.o.gz"
     elif args.get("bounded_local_ht") is True:
@@ -70,7 +73,7 @@ checker = root / ("local-ht/check.py" if args.get("local_ht") else "check.py")
 request = dict(build=build, identity=identity, archive=base64.b64encode(fixture).decode(),
                object=base64.b64encode(object_package).decode(), checker=checker.read_text(),
                exports=(root/"exports.py").read_text(), spread_gateways=delta,
-               bounded_local_ht=bool(args.get("bounded_local_ht") or args.get("local_ht_cq_gate")))
+               bounded_local_ht=bool(args.get("bounded_local_ht") or args.get("local_ht_cq_gate") or args.get("local_ht_aligned_forward")))
 if delta:
     manifest = (root / "t32-spread-delta-manifest.json").read_bytes()
     assert hashlib.sha256(manifest).hexdigest() == identity["delta_manifest_sha256"]
