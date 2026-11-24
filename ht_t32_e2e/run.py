@@ -49,7 +49,10 @@ elif args.get("local_ht") is True:
     identity_name = "local-ht/fixture-identity.json"
     fixture_name = "local-ht/fixture-images.tar.gz"
     object_name = "local-ht/inter_server_send.o.gz"
-    if args.get("local_ht_aligned_forward") is True:
+    if args.get("local_ht_release") is True:
+        identity_name = "local-ht/release-identity.json"
+        object_name = "local-ht/release.o.gz"
+    elif args.get("local_ht_aligned_forward") is True:
         identity_name = "local-ht/aligned-forward-identity.json"
         object_name = "local-ht/aligned-forward.o.gz"
     elif args.get("local_ht_cq_gate") is True:
