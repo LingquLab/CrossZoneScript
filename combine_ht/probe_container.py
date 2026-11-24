@@ -119,6 +119,10 @@ elif a['action'] in ('stdev-gm','stdev-trace'):
             changed=[i for i,value in enumerate(data) if value!=0xcc]
             result['regions'].append(dict(address=hex(address),changed_bytes=len(changed),first_changes=[dict(offset=i,value=data[i]) for i in changed[:24]],samples={str(i):data[i:i+8].hex() for i in [0,512,1024,1536,4096,8192,12288]}))
     if tracing:
+        header=Path('/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ascendc/include/basic_api/impl/kernel_scalar.h')
+        lines=header.read_text().splitlines()
+        hit=next(i for i,line in enumerate(lines) if 'st_dev' in line and 'uint32_t' in line)
+        result['sdk_store_context']=lines[max(0,hit-4):hit+4]
         result['instruction_records']=[]
         for path in sorted(folder.rglob('*sudetail.dump')):
             previous=[]
