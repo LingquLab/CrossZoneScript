@@ -1,4 +1,5 @@
 """Invoke the last two HT phases from the first two verified SST cases."""
+import base64
 import json
 from pathlib import Path
 import subprocess
@@ -21,7 +22,11 @@ prepare = (support / "prepare.py").read_text().replace(
     '"tilexr_moonep_combine_ht_kernel"}',
     '"tilexr_moonep_combine_ht_kernel", "tilexr_ep_ht_inter_server_send_kernel", "tilexr_ep_ht_final_reduce_sst_kernel"}'
 ).replace('assert build["compiled_in"] == "blue"', 'assert build["compiled_in"] == "green"')
-extra = (directory / "compatible_sender.py").read_text() if request["compatible"] else ""
+extra = ""
+if request["compatible"]:
+    request["mte_sender"] = base64.b64encode(
+        (root / "ht_t4_send_ab/opt/inter_server_send.o.gz").read_bytes()).decode()
+    extra = (directory / "compatible_sender.py").read_text()
 source = "\n".join((base, prepare, (directory / "local_phases.py").read_text(),
                     (directory / "remote_phases.py").read_text(), extra, f"""
 try:
