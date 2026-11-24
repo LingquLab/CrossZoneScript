@@ -17,6 +17,7 @@ import importlib
 import io
 import json
 from pathlib import Path
+import struct
 import sys
 import tempfile
 
@@ -48,9 +49,25 @@ def observe(condition, message):
             out, gold = actual[begin:begin+bpp], expected[begin:begin+bpp]
             offsets = [i for i,(a,b) in enumerate(zip(out,gold)) if a != b]
             if offsets:
-                result["peers"].append(dict(source=peer, count=len(offsets), first=offsets[0],
-                                            last=offsets[-1], stripe_count=len(set(i//512 for i in offsets)),
-                                            all_zero=not any(out)))
+                rank = result["rank"]
+                item = dict(source=peer, count=len(offsets), first=offsets[0], last=offsets[-1],
+                            stripe_count=len(set(i//512 for i in offsets)))
+                initial = frame.f_locals["original"][64+begin:64+begin+bpp]
+                item["bad_bytes_zero"] = all(out[i] == 0 for i in offsets)
+                item["bad_bytes_remained_initial"] = all(out[i] == initial[i] for i in offsets)
+                if peer != rank:
+                    args = (case / f"input_bin/rank{rank}/kernel_args.bin").read_bytes()
+                    remote, span = struct.unpack_from("<QQ", args, 56)
+                    record = frame.f_locals["record"]
+                    addr = record["workspace_addr"] + remote + (peer - (peer > rank)) * span
+                    try:
+                        stored = frame.f_locals["extract"]("receiveWorkspace", addr, bpp)
+                        item["workspace_matches_oracle"] = stored == gold
+                        item["workspace_matches_output"] = stored == out
+                        item["workspace_bad_bytes_zero"] = all(stored[i] == 0 for i in offsets)
+                    except Exception as error:
+                        item["workspace_evidence"] = type(error).__name__
+                result["peers"].append(item)
     return require(condition, message)
 validation.require = observe
 with contextlib.redirect_stdout(io.StringIO()):
