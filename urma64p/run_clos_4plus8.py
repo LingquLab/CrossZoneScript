@@ -30,7 +30,8 @@ assert subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id
 work = Path(tempfile.mkdtemp(prefix="urma16p-4plus8.", dir="/opt"))
 for name, blob in sources.items():
     (work / name).write_bytes(base64.b64decode(blob, validate=True))
-print(json.dumps(dict(stage="campaign_start", work=str(work), size=args["size"], revision=args["revision"])), flush=True)
+print(json.dumps(dict(stage="campaign_start", work=str(work), size=args.get("size"),
+                      cases=plan, revision=args["revision"])), flush=True)
 
 
 def command(argv, log, timeout):
@@ -58,12 +59,11 @@ if code:
     raise SystemExit(1)
 
 
-def run_case(kind):
+def run_case(size, kind, leaf):
     kernel = f"clos-4plus8/{kind}/tilexr_alltoall_urma_jetty_peers_full_kernel.o"
     assert hashlib.sha256((build / kernel).read_bytes()).hexdigest() == objects["objects"][kernel]
-    reference = f"{campaign}/reference-16p-{args['size']}-{kind}"
-    leaf = work / kind
-    leaf.mkdir()
+    reference = f"{campaign}/reference-16p-{size}-{kind}"
+    leaf.mkdir(parents=True)
     container_case = "/case-root/case"
     docker = common + ["--runtime", "ascend", "--ipc", "shareable", "--shm-size", "64m",
             "--ulimit", "nofile=524288:524288", "-e", f"PYTHONPATH={campaign}/generator",
@@ -75,7 +75,7 @@ def run_case(kind):
         return dict(stage="prepare", kind=kind, exit=code, errors=diagnostics(prepare_log))
     prepare_rows = prepare_log.read_text().splitlines()
     prep = next(json.loads(line) for line in reversed(prepare_rows) if '"stage": "prepared"' in line)
-    print(json.dumps(dict(prep, kind=kind)), flush=True)
+    print(json.dumps(dict(prep, size=size, kind=kind)), flush=True)
     log = leaf / "sst.log"
     start = time.monotonic()
     code = command(docker + [f"{container_case}/case_tools.py", "run", "--case-dir", container_case,
@@ -101,10 +101,18 @@ def run_case(kind):
     return row
 
 
-with ThreadPoolExecutor(max_workers=len(args["modes"])) as pool:
-    results = list(pool.map(run_case, args["modes"]))
-for result in results:
-    print(json.dumps(result), flush=True)
+def run_job(item):
+    size, kind = item
+    leaf = work / size / kind if "matrix" in args else work / kind
+    result = run_case(size, kind, leaf)
+    print(json.dumps(dict(result, size=size, attempt=1)), flush=True)
+    if result.get("status") == "timeout" and args.get("retry_timeout"):
+        result = run_case(size, kind, leaf.with_name(kind + "-retry"))
+        print(json.dumps(dict(result, size=size, attempt=2)), flush=True)
+
+
+with ThreadPoolExecutor(max_workers=min(3, len(plan))) as pool:
+    list(pool.map(run_job, plan))
 '''
 
 
@@ -116,11 +124,13 @@ def main():
         parser.error("invalid build path")
     if not re.fullmatch("[0-9a-f]{40}", args["revision"]):
         parser.error("invalid source revision")
-    if args["size"] not in ("512kib-per-rank", "4mib-per-rank", "16mib-per-rank"):
-        parser.error("unsupported seed")
-    if (not args["modes"] or len(args["modes"]) != len(set(args["modes"])) or
-            set(args["modes"]) - {"functional", "performance"}):
-        parser.error("invalid modes")
+    matrix = args.get("matrix") or {args["size"]: args["modes"]}
+    plan = [(size, kind) for size, modes in matrix.items() for kind in modes]
+    if not plan or len(plan) != len(set(plan)) or any(
+        size not in ("512kib-per-rank", "4mib-per-rank", "16mib-per-rank") or
+        kind not in ("functional", "performance") for size, kind in plan
+    ):
+        parser.error("invalid seed or mode")
     if not 60 <= args["timeout"] <= 9000:
         parser.error("invalid SST timeout")
     root = Path(__file__).resolve().parent
@@ -131,8 +141,11 @@ def main():
            "-o", "IdentitiesOnly=yes", "-i", str(Path.home() / ".ssh/id_ed25519_server"),
            "root@141.61.94.30", "python3 -u -"]
     with Path("urma16p-ssh.stderr.log").open("wb") as errors:
-        program = f"args = {args!r}\nsources = {sources!r}\n" + REMOTE
-        remote = subprocess.run(ssh, input=program.encode(), stderr=errors, timeout=args["timeout"] + 400)
+        program = f"args = {args!r}\nsources = {sources!r}\nplan = {plan!r}\n" + REMOTE
+        attempts = 2 if args.get("retry_timeout") else 1
+        waves = (len(plan) + 2) // 3
+        remote = subprocess.run(ssh, input=program.encode(), stderr=errors,
+                                timeout=waves * attempts * (args["timeout"] + 300) + 100)
     raise SystemExit(remote.returncode)
 
 
