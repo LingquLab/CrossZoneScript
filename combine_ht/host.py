@@ -13,7 +13,7 @@ WORK = Path(__file__).resolve().parent
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
 IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
 ARCHIVE = Path("/mnt/share/simulator/images/tilexr-sim-9.1-aarch64-v1.1.0.tar.gz")
-REVISIONS = {"candidate": "29f973b0d322105957ccaf31e2d4539f6fe00a24",
+REVISIONS = {"candidate": "bedcc4cecc1916b87a516ebe2e34f178e980f822",
              "tooling": "23a542b2e6bfcc34f85313d02677a4aafdfc3efb"}
 
 
