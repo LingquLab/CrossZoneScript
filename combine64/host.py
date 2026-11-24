@@ -200,7 +200,8 @@ def main(request):
         tokens=request.get('tokens',4);assert tokens in (4,16,32,64,128)
         if tokens!=4 and action not in ('instrument','pipeline-build'):
             gates=list((ROOT/'cases').glob('64p-t4-pipeline-a*/phase-result.json'))
-            assert any((q:=json.loads(p.read_text())).get('qualified') and q.get('operator_qualified') and q.get('candidate_commit')==REVISION for p in gates),'bs4_joint_gate'
+            gate_reports=[json.loads(p.read_text()) for p in gates]
+            assert any(q.get('qualified') and q.get('operator_qualified') and q.get('candidate_commit')==REVISION for q in gate_reports),'bs4_joint_gate'
         if action=='trace-pipeline':
             code=execute(cid,['python3',runtime+'/trace_pipeline.py'],ROOT/'pipeline-trace-runner.log',900)
             report=ROOT/'cases/64p-t4-pipeline-trace-a1/diagnostic.json'
