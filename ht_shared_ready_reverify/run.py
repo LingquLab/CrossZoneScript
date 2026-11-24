@@ -45,10 +45,13 @@ prepare = (support/'prepare.py').read_text().replace(
     '"tilexr_ep_ht_local_return_kernel", "tilexr_ep_ht_final_reduce_sst_kernel"}'
 ).replace('chip["block_dim"] == 16', 'chip["block_dim"] in (8, 16)')
 source = '\n'.join((base, prepare, (root/'ht_four_stage/local_phases.py').read_text(),
-                    *((shared/name).read_text() for name in ('handoff.py','returns.py','attached.py',
+                    *((shared/name).read_text() for name in ('returns.py','attached.py',
                                                             'local_evidence.py','downstream.py')),
                     (here/'verify.py').read_text(), f'''
 try:
+    handoff = type(sys)('attached_handoff')
+    exec({(shared/'handoff.py').read_text()!r}, handoff.__dict__)
+    build_attached = handoff.build_attached
     print(json.dumps(reverify({manifest!r}, {attached!r}, {returns!r}, {fixed!r}), separators=(',', ':')))
 except Exception as error:
     import traceback
