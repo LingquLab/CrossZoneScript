@@ -8,12 +8,12 @@ import socket
 import subprocess
 import sys
 
-SESSION = "500e2a93-b84e-4d36-a9aa-8d2cd0321cdf"
+SESSION = "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf"
 WORK = Path(__file__).resolve().parent
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
 IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
 ARCHIVE = Path("/mnt/share/simulator/images/tilexr-sim-9.1-aarch64-v1.1.0.tar.gz")
-REVISIONS = {"candidate": "16080aad58ced172c6e6682cf7eb87da4847bdad",
+REVISIONS = {"candidate": "54b1af8e439f9300abe70aed3d51f578cdbb1f3b",
              "tooling": "23a542b2e6bfcc34f85313d02677a4aafdfc3efb"}
 
 
@@ -62,7 +62,7 @@ def setup():
     identity = inspect()
     if not identity["State"]["Running"]:
         call("docker", "start", NAME)
-    result = run_sst({"stage": "setup"}, timeout=240)
+    result = run_sst({"stage": "setup"}, timeout=420)
     result.update(image_id=IMAGE, container_id=identity["Id"], host_work=str(WORK),
                   disk_free_bytes=shutil.disk_usage(WORK).free, revisions=REVISIONS)
     return result

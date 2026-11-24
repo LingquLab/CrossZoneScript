@@ -11,7 +11,7 @@ STATE_STRIDE = 16
 
 def capacity(spec):
     """Mirror the maintained HT fixture's per-stream event bound with spare records."""
-    bound = 8
+    bound = 4096
     for gateway, stages in enumerate(spec.backward):
         if gateway == spec.rank % 8:
             continue
@@ -70,7 +70,8 @@ def image(address, cap):
 
 PAIRS = {1: (2, "kernel_total"), 3: (5, "stage_work"), 7: (8, "final_quiet"),
          12: (13, "wqe_batch_build"), 14: (15, "single_wqe_build"),
-         16: (17, "sq_submit"), 18: (19, "chunk_send"), 22: (23, "token_ready_to_reduced")}
+         16: (17, "sq_submit"), 18: (19, "chunk_send"), 22: (23, "token_ready_to_reduced"),
+         24: (25, "prefill_load"), 26: (27, "prefill_patch")}
 
 
 def summarize(raw, cap, rank, folder):

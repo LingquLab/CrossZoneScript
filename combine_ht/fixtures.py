@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TileXR Project.
-"""Generate 64-source top-16 routes, HT metadata, and BF16 golden data for SST."""
+"""Generate 64-source top-6 routes, HT metadata, and BF16 golden data for SST."""
 
 from array import array
 from dataclasses import dataclass
@@ -8,7 +8,7 @@ import struct
 
 SOURCES = 64
 LOCAL_RANKS = 8
-TOPK = 16
+TOPK = 6
 EXPERTS_PER_RANK = 4
 GUARD = 0xC188  # BF16 -17
 SLOT_BYTES = 512
@@ -167,7 +167,12 @@ def prepare(ranks, tokens, hidden, chunk, splits, reducers, seed):
                     records.append((end, token, primary_row, sender, local_row, gather_row))
                     total = [a + b for a, b in zip(total, values)]
                 receiver.partials[primary_row] = row_bytes(total, hidden)
+    # Keep the registered workspace bounds and gather capacity equal across peers.
+    # The candidate serializer validates remote gather indices using config.gather_rows.
+    maximum = max(len(rank.gather_rows) for rank in spec)
+    guard_row = struct.pack("<H", GUARD) * hidden
     for rank in spec:
+        rank.gather_rows.extend([guard_row] * (maximum - len(rank.gather_rows)))
         for gateway in rank.backward:
             for stage, records in enumerate(gateway):
                 if records:

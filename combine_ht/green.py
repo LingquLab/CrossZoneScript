@@ -10,11 +10,11 @@ import subprocess
 import sys
 import tarfile
 
-SESSION = "500e2a93-b84e-4d36-a9aa-8d2cd0321cdf"
+SESSION = "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 INPUTS = (
-    ("candidate", "16080aad58ced172c6e6682cf7eb87da4847bdad",
+    ("candidate", "54b1af8e439f9300abe70aed3d51f578cdbb1f3b",
      ("include", "src/moonep/combine_ht", "tests/moonep_combine_ht/combine_ht.mapping.template.json")),
     ("tooling", "23a542b2e6bfcc34f85313d02677a4aafdfc3efb", ("tools/unitest/simulator",)),
 )
@@ -72,7 +72,7 @@ def main(args):
             with tarfile.open(scripts, "w") as package:
                 for path in sorted(Path(__file__).parent.glob("*.py")):
                     package.add(path, arcname=path.name)
-                package.add(Path(__file__).with_name("sst_fault.c"), arcname="sst_fault.c")
+                package.add(Path(__file__).with_name("prefill_bridge.cpp"), arcname="prefill_bridge.cpp")
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
         timeout = 960 if stage == "setup" else (args.get("stage_timeout", 60) + 120)

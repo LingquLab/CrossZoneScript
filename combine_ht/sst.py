@@ -4,6 +4,8 @@
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 import hashlib
+import ctypes
+import statistics
 import json
 import os
 from pathlib import Path
@@ -112,8 +114,14 @@ def setup():
     snapshot = select_environment()
     with (WORK / "build.log").open("wb") as log:
         build_kernel(snapshot["settings"], log)
+        subprocess.run(["g++", "-std=c++14", "-O2", "-shared", "-fPIC",
+            "-I" + str(WORK / "candidate/include"),
+            "-I" + str(WORK / "candidate/src/moonep/combine_ht/common"),
+            str(WORK / "candidate/src/moonep/combine_ht/host/combine_ht_prefill.cpp"),
+            str(WORK / "prefill_bridge.cpp"), "-o", str(WORK / "prefill.so")],
+            check=True, timeout=90, stdout=log, stderr=subprocess.STDOUT)
     return dict(ok=True, profiling_compiled=True, kernel_sha256=checksum(KERNEL), perf_resources=snapshot["resources"],
-                build_report=str(WORK / "build.json"),
+                build_report=str(WORK / "build.json"), prefill_builder_sha256=checksum(WORK / "prefill.so"),
                 model_libraries={name: record for name, record in snapshot["runtime_files"].items()
                                  if name.endswith(".so")})
 
@@ -151,9 +159,33 @@ def param_table(addresses, spec, mode):
         for n, (name, value) in enumerate(zip(fields, vals)):
             params[name] = dict(value=value, param_offset=str(start + width * n), param_type=str(code))
     for name, value, offset, code in (("comm_peer_begin", spec.rank // 8 * 8, 164, 5),
-                                      ("magic", 0, 224, 6), ("wqe_snapshot", addresses.get("wqe_snapshot", 0), 232, 11)):
+                                      ("magic", 0, 224, 6), ("wqe_snapshot", addresses.get("wqe_snapshot", 0), 232, 11),
+                                      ("prefill", addresses.get("prefill", 0), 240, 11)):
         params[name] = dict(value=value, param_offset=str(offset), param_type=str(code))
     return params
+
+
+def build_prefill(spec, images, record, records, runtime):
+    lib = ctypes.CDLL(str(WORK / "prefill.so"))
+    lib.EndpointBytes.restype = ctypes.c_uint64
+    assert lib.EndpointBytes() == 64, "prefill_endpoint_abi"
+    endpoints = bytearray(8 * 64)
+    for g in range(8):
+        peer = spec.rank // 8 * 8 + g
+        flat = peer * rt.HARDWARE_QPS
+        endpoints[g*64:g*64+40] = runtime["mem_info"][flat*40:(flat+1)*40]
+        endpoints[g*64+40:g*64+56] = runtime["eid_table"][flat*16:(flat+1)*16]
+        struct.pack_into("<Q", endpoints, g*64+56, records[peer]["workspace_addr"])
+    counts = struct.pack("<8i", *(sum(map(len, v)) for v in spec.backward))
+    cfg = struct.pack("<13I", *spec.config(1))
+    blobs = [ctypes.create_string_buffer(x) for x in (cfg, images["backward"], counts, images["backward_ranges"], bytes(endpoints))]
+    capacity = 512 + fixtures.align(8 * spec.chunks * 32) + (sum(sum(map(len,v)) for v in spec.backward)*2 + 7*spec.chunks)*64
+    out=ctypes.create_string_buffer(capacity)
+    written=ctypes.c_uint64()
+    lib.Build.argtypes=[ctypes.c_void_p,ctypes.c_uint64,ctypes.c_uint64,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint64,ctypes.POINTER(ctypes.c_uint64)]
+    code=lib.Build(blobs[0],record["input_addr"],record["workspace_addr"],*blobs[1:],out,capacity,ctypes.byref(written))
+    assert code == 0, "prefill_build_rank_%d_code_%d" % (spec.rank,code)
+    return out.raw[:written.value]
 
 
 def create_workload(case, specs, prepared, mode, send_state=None):
@@ -182,6 +214,8 @@ def create_workload(case, specs, prepared, mode, send_state=None):
             for name in ("sq_ctx", "cq_ctx", "mem_info", "eid_table", "queue_state", "cq_doorbells", "udma_info"):
                 images[name] = runtime[name]
                 addresses[name] = base + rt.BASES[name]
+            images["prefill"] = build_prefill(spec, initial, record, records, runtime)
+            addresses["prefill"] = base + 0x2D0000000
             images["registry"] = registry
             addresses["registry"] = base + rt.BASES["profile_registry"]
             addresses["fullmesh_info"] = addresses["udma_info"]
@@ -194,7 +228,7 @@ def create_workload(case, specs, prepared, mode, send_state=None):
         addresses["profiling"] = record["addresses"]["profiling"]
         images["profiling"] = profile_dump.image(addresses["profiling"], cap)
         params = param_table(addresses, spec, mode)
-        offset = 240
+        offset = 248
         for name, payload in images.items():
             path = directory / (name + ".bin")
             path.write_bytes(payload.ljust(fixtures.align(len(payload)), b"\0"))
@@ -283,7 +317,7 @@ def transfer_statistics(specs):
             signals = sum(bool(stage) for stage in stages)
             peers.append(dict(peer=spec.rank // 8 * 8 + gateway, payload_rows=rows,
                               payload_bytes=rows * spec.hidden * 2, so_payload_bytes=signals * 8,
-                              wqe_bytes=(rows + signals) * 64))
+                              wqe_bytes=(rows * (spec.hidden * 2 // 512) + signals) * 64))
         ranks.append(dict(rank=spec.rank, payload_bytes=sum(p["payload_bytes"] for p in peers),
                           so_payload_bytes=sum(p["so_payload_bytes"] for p in peers),
                           wqe_bytes=sum(p["wqe_bytes"] for p in peers), peers=peers))
@@ -388,7 +422,7 @@ def run_phase(case, mode, specs, prepared, config, args, send_state=None):
                               verified_workspace_sha256={str(rank): checksum(path) for rank, path in retained.items()})
             else:
                 validate_reduce(case, work, specs, send_state)
-                result.update(verified_ranks=len(specs), numeric_validation="SKIPPED_KNOWN_FP32_TO_BF16_CAST",
+                result.update(verified_ranks=len(specs), numeric_validation="SKIPPED_BY_REQUEST",
                               input_origin="verified_send_dump", progress_and_guards="PASS")
         except (OSError, ValueError, AssertionError) as error:
             failures.append("output_validation: " + str(error)[:500])
@@ -409,17 +443,17 @@ def run_phase(case, mode, specs, prepared, config, args, send_state=None):
 def run(args):
     ranks, tokens = args["ranks"], args["tokens"]
     assert ranks in (8, 16, 32, 64) and type(tokens) is int and tokens >= 4
-    assert args["hidden"] == 256 and args["mode"] in ("send", "reduce")
+    assert args["hidden"] == 512 and args["mode"] in ("send", "reduce")
     assert type(args["threads"]) is int and 1 <= args["threads"] <= 64
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args["case_id"])
     assert checksum(KERNEL) == args["kernel_sha256"], "kernel_identity_changed"
     config = json.loads((WORK / "environment.snapshot.json").read_text())
     verify_environment(config)
-    specs, routes = fixtures.prepare(ranks, tokens, 256, 16, min(tokens, 4), 40, 64)
+    specs, routes = fixtures.prepare(ranks, tokens, 512, 16, min(tokens, 4), 40, 64)
     route_bytes = json.dumps(routes, separators=(",", ":")).encode()
     case = WORK / "cases" / args["case_id"]
     case.mkdir(parents=True, exist_ok=True)
-    record = dict(ranks=ranks, source_ranks=64, bs=tokens, topk=16, hidden=256, reducers=40,
+    record = dict(ranks=ranks, source_ranks=64, bs=tokens, topk=6, hidden=512, reducers=40,
                   chunk=16, splits=min(tokens, 4), route_seed=64, route_sha256=hashlib.sha256(route_bytes).hexdigest(),
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"],
                   source_revision=json.loads((WORK / "revisions.json").read_text())["candidate"],
@@ -445,7 +479,7 @@ def run(args):
     prepared = [spec.serialize() for spec in specs]
     write_json(WORK / "progress.json", dict(state="preparing", case=str(case), mode=args["mode"]))
     result = run_phase(phase, 1 if args["mode"] == "send" else 2, specs, prepared, config, args, send_state)
-    result.update(ranks=ranks, source_ranks=64, bs=tokens, topk=16, hidden=256,
+    result.update(ranks=ranks, source_ranks=64, bs=tokens, topk=6, hidden=512,
                   kernel_sha256=record["kernel_sha256"], source_revision=record["source_revision"],
                   transfers={key: value for key, value in record["transfers"].items() if key != "per_rank"})
     write_json(case / (args["mode"] + "-result.json"), result)
