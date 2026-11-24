@@ -191,7 +191,7 @@ def main(request):
         if action=='pipeline-build':
             code=execute(cid,['bash',runtime+'/pipeline_build.sh',runtime+'/pipeline_kernel.cpp'],ROOT/'pipeline-build.log',350)
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
-            if report.is_file():print(report.read_text())
+            if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             return code
         if action=='pipeline':
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
@@ -202,7 +202,10 @@ def main(request):
             return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',1200)
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
-            if (ROOT/'profile-build/result.json').is_file():print((ROOT/'profile-build/result.json').read_text(),flush=True)
+            if (ROOT/'profile-build/result.json').is_file():
+                report=json.loads((ROOT/'profile-build/result.json').read_text())
+                compact=dict(all_compiled=report['all_compiled'],targets={k:{f:v for f,v in x.items() if f!='commands'} for k,x in report['targets'].items()})
+                print(json.dumps(compact,separators=(',',':')),flush=True)
             if code==0 and action=='repair-profile-send':return local(cid,tools,4,'send','a2')
             return code
         raise ValueError('phase_not_yet_implemented_'+action)
