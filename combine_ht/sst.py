@@ -248,10 +248,13 @@ def create_workload(case, specs, prepared, mode, send_state=None):
     return output
 
 
-def write_model(case, snapshot, workload, ranks):
+def write_model(case, snapshot, workload, ranks, diagnostic_simt_urma_flag=None):
     sources = {name: Path(record["path"]) for name, record in snapshot["resources"].items()}
     args = SimpleNamespace(rank_size=ranks, log_level=0, instruction_dump_chips=[])
     configs, level = configure(sources, args)
+    assert diagnostic_simt_urma_flag in (None, True), "invalid_diagnostic_urma_override"
+    if diagnostic_simt_urma_flag is True:
+        replace_keys(configs[UBUS_CONFIG], {"simt_urma_flag": True})
     replace_keys(configs[UBUS_CONFIG], {"stat_trace_flag": False})
     configs[UBUS_CONFIG]["simulator_info"]["clos_router_in_fm_flag"] = True
     for name, config in configs.items():
@@ -278,6 +281,7 @@ def write_model(case, snapshot, workload, ranks):
         clock_values(config, name)
     return dict(su=configs[V310_CONFIG]["simulator_config"]["su"]["component"],
                 lsu_level=level, clos_router_in_fm_flag=True, log_level=args.log_level,
+                diagnostic_simt_urma_flag=diagnostic_simt_urma_flag,
                 clock_fields=clock_fields)
 
 
@@ -375,7 +379,7 @@ def run_phase(case, mode, specs, prepared, config, args, send_state=None):
     stage_utc = datetime.now(timezone.utc).isoformat()
     work = create_workload(case, specs, prepared, mode, send_state)
     with (case / "model.log").open("w") as log, redirect_stdout(log):
-        model = write_model(case, config, work, len(specs))
+        model = write_model(case, config, work, len(specs), args.get("diagnostic_simt_urma_flag"))
     write_json(case / "workload.json", work)
     env = config["settings"]
     command = shell_command(env, "sst", [env["sst_bin"], "-n", str(args["threads"]), case / "test_UBusSim.py"])
@@ -461,6 +465,9 @@ def run(args):
                   kernel_sha256=checksum(KERNEL), report=str(case), sst_threads=args["threads"],
                   source_revision=json.loads((WORK / "revisions.json").read_text())["candidate"],
                   transfers=transfer_statistics(specs), profile_capacities=[profile_dump.capacity(s) for s in specs])
+    if args.get("diagnostic_simt_urma_flag") is not None:
+        assert args["diagnostic_simt_urma_flag"] is True
+        record["diagnostic_simt_urma_flag"] = True
     manifest = case / "case.json"
     if manifest.exists():
         assert json.loads(manifest.read_text()) == record, "case_configuration_changed"

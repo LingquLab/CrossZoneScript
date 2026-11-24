@@ -96,6 +96,8 @@ def main(args):
         result = compact
     elif stage == "run":
         result = phase_summary(result)
+        if args.get("diagnostic_simt_urma_flag") is True:
+            result["diagnostic_simt_urma_flag"] = True
     print(json.dumps(result, ensure_ascii=True))
     return 0 if result["ok"] else 1
 

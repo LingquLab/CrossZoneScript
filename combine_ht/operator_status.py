@@ -27,12 +27,14 @@ def compact(value):
     return value
 out["records"]={}
 for name in ("revisions.json","progress.json","run-summary-a0840f02-8p.json",
-             "cases/8p-bs16-a0840f02-a1/send-only/run.json","cases/8p-bs16-a0840f02-a1/reduce-only/run.json"):
+             "cases/8p-bs16-a0840f02-a1/send-only/run.json","cases/8p-bs16-a0840f02-a1/reduce-only/run.json",
+             "cases/8p-bs16-a0840f02-simtflag-a1/send-only/run.json"):
     path=work/name
     out["records"][name]=compact(json.loads(path.read_text())) if path.exists() else {"found":False}
 out["logs"]={}
 for name in ("build.log","host.log","cases/8p-bs16-a0840f02-a1/send-only/sim.log",
-             "cases/8p-bs16-a0840f02-a1/reduce-only/sim.log"):
+             "cases/8p-bs16-a0840f02-a1/reduce-only/sim.log",
+             "cases/8p-bs16-a0840f02-simtflag-a1/send-only/sim.log"):
     path=work/name
     if path.is_file():
         size=path.stat().st_size
