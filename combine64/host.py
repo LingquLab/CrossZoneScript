@@ -87,7 +87,11 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
             if errors:result[filename+'_errors']=errors[-3:]
     result['numerical_qualified']=code==0 and result.get('run',{}).get('status')=='sst_and_checker_passed' and 'checked' in result
     if result['numerical_qualified']:
-        profile_code=execute(cid,['python3','-c',"import sys,json;sys.path.insert(0,"+repr('/work/'+tools.name)+");import profile;print(json.dumps(profile.summarize("+repr(runtime)+","+str(meta.get('profiling_capacity',8192))+","+str(meta.get('blocks',16))+")))"],case/'profiling-check.log',120)
+        program="import sys,json;sys.path.insert(0,"+repr('/work/'+tools.name)+");import profile;result=profile.summarize("+repr(runtime)+","+str(meta.get('profiling_capacity',8192))+","+str(meta.get('blocks',16))+")"
+        if meta.get('joint_single_invocation'):
+            program+=";result['local_details']=profile.summarize("+repr(runtime)+",8192,16,'local_profiling')"
+        program+=";print(json.dumps(result))"
+        profile_code=execute(cid,['python3','-c',program],case/'profiling-check.log',120)
         if profile_code==0:result['profiling']=json.loads((case/'profiling-check.log').read_text())
         else:result['profiling_error']='see_profiling-check.log'
     result['qualified']=result['numerical_qualified'] and 'profiling' in result
@@ -230,12 +234,12 @@ def main(request):
             report=dict(diagnostic_only=True,method='two_timer_waits_differenced_against_SST_simulation_time',
                 frequency_hz=frequency,delta_ticks=delta_ticks,delta_sim_us=delta_us,cases=[r['case'] for r in reports])
             write(ROOT/'clock-calibration.json',report);print(json.dumps(report,separators=(',',':')));return 0
-        if action=='pipeline-build':
+        if action in ('pipeline-build','qualify-pipeline'):
             code=execute(cid,['bash',runtime+'/pipeline_build.sh',runtime+'/pipeline_kernel.cpp'],ROOT/'pipeline-build.log',350)
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
-            return code
-        if action=='pipeline':
+            if code or action=='pipeline-build':return code
+        if action in ('pipeline','qualify-pipeline'):
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
                 '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-pipeline-%d.log'%tokens),500)
             if code:
