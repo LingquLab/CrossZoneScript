@@ -39,6 +39,10 @@ print(json.dumps(result))
 if options.get('guarded_local') is True:
     source = source.replace('ht-bs64-random-20261124-', 'ht-bs64-random-20261124-guarded-')
 
+if options.get('guarded_inter') is True:
+    source = source.replace('case=base/("ht-bs64-random-20261124-guarded-"+stage)',
+                            'case=base/("ht-bs64-random-20261124-guarded-"+ ("inter-" if stage in ("inter-send", "final-reduce") else "") +stage)')
+
 ssh = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10",
        "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1",
        "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no", HOST, "python3", "-"]

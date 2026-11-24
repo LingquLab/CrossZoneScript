@@ -18,6 +18,8 @@ request = dict(plans=base64.b64encode((here / 'plans.zip').read_bytes()).decode(
                exports=(support / 'exports.py').read_text(), checker=(here / 'check.py').read_text())
 if options.get('guarded_local') is True:
     request['guarded_local'] = base64.b64encode((here / 'local-guarded.o.gz').read_bytes()).decode()
+if options.get('guarded_inter') is True:
+    request['guarded_inter'] = base64.b64encode((here / 'inter-guarded.o.gz').read_bytes()).decode()
 base = (root / 'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
 prepare = (support / 'prepare.py').read_text().replace('(4, 16, 32)', '(64,)').replace(
     '"tilexr_moonep_combine_ht_kernel"}',

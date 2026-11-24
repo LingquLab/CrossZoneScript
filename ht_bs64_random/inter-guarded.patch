@@ -1,0 +1,27 @@
+--- a/src/ep/combine_ht/inter_server_send_kernel.cpp
++++ b/src/ep/combine_ht/inter_server_send_kernel.cpp
+@@ -310,6 +310,2 @@
+-        // Publish the contiguous UB batch in one MTE3 copy, or two at wrap.
+-        // No SQ/head state changes until all descriptors have been validated.
+-        TileXR::UDMAPublishWqe(scratch, context, head, count);
+-        const uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
+-        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), head + count);
+-        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount + count);
++        constexpr uint32_t stripeEntries = kSlotBytes / TileXR::TILEXR_UDMA_WQE_BB_BYTES;
++        uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
+@@ -317 +313,14 @@
+-        TileXR::UDMARingDoorbell(head + count, context);
++        for (uint32_t posted = 0; posted < count;) {
++            const uint32_t remainingInStripe = stripeEntries - head % stripeEntries;
++            const uint32_t stripeCount = count - posted < remainingInStripe ? count - posted : remainingInStripe;
++            TileXR::UDMAPublishWqe(scratch[posted * TileXR::TILEXR_UDMA_WQE_BB_BYTES], context, head, stripeCount);
++            head += stripeCount;
++            wqeCount += stripeCount;
++            posted += stripeCount;
++            TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), head);
++            TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount);
++            TileXR::UDMARingDoorbell(head, context);
++            if (TileXR::UDMAQuietStatusOnQp(args_, peer, qp) != TileXR::TILEXR_UDMA_STATUS_SUCCESS) {
++                return TransportError;
++            }
++        }

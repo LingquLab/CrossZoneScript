@@ -5,6 +5,7 @@ import zipfile
 
 REVISION = '8882b28a4cc586f91ddcea171170bf9e304adc70'
 STEM = 'ht-bs64-random-20261124-'
+INTER_STEM = ''
 ENTRIES = (NATIVE, NATIVE, 'tilexr_ep_ht_inter_server_send_kernel', 'tilexr_ep_ht_final_reduce_sst_kernel')
 SENDER_HASH = '5851c89daf6e400813e2c963841d4cf1bdf6690c06ddb745999d4e566908181d'
 FINAL_HASH = '561e4bcb78c036a2bde27bb19f8e38e18e72b2488c691500151cd6eba90037d5'
@@ -17,7 +18,8 @@ def slot_offset(token, server):
 
 
 def stage_directory(phase):
-    return MOUNT / (STEM + ('local-send', 'local-reduce', 'inter-send', 'final-reduce')[phase - 1])
+    stem = INTER_STEM if phase >= 3 and INTER_STEM else STEM
+    return MOUNT / (stem + ('local-send', 'local-reduce', 'inter-send', 'final-reduce')[phase - 1])
 
 
 def read_stage(phase, rank, field, expected_bytes):
@@ -200,8 +202,12 @@ def phase_object(phase, request, temp):
         data = data.ljust(10485760, b'\0')
         expected = PADDED
     elif phase == 3:
-        data = gzip.decompress(base64.b64decode(request['sender'], validate=True))
-        expected = SENDER_HASH
+        if 'guarded_inter' in request:
+            data = gzip.decompress(base64.b64decode(request['guarded_inter'], validate=True))
+            expected = '504b7253bd2ad37115026a06bdbbffc240266052afa8877b900c11a135f2cfa9'
+        else:
+            data = gzip.decompress(base64.b64decode(request['sender'], validate=True))
+            expected = SENDER_HASH
     else:
         data = (build / 'sst/src/ep' / (ENTRIES[3] + '.o')).read_bytes()
         expected = FINAL_HASH
@@ -269,9 +275,13 @@ def prepare_phase(phase, request, temp, modules):
 
 
 def execute_request(request):
-    global STEM
-    if 'guarded_local' in request:
+    global STEM, INTER_STEM
+    if 'guarded_local' in request or 'guarded_inter' in request:
         STEM = 'ht-bs64-random-20261124-guarded-'
+    if 'guarded_inter' in request:
+        INTER_STEM = 'ht-bs64-random-20261124-guarded-inter-'
+        assert all(summarize(stage_directory(phase)).get('status') == 'sst_and_checker_passed'
+                   for phase in (1, 2))
     support = MOUNT.parent / BUILD / 'source/tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0, str(support))
     import loader
