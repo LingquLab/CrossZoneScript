@@ -14,7 +14,7 @@ SESSION = "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 INPUTS = (
-    ("candidate", "bedcc4cecc1916b87a516ebe2e34f178e980f822",
+    ("candidate", "a0840f023d7c20089ae0aec0057967fed74bd692",
      ("include", "src/moonep/combine_ht", "tests/moonep_combine_ht/combine_ht.mapping.template.json")),
     ("tooling", "23a542b2e6bfcc34f85313d02677a4aafdfc3efb", ("tools/unitest/simulator",)),
 )
@@ -75,7 +75,8 @@ def main(args):
                 package.add(Path(__file__).with_name("prefill_bridge.cpp"), arcname="prefill_bridge.cpp")
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
-        timeout = (args.get("stage_timeout", 60) + 600 if args.get("run_after_build") else 960) if stage in ("setup", "rebuild") else (args.get("stage_timeout", 60) + 120)
+        phases = 2 if args.get("run_reduce_after_send") else 1
+        timeout = (phases * args.get("stage_timeout", 60) + 600 if args.get("run_after_build") else 960) if stage in ("setup", "rebuild") else (args.get("stage_timeout", 60) + 120)
         result = json.loads(remote(["timeout", "--kill-after=25", str(timeout), "python3",
                                     WORK + "/host.py", json.dumps(args)], timeout + 45))
     except (OSError, ValueError, RuntimeError, AssertionError, subprocess.SubprocessError) as error:
@@ -83,6 +84,18 @@ def main(args):
                       detail=str(error) if isinstance(error, RuntimeError) else "see_green_local_log",
                       green_log=str(log_path))
     (root / (stage + ".json")).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    # Keep full reports green-local; return only the requested identity/check/timing fields.
+    def phase_summary(value):
+        return {key: item for key, item in value.items() if key != "model"}
+    if stage == "rebuild" and "send_result" in result:
+        keys = ("ok", "kernel_sha256", "prefill_builder_sha256", "build_report", "revisions", "container_id")
+        compact = {key: result[key] for key in keys if key in result}
+        for name in ("send_result", "reduce_result"):
+            if name in result:
+                compact[name] = phase_summary(result[name])
+        result = compact
+    elif stage == "run":
+        result = phase_summary(result)
     print(json.dumps(result, ensure_ascii=True))
     return 0 if result["ok"] else 1
 

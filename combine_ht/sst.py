@@ -29,7 +29,7 @@ TOOLS = WORK / "tooling/tools/unitest/simulator"
 EXPERIMENT = TOOLS / "experiments/alltoall_udma"
 sys.path[:0] = [str(TOOLS), str(EXPERIMENT)]
 from case_tools import extract_die_output
-from configuration import configure, UBUS_CONFIG, V310_CONFIG
+from configuration import configure, replace_keys, UBUS_CONFIG, V310_CONFIG
 from kernel_build import find_linker
 import runtime as rt
 from sim_environment import RESOURCE_GROUPS, checksum, file_record, load_environment, runtime_fingerprint, shell_command, verify_environment
@@ -93,7 +93,8 @@ def build_kernel(env, log, source=None, binary=KERNEL):
     source = source or src / "src/moonep/combine_ht/kernels/combine_ht.cpp"
     obj = binary.with_name(binary.stem + "_rel.o")
     options = ["-xcce", "-O2", "-DCATLASS_ARCH=3510", "--cce-auto-sync", "-Wno-deprecated-declarations",
-               "-DTILEXR_COMBINE_HT_SIM_SEND=1", "-DTILEXR_ENABLE_PROFILING=1", "--cce-aicore-arch=dav-c310-vec", "--cce-aicore-only", "-std=gnu++17",
+               "-DTILEXR_COMBINE_HT_SIM_SEND=1", "-DTILEXR_COMBINE_HT_SIM_ST_DEV_ADDR_SHIFT3=1",
+               "-DTILEXR_ENABLE_PROFILING=1", "--cce-aicore-arch=dav-c310-vec", "--cce-aicore-only", "-std=gnu++17",
                "-mllvm", "-cce-aicore-stack-size=0x8000", "-mllvm", "-cce-aicore-function-stack-size=0x8000",
                "-mllvm", "-cce-aicore-record-overflow=true", "-mllvm", "-cce-aicore-addr-transform",
                "-mllvm", "-cce-aicore-dcci-insert-for-scalar=false"]
@@ -249,8 +250,9 @@ def create_workload(case, specs, prepared, mode, send_state=None):
 
 def write_model(case, snapshot, workload, ranks):
     sources = {name: Path(record["path"]) for name, record in snapshot["resources"].items()}
-    args = SimpleNamespace(rank_size=ranks, log_level=1, instruction_dump_chips=[])
+    args = SimpleNamespace(rank_size=ranks, log_level=0, instruction_dump_chips=[])
     configs, level = configure(sources, args)
+    replace_keys(configs[UBUS_CONFIG], {"stat_trace_flag": False})
     configs[UBUS_CONFIG]["simulator_info"]["clos_router_in_fm_flag"] = True
     for name, config in configs.items():
         path = case / name
@@ -409,6 +411,7 @@ def run_phase(case, mode, specs, prepared, config, args, send_state=None):
             match = SIM_TIME.search(line)
             if match:
                 finish.append(float(match[1]) * TIME_FACTORS[match[2]])
+                result["simulated_time_raw"] = dict(value=match[1], unit=match[2])
             fatal |= "FATAL:" in line or "Traceback (most recent call last)" in line
     result["completed"] = code == 0 and not fatal and bool(finish) and finish[-1] > 0
     if finish:

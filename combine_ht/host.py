@@ -13,7 +13,7 @@ WORK = Path(__file__).resolve().parent
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
 IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
 ARCHIVE = Path("/mnt/share/simulator/images/tilexr-sim-9.1-aarch64-v1.1.0.tar.gz")
-REVISIONS = {"candidate": "bedcc4cecc1916b87a516ebe2e34f178e980f822",
+REVISIONS = {"candidate": "a0840f023d7c20089ae0aec0057967fed74bd692",
              "tooling": "23a542b2e6bfcc34f85313d02677a4aafdfc3efb"}
 
 
@@ -100,6 +100,11 @@ def main(args):
             run_args={**args,"stage":"run","kernel_sha256":result["kernel_sha256"]}
             result["send_result"]=run_sst(run_args,args["stage_timeout"]+95)
             result["ok"]=result["send_result"]["ok"]
+            if result["ok"] and args.get("run_reduce_after_send"):
+                reduce_args = {**run_args, "mode": "reduce"}
+                result["reduce_result"] = run_sst(reduce_args, args["stage_timeout"] + 95)
+                result["ok"] = result["reduce_result"]["ok"]
+        (WORK / "run-summary-a0840f02-8p.json").write_text(json.dumps(result, indent=2))
         return result
     if stage == "stop":
         if running:
