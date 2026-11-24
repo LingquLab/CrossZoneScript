@@ -19,7 +19,7 @@ def main(root,stage,abis,tokens=16,attempt="a1"):
     assert attempt in ("a1","a2","a3")
     root=Path(root)
     world,hidden,topk=64,128,6
-    assert tokens in (4,16,64,128)
+    assert tokens in (4,16,32,64,128)
     source=root/'source'
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0,str(support))
@@ -27,7 +27,11 @@ def main(root,stage,abis,tokens=16,attempt="a1"):
     independent=stage.endswith('-independent')
     kind='return' if stage.startswith('return') else ('inter-send' if stage.startswith('inter-send') else 'final')
     local=root/'cases'/('64p-t%d-local-%s-a1'%(tokens,'send' if independent else 'fused'))
-    if not independent: valid(local)
+    input_root=local
+    if independent:
+        local=root/'assets'/('64p-t%d'%tokens)
+        input_root=local/'loader'
+    else:valid(local)
     case=root/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt))
     assert not case.exists(), 'case_already_exists'
     golden=case.with_name(case.name+'-golden')
@@ -60,7 +64,7 @@ def main(root,stage,abis,tokens=16,attempt="a1"):
         registered=local_ready+8*512+world*512
         ws=bytearray(registered)
         name='rank%02d'%rank
-        inp=(local/'input_bin'/name/'input.bin').read_bytes()
+        inp=(input_root/'input_bin'/name/'input.bin').read_bytes()
         partial=(local/'fixture-data'/name/'golden-output.bin').read_bytes() if independent else (local/'actual'/name/'output.bin').read_bytes()
         provenance.update(hashlib.sha256(partial).digest())
         ws[config['inputOffset']:config['inputOffset']+len(inp)]=inp
@@ -120,17 +124,17 @@ def main(root,stage,abis,tokens=16,attempt="a1"):
                 start=config['returnOffset']+offset
                 ws[start:start+512]=gold_returned[offset:offset+512]
         images=runtime.runtime_images(abi,rank,registered,world=world)
-        packed_forward=(local/'input_bin'/name/'forward.bin').read_bytes()
+        packed_forward=(input_root/'input_bin'/name/'forward.bin').read_bytes()
         return_forward=b''.join(struct.pack('<8i',*record,0,0) for record in struct.iter_unpack('<6i',packed_forward))
         assert abi['forward_record_words']==8
         images.update(profiling=ht_profile.image(base+ht_profile.ADDRESS,32),workspace=ws,forward=return_forward,
-                      counts=(local/'input_bin'/name/'counts.bin').read_bytes(),ranges=(local/'input_bin'/name/'ranges.bin').read_bytes(),
+                      counts=(input_root/'input_bin'/name/'counts.bin').read_bytes(),ranges=(input_root/'input_bin'/name/'ranges.bin').read_bytes(),
                       status=b'\xa5'*512)
         if kind=='return':
-            local_ws=bytearray((local/'input_bin'/name/'workspace.bin').read_bytes())
-            old_args=(local/'input_bin'/name/'kernel_args.bin').read_bytes()
+            local_ws=bytearray((input_root/'input_bin'/name/'workspace.bin').read_bytes())
+            old_args=(input_root/'input_bin'/name/'kernel_args.bin').read_bytes()
             old_workspace=struct.unpack_from('<Q',old_args,0)[0]
-            old_layout=json.loads((local/'export-layout.json').read_text())['ranks'][rank]
+            old_layout=json.loads((input_root/'export-layout.json').read_text())['ranks'][rank]
             for field in ('returned','completed','output'):
                 bounds=old_layout['exports'][field]
                 data=(local/'fixture-data'/name/('golden-'+field+'.bin')).read_bytes() if independent else (local/'actual'/name/(field+'.bin')).read_bytes()
@@ -213,7 +217,7 @@ if __name__=='__main__':
     p.add_argument('--root',required=True)
     p.add_argument('--stage',choices=list(ENTRY),required=True)
     p.add_argument('--attempt',choices=('a1','a2','a3'),default='a1')
-    p.add_argument('--tokens',type=int,choices=(4,16,64,128),default=16)
+    p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=16)
     p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args()
     main(a.root,a.stage,json.loads(a.abis.read_text()),a.tokens,a.attempt)

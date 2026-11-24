@@ -115,9 +115,6 @@ def local(cid,tools,tokens,phase,attempt="a1"):
     runtime='/work/cases/'+case.name
     workload=json.loads((asset/'loader/workload.yml').read_text().replace(identity['runtime_root'],runtime))
     provenance=hashlib.sha256()
-    if phase=='reduce':
-        prior=case.with_name('64p-t%d-local-send-%s'%(tokens,'a2' if tokens==4 else 'a1'))
-        assert json.loads((prior/'phase-result.json').read_text())['qualified'],'predecessor_not_qualified'
     for row in layout['ranks']:
         folder=case/'input_bin'/('rank%02d'%row['rank']);args=bytearray((folder/'kernel_args.bin').read_bytes())
         struct.pack_into('<I',args,156,{'send':1,'reduce':2,'fused':3}[phase]);(folder/'kernel_args.bin').write_bytes(args)
@@ -125,7 +122,9 @@ def local(cid,tools,tokens,phase,attempt="a1"):
         if phase=='reduce':
             ws=bytearray((folder/'workspace.bin').read_bytes())
             for field in ('returned','completed','output'):
-                bounds=row['exports'][field];payload=(prior/'actual'/folder.name/(field+'.bin')).read_bytes()
+                bounds=row['exports'][field]
+                filename='initial-output.bin' if field=='output' else 'golden-'+field+'.bin'
+                payload=(asset/'fixture-data'/folder.name/filename).read_bytes()
                 assert len(payload)==bounds['size'];offset=bounds['addr']-struct.unpack_from('<Q',args,0)[0]
                 ws[offset:offset+len(payload)]=payload;provenance.update(hashlib.sha256(payload).digest())
             (folder/'workspace.bin').write_bytes(ws)
@@ -135,10 +134,10 @@ def local(cid,tools,tokens,phase,attempt="a1"):
         raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
     write(case/'workload.yml',workload)
     meta=json.loads((case/'fixture-data/manifest.json').read_text());meta.update(kernel_sha256=sha(case/'kernel/inter_server_send.o'),profiling_tail_flush=(ROOT/'profile-build/result.json').is_file(),phase=phase,
-        input_mode='actual_predecessor_outputs' if phase=='reduce' else 'expert_outputs_and_routes',
-        consumed_actual_sha256=provenance.hexdigest() if phase=='reduce' else None)
+        input_mode='independent_known_inputs' if phase=='reduce' else 'expert_outputs_and_routes',
+        consumed_actual_sha256=None,consumed_input_sha256=provenance.hexdigest() if phase=='reduce' else None)
     write(case/'fixture-data/manifest.json',meta)
-    return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel')
+    return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel',{4:900,16:1800,32:2700,64:3600,128:5400}[tokens])
 
 def prepare_asset(cid,tools,tokens):
     runtime='/work/'+tools.name
@@ -164,7 +163,7 @@ def return_phase(cid,tools,tokens,stage,attempt="a1"):
     if code:
         print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
     case=ROOT/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt));meta=json.loads((case/'fixture-data/manifest.json').read_text())
-    return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
+    return run_case(cid,case,tools,'check_return.py',meta['entry'],{4:1000,16:1800,32:2700,64:3600,128:5400}[tokens])
 
 def status(cid,info):
     result={'root':str(ROOT),'container_id':cid,'running':info['State']['Running'],'oom_killed':info['State']['OOMKilled']}
@@ -198,10 +197,29 @@ def main(request):
             if p.exists():assert p.read_text()==text
             else:p.write_text(text)
         runtime='/work/'+tools.name
-        tokens=request.get('tokens',4);assert tokens in (4,16,64,128)
+        tokens=request.get('tokens',4);assert tokens in (4,16,32,64,128)
         if tokens!=4 and action not in ('instrument','pipeline-build'):
             gate=ROOT/'cases/64p-t4-pipeline-a1/phase-result.json'
             assert gate.is_file() and json.loads(gate.read_text())['qualified'],'bs4_joint_gate'
+        if action=='independent-bs':
+            import importlib.util
+            spec=importlib.util.spec_from_file_location('install_prepared',tools/'install_prepared.py')
+            module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+            asset,identity=module.install(ROOT,request)
+            runtime_asset='/work/assets/'+asset.name
+            code=execute(cid,['c++','-O2','-std=c++14','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-I/work/source/include',
+                '/work/source/tools/unitest/simulator/experiments/inter_server_send/sst/abi_probe.cpp','-o',runtime_asset+'/abi-probe'],ROOT/('abi-verify-%d.log'%tokens),120)
+            assert code==0,'green_abi_probe_compile_failed'
+            for rank,expected in enumerate(request['portable']['abis']):
+                p=subprocess.run(['docker','exec',cid,runtime_asset+'/abi-probe',str(rank),str(tokens),'128','6',str(64*tokens*6),str(64*tokens*6),'2026','-','64'],capture_output=True,timeout=10)
+                assert p.returncode==0 and json.loads(p.stdout)==expected,'blue_green_abi_difference'
+            print(json.dumps(dict(stage='portable_fixture_installed',tokens=tokens,identity=identity),separators=(',',':')),flush=True)
+            for phase in ('send','reduce'):
+                code=local(cid,tools,tokens,phase)
+                if code:return code
+            for stage in ('return-independent','inter-send-independent','final-independent'):
+                code=return_phase(cid,tools,tokens,stage)
+                if code:return code
         if action in ('prepare','smoke','matrix-case'):
             code=prepare_asset(cid,tools,tokens)
             if code:return code
@@ -245,13 +263,13 @@ def main(request):
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code or action=='pipeline-build':return code
-        if action in ('pipeline','qualify-pipeline','matrix-case'):
+        if action in ('pipeline','qualify-pipeline','matrix-case','independent-bs'):
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
                 '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-pipeline-%d.log'%tokens),500)
             if code:
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d.log'%tokens))}));return code
             case=ROOT/'cases'/('64p-t%d-pipeline-a1'%tokens)
-            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:1200,16:1800,64:3600,128:5400}[tokens])
+            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:1200,16:1800,32:2700,64:3600,128:5400}[tokens])
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
             if (ROOT/'profile-build/result.json').is_file():

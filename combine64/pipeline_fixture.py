@@ -196,5 +196,5 @@ def main(root,directory,abis,tokens=4):
     print(json.dumps(meta,separators=(',',':')))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--tokens',type=int,choices=(4,16,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
+    p=argparse.ArgumentParser();p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()),a.tokens)
