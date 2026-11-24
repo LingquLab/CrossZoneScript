@@ -25,12 +25,33 @@ for version in ("v11","v10"):
 print(json.dumps(out))
 '''
 
+SCHEMA_QUERY = r'''
+import ast,json,pathlib,yaml
+source=pathlib.Path("/opt/sim/simulator/UBusSim_deployment/simulator/UB_simulator.py")
+lines=source.read_text().splitlines()
+old_path=pathlib.Path("/work/diagnostics/verified-platform-a1/v11/UBusSim_config/UBusSim_simulator_config.yml")
+snapshot=json.loads(pathlib.Path("/work/environment.snapshot.json").read_text())
+stock_path=pathlib.Path(snapshot["resources"]["UBusSim_config/UBusSim_simulator_config.yml"]["path"])
+old=yaml.safe_load(old_path.read_text());stock=yaml.safe_load(stock_path.read_text())
+out={"read_only":True,"frame_context":[{"line":index+1,"text":lines[index][:250]} for index in range(91,100)],"new_top_sections":sorted(set(stock)-set(old)),"missing_paths":[]}
+def compare(before,after,prefix=""):
+    if not isinstance(before,dict) or not isinstance(after,dict):return
+    for key,value in after.items():
+        path=prefix+"/"+str(key)
+        if key not in before:
+            out["missing_paths"].append({"path":path,"type":type(value).__name__,"keys":list(value)[:16] if isinstance(value,dict) else []})
+        else:compare(before[key],value,path)
+compare(old,stock)
+out["missing_paths"]=out["missing_paths"][:30]
+print(json.dumps(out))
+'''
+
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--args-file",type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-    assert args in ({},{"status":True},{"failure":True})
+    assert args in ({},{"status":True},{"failure":True},{"schema":True})
     key=Path(os.environ["USERPROFILE"])/".ssh/id_ed25519"
     ssh=["ssh","-T","-i",str(key),"-o","BatchMode=yes","-o","IdentitiesOnly=yes","-o","StrictHostKeyChecking=yes","-o","ConnectTimeout=12","root@141.61.94.26"]
     def remote(argv,payload=None,timeout=30):
@@ -44,6 +65,9 @@ def main():
     p=remote(["docker","top",name,"-eo","pid,comm"])
     assert p.returncode==0 and not any(line.split()[-1] in ("sst","sstsim.x") for line in p.stdout.decode().splitlines()[1:])
     root="/var/tmp/tilexr-combine-ht-f71d0252-ef1e-4b5c-b299-c2429ebcfbdf-v11/diagnostics/verified-platform-a1"
+    if args.get("schema"):
+        p=remote(["docker","exec","-i",name,"python3","-"],payload=SCHEMA_QUERY.encode(),timeout=60);assert p.returncode==0
+        print(json.dumps(json.loads(p.stdout)));return
     if args.get("failure"):
         p=remote(["python3","-",root],payload=FAILURE_QUERY.encode(),timeout=45);assert p.returncode==0
         print(json.dumps(json.loads(p.stdout)));return
