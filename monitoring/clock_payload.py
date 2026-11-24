@@ -55,6 +55,19 @@ def observe(condition, message):
                 initial = frame.f_locals["original"][64+begin:64+begin+bpp]
                 item["bad_bytes_zero"] = all(out[i] == 0 for i in offsets)
                 item["bad_bytes_remained_initial"] = all(out[i] == initial[i] for i in offsets)
+                first_stripe = offsets[0] // 512 * 512
+                bad_stripe = out[first_stripe:first_stripe+512]
+                matches = []
+                for sender, values in enumerate(frame.f_locals["inputs"]):
+                    start = 0
+                    while len(matches) < 8:
+                        offset = values.find(bad_stripe, start)
+                        if offset < 0:
+                            break
+                        if offset % 512 == 0:
+                            matches.append(dict(sender=sender, destination=offset//bpp, offset=offset%bpp))
+                        start = offset + 1
+                item["matching_input_stripes"] = matches
                 if peer != rank:
                     args = (case / f"input_bin/rank{rank}/kernel_args.bin").read_bytes()
                     remote, span = struct.unpack_from("<QQ", args, 56)
