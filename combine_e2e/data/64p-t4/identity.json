@@ -1,0 +1,20 @@
+{
+  "world": 64,
+  "tokens": 4,
+  "hidden": 128,
+  "topk": 6,
+  "experts": 256,
+  "seed": 20261124,
+  "dtype": "fp32",
+  "contributions": 1536,
+  "chunks": 4,
+  "send_rows": 350,
+  "direct_rows": 804,
+  "reduce_rows": 339,
+  "runtime_root": "/work/cases/64p-t4-local-data",
+  "sim_send": true,
+  "candidate_commit": "013cc3e2f8abf8157abdc609afcfe2369806b1e1",
+  "kernel_sha256": "09b138b368c80227aa4d0a0a5dbf56d135f325044352f7608a0a8765191c9966",
+  "routes_sha256": "d3363ac8b1f22f94e61a28e32b8e1773217c4f85cda594880b854817870f8551",
+  "archive_sha256": "c5223edef167c305e12d9081e79e418a1a1fa8dac6a6ca8d9f3edc00f3b19940"
+}
