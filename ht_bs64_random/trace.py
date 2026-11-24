@@ -100,6 +100,8 @@ if log.is_file():
     result['completed'] = b'Simulation is complete' in raw
 print(json.dumps(result, separators=(',', ':')))
 '''))
+if args.get('guarded_local') is True:
+    source = source.replace('ht-bs64-random-20261124-', 'ht-bs64-random-20261124-guarded-')
 compile(source, '<ht-bs64-trace>', 'exec')
 ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=no',
        '-o', 'NumberOfPasswordPrompts=1', '-o', 'PreferredAuthentications=password', '-o',
