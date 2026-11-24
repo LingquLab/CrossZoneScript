@@ -7,7 +7,8 @@ import exports
 import profile as ht_profile
 
 ROOT=Path('/work')
-HEADER_SHA='44d0dd9097b4f154972e971c26fccb2b51a15d559b847d8f98d020a40516f881'
+HEADER_SHA='ee9f3b6f5b057ef11b6c0b7e99cd8d8c01c28172cc00783bd293e977bfe5d8a6'
+GIT_BLOB_SHA='44d0dd9097b4f154972e971c26fccb2b51a15d559b847d8f98d020a40516f881'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def write(p,v):p.write_text(json.dumps(v,indent=2)+'\n')
 
@@ -63,16 +64,18 @@ def postmortem():
     return observations
 
 def main():
-    dest=ROOT/'cq-compiler-barrier-a1';dest.mkdir(exist_ok=False)
+    dest=ROOT/'cq-compiler-barrier-a2';dest.mkdir(exist_ok=False)
     header=ROOT/'source/include/tilexr/comm/udma/device/api.h'
     assert sha(header)==HEADER_SHA
-    original=header.read_text()
+    raw=header.read_bytes()
+    assert hashlib.sha256(raw.replace(b'\r\n',b'\n')).hexdigest()==GIT_BLOB_SHA
+    original=raw.decode('utf-8')
     first=original.index('__aicore__ inline void UDMACleanCacheLines(')
     last=original.index('__aicore__ inline __gm__ UDMAWQCtx* UDMAGetWQCtx(',first)
     fragment=original[first:last];needle='__asm__ __volatile__("");'
     assert fragment.count(needle)==2
     modified=original[:first]+fragment.replace(needle,'__asm__ __volatile__("" ::: "memory");')+original[last:]
-    overlay=dest/'include/tilexr/comm/udma/device/api.h';overlay.parent.mkdir(parents=True);overlay.write_text(modified)
+    overlay=dest/'include/tilexr/comm/udma/device/api.h';overlay.parent.mkdir(parents=True);overlay.write_bytes(modified.encode('utf-8'))
     baseline=json.loads((ROOT/'profile-build/result.json').read_text())['targets']['local_ht']
     binary=ROOT/baseline['path'];assert sha(binary)==baseline['sha256']
     compile_cmd=list(baseline['commands'][0]);assert compile_cmd[-2]=='-o'
@@ -83,7 +86,8 @@ def main():
     assert link_cmd[-2:]==['-o',str(linked)]
     report=dict(diagnostic_only=True,operator_qualified=False,candidate_commit='40596e2d9d454b7a7b00b4b34b96d49158e1c3a3',
         change='only compiler memory clobbers around existing CQ DCCI; no algorithm or counter path changes',
-        baseline_header_sha256=HEADER_SHA,overlay_header_sha256=sha(overlay),baseline_object_sha256=sha(binary),commands=[compile_cmd,link_cmd])
+        baseline_header_sha256=HEADER_SHA,normalized_git_blob_sha256=GIT_BLOB_SHA,line_endings_preserved='CRLF',
+        overlay_header_sha256=sha(overlay),baseline_object_sha256=sha(binary),commands=[compile_cmd,link_cmd])
     started=time.monotonic();codes=[]
     for index,command in enumerate((compile_cmd,link_cmd)):
         with (dest/('build-%d.log'%index)).open('wb') as log:

@@ -286,11 +286,11 @@ def main(request):
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code:return code
         if action=='cq-compiler-barrier':
-            assert tokens==16
+            assert tokens==16 and request.get('attempt')=='a2'
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
             assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
-            code=execute(cid,['python3',runtime+'/cq_compiler_barrier.py'],ROOT/'cq-compiler-barrier-runner.log',500)
-            report=ROOT/'cq-compiler-barrier-a1/report.json'
+            code=execute(cid,['python3',runtime+'/cq_compiler_barrier.py'],ROOT/'cq-compiler-barrier-a2-runner.log',500)
+            report=ROOT/'cq-compiler-barrier-a2/report.json'
             if report.is_file():
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
