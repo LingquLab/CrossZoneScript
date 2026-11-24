@@ -27,7 +27,7 @@ compile=(-xcce -O2 -DCATLASS_ARCH=3510 --cce-aicore-arch=dav-c310-vec --cce-aico
   -I"$cann/compiler/tikcpp/tikcfw/impl" -I"$cann/compiler/tikcpp/tikcfw/interface"
   -I"$cann/aarch64-linux/ascendc/include" -I"$cann/aarch64-linux/include"
   -I"$cann/aarch64-linux/pkg_inc" -I"$cann/aarch64-linux/pkg_inc/runtime"
-  -Iinclude -Isrc/collectives/kernels)
+  -Iinclude -Isrc/include -Isrc/collectives/kernels)
 set -x
 if [[ "$1" != "two-group" ]]; then
   schedules=("$1")

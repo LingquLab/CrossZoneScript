@@ -43,7 +43,10 @@ try:
         if git(directory, "rev-parse", "FETCH_HEAD").decode().strip() != revision:
             raise ValueError("source identity mismatch")
         stage = "archive"
-        archive = git(directory, "archive", "--format=tar.gz", revision, "src", "include")
+        paths = ["src"]
+        if git(directory, "ls-tree", revision, "include").strip():
+            paths.append("include")
+        archive = git(directory, "archive", "--format=tar.gz", revision, *paths)
         stage = "build"
         with Path("sst-host-build.stderr.log").open("wb") as errors:
             command = ssh + ["-T", "bash -c " + shlex.quote(remote_script) + " -- " + revision + " " + variant]
