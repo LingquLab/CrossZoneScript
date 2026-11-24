@@ -13,9 +13,9 @@ SESSION = '7de11bac-47e4-498d-b107-e746122e3b0a'
 
 
 def main(args):
-    assert args in ({'action': 'mte-a1'}, {'action': 'manual-a1'}, {'action': 'address-transform-a1'}, {'action': 'trace-a1'}, {'action': 'trace-read-a1'}, {'action': 'inspect-mte-a1'}, {'action': 'inspect-address-a1'}, {'action': 'inspect-lowering-a1'})
+    assert args in ({'action': 'mte-a1'}, {'action': 'manual-a1'}, {'action': 'address-transform-a1'}, {'action': 'doorbell-word-a1'}, {'action': 'trace-a1'}, {'action': 'trace-read-a1'}, {'action': 'inspect-mte-a1'}, {'action': 'inspect-address-a1'}, {'action': 'inspect-lowering-a1'})
     directory = Path(__file__).parent
-    if args['action'] in ('mte-a1', 'manual-a1', 'address-transform-a1'):
+    if args['action'] in ('mte-a1', 'manual-a1', 'address-transform-a1', 'doorbell-word-a1'):
         host = (directory / 'mte_host.py').read_text(encoding='utf-8')
         trial = (directory / 'mte_trial.py').read_text(encoding='utf-8')
         if args['action'] == 'manual-a1':
@@ -24,6 +24,9 @@ def main(args):
         elif args['action'] == 'address-transform-a1':
             trial = trial.replace("TRIAL_NAME = 'mte-a1'", "TRIAL_NAME = 'address-transform-a1'").replace('ADDR_TRANSFORM = True', 'ADDR_TRANSFORM = False')
             host = host.replace("TRIAL_NAME = 'mte-a1'", "TRIAL_NAME = 'address-transform-a1'").replace('REQUIRE_SCALED_DOORBELL = False', 'REQUIRE_SCALED_DOORBELL = True')
+        elif args['action'] == 'doorbell-word-a1':
+            trial = trial.replace("TRIAL_NAME = 'mte-a1'", "TRIAL_NAME = 'doorbell-word-a1'").replace('DOORBELL_WORD_ADDRESS = False', 'DOORBELL_WORD_ADDRESS = True')
+            host = host.replace("TRIAL_NAME = 'mte-a1'", "TRIAL_NAME = 'doorbell-word-a1'").replace('REQUIRE_SCALED_DOORBELL = False', 'REQUIRE_SCALED_DOORBELL = True')
         assert host.count("'__TRIAL_SOURCE__'") == 1
         host = host.replace("'__TRIAL_SOURCE__'", repr(trial))
     elif args['action'] == 'inspect-mte-a1':

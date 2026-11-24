@@ -16,6 +16,7 @@ POLL_BEGIN = 'template <typename CompletionObserver>\n__aicore__ inline uint32_t
 TRIAL_NAME = 'mte-a1'
 AUTO_SYNC = True
 ADDR_TRANSFORM = True
+DOORBELL_WORD_ADDRESS = False
 
 
 def once(text, before, after):
@@ -69,6 +70,10 @@ def adapt(folder, root=Path('/work')):
     assert 'ld_dev(' not in header and 'st_dev(' not in header
     assert header.count('TileXR::UDMARingDoorbell(head, sq);') == 1
     assert header.count('TileXR::UDMAPublishWqe(wqes, sq, head, count);') == 1
+    if DOORBELL_WORD_ADDRESS:
+        header = once(header, 'TileXR::UDMARingDoorbell(head, sq);',
+                      '// This model scales scalarStDev base registers by eight.\n'
+                      '        st_dev(head, reinterpret_cast<__gm__ uint32_t *>(sq->dbAddr / sizeof(uint64_t)), 0);')
     (folder / 'combine_ht_kernel.h').write_text(header)
     shutil.copyfile(source / 'combine_ht.cpp', folder / 'combine_ht.cpp')
     return {name: sst.checksum(folder / name) for name in ('combine_ht.cpp', 'combine_ht_kernel.h', 'ht_mte_state.h')}
@@ -80,7 +85,8 @@ def main():
     result = dict(ok=False, diagnostic_only=True, baseline_kernel_sha256=BASELINE,
                   baseline_source_revision='16080aad58ced172c6e6682cf7eb87da4847bdad',
                   variant='MTE_GM_QUEUE_STATE_AND_CQ_MIRROR', auto_sync=AUTO_SYNC,
-                  address_transform=ADDR_TRANSFORM, report=str(folder), send_verified=False)
+                  address_transform=ADDR_TRANSFORM, doorbell_word_address=DOORBELL_WORD_ADDRESS,
+                  report=str(folder), send_verified=False)
     try:
         assert sst.checksum(sst.KERNEL) == BASELINE
         snapshot = json.loads(Path('/work/environment.snapshot.json').read_text())
