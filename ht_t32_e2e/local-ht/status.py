@@ -92,6 +92,36 @@ if p.is_dir():
                 if m: found.append(int(m[1]))
         if found:
             results["last_cqe_sim"]=max(found)
+if (p / "actual" / "rank00").is_dir():
+    from struct import unpack
+    diff_counts = collections.Counter()
+    loss = collections.Counter()
+    first = {}
+    for rank in range(64):
+        name = f"rank{rank:02d}"
+        root = p / "actual" / name
+        golden = p / "fixture-data" / name
+        for field,size in (("returned",4),("completed",512),("output",4)):
+            observed = (root / f"{field}.bin").read_bytes()
+            expected = (golden / f"golden-{field}.bin").read_bytes()
+            assert len(observed) == len(expected)
+            diff_counts.setdefault(field,0)
+            for n in range(0,len(expected),size):
+                got,want = observed[n:n+size], expected[n:n+size]
+                if got != want:
+                    diff_counts[field] += 1
+                    first.setdefault(field,[rank,n//size,want[:8].hex(),got[:8].hex()])
+                    if field == "output" and n % 512 == 0:
+                        token = n//512
+                        d = unpack("<f",want)[0] - unpack("<f",got)[0]
+                        if d and d == round(d) and 0 <= (d-token)/8 < 8 and (d-token)%8 == 0:
+                            loss[int((d-token)/8)] += 1
+                        else:
+                            loss["other"] += 1
+        raw = (root / "status.bin").read_bytes()
+        diff_counts["nonzero_send_status"] += sum(v != 0 for v in unpack("<8I",raw[:32]))
+        diff_counts["status_guard_errors"] += sum(v != 0xa5 for v in raw[32:])
+    results["data_comparison"] = {"mismatches":diff_counts,"first":first,"lost_sender_on_h0":loss}
 print(json.dumps(results,separators=(",",":")))
 """
 ssh = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", "-o", "BatchMode=no",
