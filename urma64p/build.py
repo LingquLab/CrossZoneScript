@@ -45,11 +45,15 @@ try:
         stage = "archive"
         archive = git(directory, "archive", "--format=tar.gz", revision, "src")
         stage = "build"
-        result = subprocess.run(
-            ssh + ["bash -c " + shlex.quote(remote_script) + " -- " + revision + " " + variant],
-            input=archive, capture_output=True, timeout=550,
-        )
-    Path("sst-host-build.stderr.log").write_bytes(result.stderr)
+        with Path("sst-host-build.stderr.log").open("wb") as errors:
+            command = ssh + ["-T", "bash -c " + shlex.quote(remote_script) + " -- " + revision + " " + variant]
+            try:
+                result = subprocess.run(command, input=archive, stdout=subprocess.PIPE, stderr=errors, timeout=550)
+            except subprocess.TimeoutExpired as exc:
+                for line in (exc.stdout or b"").splitlines(keepends=True):
+                    if line.endswith(b"\n"):
+                        print(json.dumps(json.loads(line), ensure_ascii=True), flush=True)
+                raise
     for line in result.stdout.decode().splitlines():
         print(json.dumps(json.loads(line), ensure_ascii=True))
     raise SystemExit(result.returncode)

@@ -8,6 +8,7 @@ run_dir=$(mktemp -d /opt/urma64p-full.XXXXXX)
 tar -xzf - -C "$run_dir"
 printf '{"stage":"staged","revision":"%s","run_dir":"%s"}\n' "$revision" "$run_dir"
 
+if [[ "$variant" == two-group ]]; then
 python3 - "$image" <<'PY'
 import json
 import os
@@ -44,6 +45,7 @@ for base in sorted(roots):
             }]
 print(json.dumps({"stage": "case_discovery", "campaigns": sorted(campaigns)[:16]}))
 PY
+fi
 
 if ! docker run --rm --network none -v "$run_dir:/work" -w /work \
     --entrypoint /bin/bash "$image" -lc '
