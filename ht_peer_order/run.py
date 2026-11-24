@@ -14,7 +14,7 @@ from ssh_transport import HOST
 assert sys.argv[1:2] == ['--args-file']
 options = json.loads(Path(sys.argv[2]).read_text())
 request = {key: int(options[key]) for key in ('tokens', 'start', 'stop')}
-request.update(object=base64.b64encode((here/'kernel.o.gz').read_bytes()).decode(),
+request.update(compact=bool(options.get('compact')), object=base64.b64encode((here/'kernel.o.gz').read_bytes()).decode(),
                abis=base64.b64encode((here/'abis.json.gz').read_bytes()).decode(),
                object_sha256=(here/'kernel.sha256').read_text().strip(),
                checker=(root/'ht_four_stage'/'check_remote.py').read_text(),
