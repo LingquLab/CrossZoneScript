@@ -44,6 +44,21 @@ for name in ("diagnostic-stdev-trace.json", "diagnostic-stdev-ir.json", "run-sum
         keep = ("ok", "image_id", "revisions", "kernel_sha256", "result", "stage")
         value = {k: value[k] for k in keep if k in value}
     out["saved"][name] = value
+probe = work / "diagnostics/stdev-address-a1"
+out["address_probe"] = {"directory_exists": probe.is_dir()}
+if probe.is_dir():
+    receipt = probe / "run.json"
+    out["address_probe"]["run"] = json.loads(receipt.read_text()) if receipt.exists() else None
+    out["address_probe"]["files"] = sorted(x.name for x in probe.iterdir())[:24]
+    out["address_probe"]["logs"] = {}
+    for name in ("build.log", "model.log", "sim.log"):
+        path = probe / name
+        if path.is_file():
+            data = path.read_bytes()
+            lines = data.decode(errors="replace").splitlines()
+            selected = [x[:400] for x in lines if any(word in x.lower() for word in
+                ("error:", "fatal:", "assertion", "traceback", "simulation is complete", "unknown low level"))]
+            out["address_probe"]["logs"][name] = {"bytes": len(data), "selected": selected[:6]}
 print(json.dumps(out))
 '''
 
