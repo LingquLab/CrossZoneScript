@@ -11,11 +11,15 @@ sys.path[:0] = [str(root / 'ht_t32_e2e'), str(root / 'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
 
+options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
+relaxed = options.get('relaxed_order') is True
 support = root / 'ht_t32_e2e'
 previous = root / 'ht_four_stage'
 request = dict(abis=json.loads((previous / 'abi.json').read_text()),
                checker=(previous / 'check_remote.py').read_text(), exports=(support / 'exports.py').read_text(),
-               obj=base64.b64encode((here / 'sparse-cqe.o.gz').read_bytes()).decode())
+               obj=base64.b64encode((here / ('sparse-cqe-ro.o.gz' if relaxed else 'sparse-cqe.o.gz')).read_bytes()).decode(),
+               digest=('3f05ac6ddef95802829485ee2d69ffa546a95f74090496b042d68d89a4e42ad4' if relaxed else
+                       '50066aabb60fc853e6ff8a424065d741a3f4ec8077cdb5e3ea7354d49ffb5598'))
 base = (root / 'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
 prepare = (support / 'prepare.py').read_text().replace('"tilexr_moonep_combine_ht_kernel"}',
     '"tilexr_moonep_combine_ht_kernel", "tilexr_ep_ht_inter_server_send_kernel"}')
@@ -24,7 +28,7 @@ phases = phases.replace('compiled_in="green"', 'compiled_in="blue"')
 source = '\n'.join((base, prepare, (previous / 'local_phases.py').read_text(), phases, f'request = {request!r}', r'''
 import tempfile
 try:
-    case = MOUNT / 'ht-t4-inter-send-sparse-cqe-50066aab'
+    case = MOUNT / ('ht-t4-inter-send-sparse-cqe-' + request['digest'][:8])
     if case.exists():
         report = summarize(case)
     else:
@@ -32,7 +36,7 @@ try:
             temp = Path(temp)
             obj = temp / 'kernel.o'
             obj.write_bytes(gzip.decompress(base64.b64decode(request['obj'], validate=True)))
-            assert sha(obj) == '50066aabb60fc853e6ff8a424065d741a3f4ec8077cdb5e3ea7354d49ffb5598'
+            assert sha(obj) == request['digest']
             prepare_remote_phase(request, case, EP_SEND, obj, temp / 'golden', temp / 'loader', True)
         report = execute_phase(case)
     print(json.dumps(report, separators=(',', ':')))

@@ -21,7 +21,7 @@ import json
 
 root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native')
 reports = {}
-for case in ('ht-four-stage-8882b28a-inter-send-mte', 'ht-t4-inter-send-sparse-cqe-50066aab'):
+for case in ('ht-four-stage-8882b28a-inter-send-mte', 'ht-t4-inter-send-sparse-cqe-50066aab', 'ht-t4-inter-send-sparse-cqe-3f05ac6d'):
     histogram = Counter()
     samples = {}
     truncated_hosts = 0
