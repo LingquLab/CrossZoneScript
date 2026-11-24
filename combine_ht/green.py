@@ -14,7 +14,7 @@ SESSION = "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf"
 WORK = "/var/tmp/tilexr-combine-ht-" + SESSION + "-v11"
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 INPUTS = (
-    ("candidate", "54b1af8e439f9300abe70aed3d51f578cdbb1f3b",
+    ("candidate", "6ef7bb8df7957398e4995fb96f5fe91dfe45315e",
      ("include", "src/moonep/combine_ht", "tests/moonep_combine_ht/combine_ht.mapping.template.json")),
     ("tooling", "23a542b2e6bfcc34f85313d02677a4aafdfc3efb", ("tools/unitest/simulator",)),
 )
@@ -22,7 +22,7 @@ INPUTS = (
 
 def main(args):
     stage = args["stage"]
-    assert stage in ("setup", "refresh", "run", "status", "stop", "inspect", "read")
+    assert stage in ("setup", "rebuild", "refresh", "run", "status", "stop", "inspect", "read")
     assert args["ssh_target"] == "root@141.61.94.26"
     assert args["hostname"] == "host-94-26"
     root = Path(os.environ["LOCALAPPDATA"]) / "CrossZone" / "tilexr" / (SESSION + "-v11")
@@ -50,7 +50,7 @@ def main(args):
                 "upload", WORK + "/" + path.name], 140, path.read_bytes())
 
     try:
-        if stage == "setup":
+        if stage in ("setup", "rebuild"):
             remote(["bash", "-c", 'set -e; test "$(hostname -s)" = "$1"; test "$(uname -m)" = aarch64; umask 077; mkdir -p "$2"',
                     "preflight", args["hostname"], WORK], 30)
             repo = root / "TileXR.git"
@@ -63,11 +63,11 @@ def main(args):
                 archive = root / (name + ".tar")
                 call(["git", "-C", repo, "archive", "--format=tar", "-o", archive, revision, *paths], 45)
                 upload(archive)
-        if stage in ("run", "inspect", "read"):
+        if stage in ("rebuild", "run", "inspect", "read"):
             status_args = {**args, "stage": "status"}
             status = json.loads(remote(["python3", WORK + "/host.py", json.dumps(status_args)], 60))
             assert status["ok"] and status["running"] and not status["sst_active"], "session_sst_not_idle"
-        if stage in ("setup", "refresh", "run", "inspect", "read"):
+        if stage in ("setup", "rebuild", "refresh", "run", "inspect", "read"):
             scripts = root / "scripts.tar"
             with tarfile.open(scripts, "w") as package:
                 for path in sorted(Path(__file__).parent.glob("*.py")):
@@ -75,7 +75,7 @@ def main(args):
                 package.add(Path(__file__).with_name("prefill_bridge.cpp"), arcname="prefill_bridge.cpp")
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
-        timeout = 960 if stage == "setup" else (args.get("stage_timeout", 60) + 120)
+        timeout = 960 if stage in ("setup", "rebuild") else (args.get("stage_timeout", 60) + 120)
         result = json.loads(remote(["timeout", "--kill-after=25", str(timeout), "python3",
                                     WORK + "/host.py", json.dumps(args)], timeout + 45))
     except (OSError, ValueError, RuntimeError, AssertionError, subprocess.SubprocessError) as error:

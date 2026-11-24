@@ -13,7 +13,7 @@ WORK = Path(__file__).resolve().parent
 NAME = "tilexr-combine-ht-" + SESSION[:8] + "-v11"
 IMAGE = "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
 ARCHIVE = Path("/mnt/share/simulator/images/tilexr-sim-9.1-aarch64-v1.1.0.tar.gz")
-REVISIONS = {"candidate": "54b1af8e439f9300abe70aed3d51f578cdbb1f3b",
+REVISIONS = {"candidate": "6ef7bb8df7957398e4995fb96f5fe91dfe45315e",
              "tooling": "23a542b2e6bfcc34f85313d02677a4aafdfc3efb"}
 
 
@@ -84,6 +84,16 @@ def main(args):
         return dict(ok=True, running=running, sst_active=active,
                     progress=json.loads(progress.read_text()) if progress.exists() else None)
     assert not active, "session_sst_already_active"
+    if stage == "rebuild":
+        assert not (WORK / "baseline-candidate").exists(), "rebuild_already_attempted"
+        for name in ("candidate", "tilexr_moonep_combine_ht_kernel.o", "tilexr_moonep_combine_ht_kernel_rel.o", "build.json", "build.log", "prefill.so", "revisions.json"):
+            (WORK / name).rename(WORK / ("baseline-" + name))
+        (WORK / "candidate").mkdir()
+        call("tar", "-xf", WORK / "candidate.tar", "-C", WORK / "candidate")
+        (WORK / "revisions.json").write_text(json.dumps(REVISIONS) + "\n")
+        result=run_sst({"stage":"setup"}, timeout=420)
+        result.update(revisions=REVISIONS,container_id=info["Id"])
+        return result
     if stage == "stop":
         if running:
             call("docker", "stop", NAME)
