@@ -91,7 +91,7 @@ def main():
         original_shell = sst.shell_command
         def build_shell(environment, stage, argv):
             actual = [arg for arg in argv if AUTO_SYNC or arg != '--cce-auto-sync']
-            if not ADDR_TRANSFORM:
+            if not ADDR_TRANSFORM and '-cce-aicore-addr-transform' in actual:
                 position = actual.index('-cce-aicore-addr-transform')
                 assert actual[position - 1] == '-mllvm'
                 del actual[position - 1:position + 1]
