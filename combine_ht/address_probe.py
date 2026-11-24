@@ -16,8 +16,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-    assert args in ({}, {"trace": True}, {"trace": True, "resume_prepared": True}), "unexpected_arguments"
-    case_name = "stdev-address-trace-a1" if args.get("trace") else "stdev-address-a1"
+    assert args in ({}, {"trace": True}, {"trace": True, "resume_prepared": True}, {"high_address": True}), "unexpected_arguments"
+    case_name = ("stdev-address-high-a1" if args.get("high_address") else
+                 "stdev-address-trace-a1" if args.get("trace") else "stdev-address-a1")
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12", "root@141.61.94.26"]

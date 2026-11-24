@@ -17,8 +17,9 @@ from case_tools import extract_ranges
 
 def main():
     folder = Path(__file__).resolve().parent
-    assert folder.name in ("stdev-address-a1", "stdev-address-trace-a1")
-    tracing = folder.name == "stdev-address-trace-a1"
+    assert folder.name in ("stdev-address-a1", "stdev-address-trace-a1", "stdev-address-high-a1")
+    tracing = folder.name != "stdev-address-a1"
+    high_address = folder.name == "stdev-address-high-a1"
     assert not (folder / "run.json").exists(), "probe_already_attempted"
     config = json.loads(Path("/work/environment.snapshot.json").read_text())
     binary = folder / "probe.o"
@@ -37,7 +38,7 @@ def main():
     poison = folder / "poison.bin"
     poison.write_bytes(bytes([0xCC]) * 32768)
     workload = {"workload_config": {}}
-    addresses = (0x200000, 0x1000000, 0x40000)
+    addresses = (0x2000000, 0x10000000, 0x400000) if high_address else (0x200000, 0x1000000, 0x40000)
     for rank in range(8):
         base = rank * sst.rt.GM_BYTES
         params = {"dst": dict(value=base + addresses[0], param_offset="0", param_type="11"),
