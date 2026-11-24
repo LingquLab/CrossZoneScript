@@ -202,6 +202,9 @@ def main(request):
             gates=list((ROOT/'cases').glob('64p-t4-pipeline-a*/phase-result.json'))
             gate_reports=[json.loads(p.read_text()) for p in gates]
             assert any(q.get('qualified') and q.get('operator_qualified') and q.get('candidate_commit')==REVISION for q in gate_reports),'bs4_joint_gate'
+        if action=='pending-layout':
+            import runpy
+            runpy.run_path(str(tools/'pending_layout_remote.py'),run_name='__main__');return 0
         if action=='debug-pipeline':
             code=execute(cid,['python3',runtime+'/debug_pipeline.py',runtime],ROOT/'pipeline-debug-runner.log',400)
             report=ROOT/'pipeline-debug-result.json'
