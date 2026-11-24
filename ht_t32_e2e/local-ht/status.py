@@ -7,7 +7,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from green_auth import askpass_environment
 
+args = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
 case = "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-local-ht-fp32-9f0f0f9a"
+if args.get("bounded") is True:
+    case = case.replace("9f0f0f9a", "604c76ac")
 support = Path(__file__).resolve().parents[2] / "inter_server"
 common = (support / "owner_trace_remote.py").read_text().split("def doorbell_coordinates(",1)[0]
 reader = "def read_observed(" + (support / "diagnose_t96_sq_remote.py").read_text().split(
@@ -37,7 +40,9 @@ for f in ("sim.log","e2e-failure.log","check.log","native-runner.log"):
         if allowed:
             results[f]["first_mismatch"]=allowed[-1].decode()
 if p.is_dir():
-    missing, sampled = [], 0
+    missing, sampled, truncated_hosts = [], 0, 0
+    flags_seen, flags_missing, flag_ops = 0, [], collections.Counter()
+    flags_base = 0x200000000 + 120 * 512
     for host in range(64):
         path=p/"OUTPUT"/"stat_trace"/f"Host{host}_ba_layer_trace.json"
         if not path.is_file():
@@ -45,7 +50,28 @@ if p.is_dir():
         sampled += 1
         events,truncated=read_observed(path,host)
         if truncated:
-            continue
+            truncated_hosts += 1
+        with path.open("rb") as trace:
+            prefix = trace.read(32 * 1024 * 1024)
+        flags_written = set()
+        for entry in ADDRESS_RECORD.finditer(prefix.decode("utf-8", "replace")):
+            try:
+                args = json.loads(entry.group())
+                action = args["busPayloadType_"]
+                raw = args["oriAddr_"]
+                address = int(raw, 0) if isinstance(raw, str) else int(raw)
+            except (KeyError, ValueError, TypeError):
+                continue
+            chip, remainder = divmod(address, GM_BYTES)
+            slot = (remainder - flags_base) // 512
+            if chip == host and 0 <= slot < 8:
+                flag_ops[action] += 1
+                if action == "WR_REQ":
+                    flags_written.add(slot)
+        expected = set(range(8)) - {host % 8}
+        flags_seen += len(flags_written & expected)
+        if expected - flags_written:
+            flags_missing.append([host, sorted(expected-flags_written)])
         for peer in range(host//8*8,host//8*8+8):
             if peer==host:
                 continue
@@ -54,7 +80,9 @@ if p.is_dir():
             cq=events["WR_REQ"].get(ring,set())
             if len(cq.intersection(range(5)))!=5:
                 missing.append([host,peer,sorted(set(range(5))-cq)])
-    results["ba_trace"]={"sampled":sampled,"missing_cq_qps":len(missing),"sample":missing[:24]}
+    results["ba_trace"]={"sampled":sampled,"truncated_hosts":truncated_hosts,"missing_cq_qps":len(missing),
+        "cq_sample":missing[:8],"flags_seen":flags_seen,"missing_flag_ranks":len(flags_missing),
+        "flag_sample":flags_missing[:8],"flag_ops":flag_ops.most_common(6)}
     log=p/"sim.log"
     if log.is_file():
         found=[]
