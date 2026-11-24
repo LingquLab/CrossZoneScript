@@ -199,8 +199,8 @@ def main(request):
         runtime='/work/'+tools.name
         tokens=request.get('tokens',4);assert tokens in (4,16,32,64,128)
         if tokens!=4 and action not in ('instrument','pipeline-build'):
-            gate=ROOT/'cases/64p-t4-pipeline-a1/phase-result.json'
-            assert gate.is_file() and json.loads(gate.read_text())['qualified'],'bs4_joint_gate'
+            gates=list((ROOT/'cases').glob('64p-t4-pipeline-a*/phase-result.json'))
+            assert any((q:=json.loads(p.read_text())).get('qualified') and q.get('operator_qualified') and q.get('candidate_commit')==REVISION for p in gates),'bs4_joint_gate'
         if action=='trace-pipeline':
             code=execute(cid,['python3',runtime+'/trace_pipeline.py'],ROOT/'pipeline-trace-runner.log',900)
             report=ROOT/'cases/64p-t4-pipeline-trace-a1/diagnostic.json'
@@ -271,10 +271,10 @@ def main(request):
             if code or action=='pipeline-build':return code
         if action in ('pipeline','qualify-pipeline','matrix-case','independent-bs'):
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
-                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-pipeline-%d.log'%tokens),500)
+                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',request.get('attempt','a1')],ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))),500)
             if code:
-                print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d.log'%tokens))}));return code
-            case=ROOT/'cases'/('64p-t%d-pipeline-a1'%tokens)
+                print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))))}));return code
+            case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,request.get('attempt','a1')))
             return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:1200,16:1800,32:2700,64:3600,128:5400}[tokens])
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)

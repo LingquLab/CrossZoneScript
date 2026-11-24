@@ -15,7 +15,8 @@ GUARD=struct.pack('<f',-17.)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def local_slot(g):return (g%2)*20+16+g//2
 
-def main(root,directory,abis,tokens=4):
+def main(root,directory,abis,tokens=4,attempt="a1"):
+    assert attempt in ("a1","a2","a3")
     root,directory=Path(root),Path(directory)
     local=root/'assets'/('64p-t%d'%tokens)
     asset_identity=json.loads((local/'identity.json').read_text())
@@ -23,7 +24,7 @@ def main(root,directory,abis,tokens=4):
     assert (asset_identity['world'],asset_identity['tokens'],asset_identity['hidden'],asset_identity['topk'])==(64,tokens,128,6)
     build=json.loads((root/'pipeline-build-40596e2-a1/build-result.json').read_text())
     assert build['compile_exit']==build['link_exit']==0 and build['abi_bytes']==512
-    case=root/'cases'/('64p-t%d-pipeline-a1'%tokens)
+    case=root/'cases'/('64p-t%d-pipeline-%s'%(tokens,attempt))
     assert not case.exists()
     temporary=case.with_name(case.name+'-preparation')
     temporary.mkdir(exist_ok=False)
@@ -107,6 +108,7 @@ def main(root,directory,abis,tokens=4):
         Path(str(stem)+'.native_mem_info').write_bytes(helper_memory)
         subprocess.run([str(helper),str(stem),str(RETURN_WS)],check=True)
         raw=bytearray(Path(str(stem)+'.args').read_bytes())
+        struct.pack_into('<Q',raw,80,base+ht_profile.ADDRESS)
         for offset,address in ((8,RETURN_WS),(88,EXTRA['localComm']),(96,EXTRA['localInfo']),(104,EXTRA['localRegistry'])):
             struct.pack_into('<Q',raw,offset,base+address)
         assert len(raw)==248 and struct.unpack_from('<I',raw,156)[0]==3
@@ -196,5 +198,5 @@ def main(root,directory,abis,tokens=4):
     print(json.dumps(meta,separators=(',',':')))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
-    a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()),a.tokens)
+    p=argparse.ArgumentParser();p.add_argument('--attempt',choices=('a1','a2','a3'),default='a1');p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
+    a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()),a.tokens,a.attempt)
