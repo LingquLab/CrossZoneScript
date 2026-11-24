@@ -89,7 +89,17 @@ def login_environment():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
-    assert json.loads(parser.parse_args().args_file.read_text(encoding="utf-8")) == {}
+    args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
+    assert args in ({}, {"shared_on_current_host": True})
+    if args.get("shared_on_current_host"):
+        key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
+        argv = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+                "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12", "root@141.61.94.26",
+                shlex.join(["python3", "-"])]
+        result = subprocess.run(argv, input=REMOTE.encode(), capture_output=True, timeout=90)
+        assert result.returncode == 0, "shared_platform_inspection_failed"
+        print(json.dumps(json.loads(result.stdout)))
+        return 0
     argv = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12",
             "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password",
             "-o", "PubkeyAuthentication=no", "root@141.61.94.58", shlex.join(["python3", "-"])]
