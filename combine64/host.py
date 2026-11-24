@@ -285,6 +285,16 @@ def main(request):
             report=ROOT/('pipeline-'+variant+'-a1/build-result.json')
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code:return code
+        if action=='cq-compiler-barrier':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
+            code=execute(cid,['python3',runtime+'/cq_compiler_barrier.py'],ROOT/'cq-compiler-barrier-runner.log',500)
+            report=ROOT/'cq-compiler-barrier-a1/report.json'
+            if report.is_file():
+                data=json.loads(report.read_text());data.pop('commands',None)
+                print(json.dumps(data,separators=(',',':')),flush=True)
+            return code
         if action=='pending-layout':
             import runpy
             runpy.run_path(str(tools/'pending_layout_remote.py'),run_name='__main__');return 0
