@@ -8,15 +8,19 @@ STAGES = {
 WORLD = 64
 EXTRA = {'output': 0x406000000, 'serverMask': 0x404000000}
 OUTPUT_BYTES = TOKENS * ROW_BYTES
+CASE_SUFFIX = {}
+
+def stage_path(stage):
+    return MOUNT / (STEM + '-' + stage + CASE_SUFFIX.get(stage, ''))
 
 
 def read_export(stage, rank, field):
-    case = MOUNT / (STEM + '-' + stage)
+    case = stage_path(stage)
     return (case/'actual'/f'rank{rank:02d}'/(field+'.bin')).read_bytes()
 
 
 def stage_checked(stage):
-    case = MOUNT / (STEM + '-' + stage)
+    case = stage_path(stage)
     return json.loads((case/'run.json').read_text())['status'] == 'sst_and_checker_passed'
 
 
@@ -64,6 +68,8 @@ def rank_binding(stage, rank, abi, native, runtime):
                    read_export('local_return', rank, 'returned'),
                    read_export('local_return', rank, 'completed'))
     workspace, forward, counts, ranges = build_returns(c, partial, ready, *sources)
+    if stage == 'local_return' and CASE_SUFFIX.get(stage) == '-packed24':
+        forward = b''.join(forward[offset:offset+24] for offset in range(0, len(forward), 32))
     base = rank * runtime.GM_BYTES
     addresses = {name:base+offset for name,offset in (runtime.BASES | EXTRA).items()}
     blocks = STAGES[stage][1]
@@ -147,6 +153,8 @@ def prepare_stage(request, stage, case, temp, loader, native, runtime, abis):
 
 
 def run_downstream(request):
+    if request.get('packed24'):
+        CASE_SUFFIX.update(local_return='-packed24', final_reduce='-packed24')
     assert stage_checked('attached')
     sys.path.insert(0,str(MOUNT.parent/BUILD/'source/tools/unitest/simulator/experiments/inter_server_send/sst'))
     import native
@@ -159,13 +167,15 @@ def run_downstream(request):
         assert stage in STAGES
         if stage == 'final_reduce':
             assert stage_checked('inter_server_send') and stage_checked('local_return')
-        case = MOUNT/(STEM+'-'+stage)
+        case = stage_path(stage)
         if case.exists():
             result = summarize(case)
         else:
             with tempfile.TemporaryDirectory(prefix=STEM,dir=MOUNT.parent) as directory:
                 prepare_stage(request,stage,case,Path(directory),loader,native,runtime,abis)
             result = execute_phase(case)
+        if stage == 'local_return' and result.get('status') != 'sst_and_checker_passed':
+            result['diagnostics'] = read_local_evidence(case)
         results.append(result)
         if result.get('status') != 'sst_and_checker_passed':
             break

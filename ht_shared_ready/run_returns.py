@@ -20,7 +20,7 @@ stages = options['stages']
 assert len(stages) == len(set(stages)) and stages
 assert set(stages) <= {'inter_server_send', 'local_return', 'final_reduce'}
 images = {name:(directory/(name+'.o.gz')).read_bytes() for name in stages}
-request = dict(stages=stages, objects={name:base64.b64encode(image).decode() for name,image in images.items()},
+request = dict(stages=stages, packed24=bool(options.get('packed24')), objects={name:base64.b64encode(image).decode() for name,image in images.items()},
                hashes={name:hashlib.sha256(gzip.decompress(image)).hexdigest() for name,image in images.items()},
                abis=base64.b64encode((directory/'abis.json.gz').read_bytes()).decode(),
                checker=(root/'ht_four_stage'/'check_remote.py').read_text(),
@@ -32,7 +32,7 @@ prepare = (support/'prepare.py').read_text().replace(
 ).replace('chip["block_dim"] == 16', 'chip["block_dim"] in (8, 16)')
 source = "\n".join((base, prepare, (root/'ht_four_stage'/'local_phases.py').read_text(),
                     (directory/'returns.py').read_text(), (directory/'attached.py').read_text(),
-                    (directory/'downstream.py').read_text(), f"""
+                    (directory/'local_evidence.py').read_text(), (directory/'downstream.py').read_text(), f"""
 try:
     print(json.dumps(run_downstream({request!r}), separators=(',', ':')))
 except Exception as error:
