@@ -8,7 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from green_auth import askpass_environment
 
 case = "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-local-ht-fp32-9f0f0f9a"
-code = f"case = {case!r}\n" + r"""
+support = Path(__file__).resolve().parents[2] / "inter_server"
+common = (support / "owner_trace_remote.py").read_text().split("def doorbell_coordinates(",1)[0]
+reader = "def read_observed(" + (support / "diagnose_t96_sq_remote.py").read_text().split(
+    "def read_observed(",1)[1].split("def diagnose_t96(",1)[0]
+code = common + reader + f"\ncase = {case!r}\n" + r"""
 import json,re,time
 from pathlib import Path
 p=Path(case)
@@ -32,6 +36,34 @@ for f in ("sim.log","e2e-failure.log","check.log","native-runner.log"):
         allowed=re.findall(rb"(?:ValueError|AssertionError): (rank[0-9]{2} (?:returned|completed|output|status)\[[0-9]+\] mismatch: [0-9a-f]+ != [0-9a-f]+)",raw)
         if allowed:
             results[f]["first_mismatch"]=allowed[-1].decode()
+if p.is_dir():
+    missing, sampled = [], 0
+    for host in range(64):
+        path=p/"OUTPUT"/"stat_trace"/f"Host{host}_ba_layer_trace.json"
+        if not path.is_file():
+            continue
+        sampled += 1
+        events,truncated=read_observed(path,host)
+        if truncated:
+            continue
+        for peer in range(host//8*8,host//8*8+8):
+            if peer==host:
+                continue
+            qp=peer%8
+            ring=peer*40+(qp%2)*20+qp//2
+            cq=events["WR_REQ"].get(ring,set())
+            if len(cq.intersection(range(5)))!=5:
+                missing.append([host,peer,sorted(set(range(5))-cq)])
+    results["ba_trace"]={"sampled":sampled,"missing_cq_qps":len(missing),"sample":missing[:24]}
+    log=p/"sim.log"
+    if log.is_file():
+        found=[]
+        for line in log.read_bytes().splitlines():
+            if b"WrCQEResp" in line:
+                m=re.search(rb"\bSim\s*[:=]\s*(\d+)",line)
+                if m: found.append(int(m[1]))
+        if found:
+            results["last_cqe_sim"]=max(found)
 print(json.dumps(results,separators=(",",":")))
 """
 ssh = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", "-o", "BatchMode=no",
