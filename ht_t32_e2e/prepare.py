@@ -41,8 +41,8 @@ def prepare_bulk(request, case, container_case):
     delta = request.get("delta_manifest")
     digest_field = "delta_archive_sha256" if delta is not None else "input_archive_sha256"
     assert hashlib.sha256(data).hexdigest() == identity[digest_field]
-    assert identity["tokens"] == request["tokens"] and identity["tokens"] in (4, 32)
-    assert identity["hidden"] == request["hidden"] and identity["hidden"] in (16, 256)
+    assert identity["tokens"] == request["tokens"] and identity["tokens"] in (4, 16, 32)
+    assert identity["hidden"] == request["hidden"] and identity["hidden"] in (16, 128, 256)
     template = MOUNT / "t4-sst-mte-bulk-forward-hotpath-1a2f3549"
     template_manifest = json.loads((template / "case-manifest.json").read_text())
     assert template_manifest["kernel_sha256"].startswith("1a2f3549")

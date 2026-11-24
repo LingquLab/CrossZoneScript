@@ -28,6 +28,10 @@ elif args.get("sq_stripe") is True:
 elif args.get("small_t4") is True:
     identity_name = "t4-identity.json"
     fixture_name = "t4-fixture-images.tar.gz"
+elif args.get("t16_b512") is True:
+    identity_name = "t16-b512-identity.json"
+    fixture_name = "t16-b512-fixture-images.tar.gz"
+    object_name = "t16-b512.o.gz"
 elif args.get("spread_gateways") is True:
     identity_name = "t32-spread-identity.json"
     fixture_name = "t32-spread-fixture-delta.tar.gz"
@@ -55,7 +59,8 @@ if profile:
     profile_remote = (root / "fused_profile_remote.py").read_text()
 runner = (root.parent/"inter_server/run_mte_t4_remote.py").read_text().rsplit("if __name__ == ", 1)[0]
 assert runner.count("assert tokens == 4") == 1
-runner = runner.replace("assert tokens == 4", "assert tokens in (4, 32)")
+runner = runner.replace("assert tokens == 4", "assert tokens in (4, 16, 32)")
+runner = runner.replace('"hidden": 256,', '"hidden": request["hidden"],')
 source = "\n".join((runner, profile_remote, (root/"prepare.py").read_text(), (root/"remote.py").read_text(),
                     f"print(json.dumps(run_e2e({request!r}), separators=(',', ':')))" ))
 compile(source, "<t32_fused_remote>", "exec")

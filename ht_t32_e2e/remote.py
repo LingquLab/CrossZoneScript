@@ -4,7 +4,7 @@ def run_e2e(request):
     build = request["build"]
     digest = build["kernel_sha256"]
     tokens = request["identity"]["tokens"]
-    assert tokens in (4, 32)
+    assert tokens in (4, 16, 32)
     variant = f"t{tokens}-combine-fp32-{digest[:8]}"
     suffix = "-spread" if request.get("spread_gateways") else ""
     if request.get("spread_gateways"):
@@ -48,7 +48,7 @@ def run_e2e(request):
     except (OSError, subprocess.SubprocessError) as error:
         return dict(result, preflight="container_create_failed", error_type=type(error).__name__)
     try:
-        result.update(main(dict(request, tokens=tokens, hidden=256, forward_images=True)))
+        result.update(main(dict(request, tokens=tokens, hidden=request["identity"]["hidden"], forward_images=True)))
     except (OSError, ValueError, AssertionError, subprocess.SubprocessError) as error:
         result["stage_error"] = type(error).__name__
         if case.is_dir():
