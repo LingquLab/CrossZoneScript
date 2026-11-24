@@ -20,8 +20,9 @@ def main(root,stage,abis):
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0,str(support))
     import loader,runtime
-    local=root/'cases/64p-t16-local-fused-a1'
-    valid(local)
+    independent=stage=='final-independent'
+    local=root/'cases'/('64p-t16-local-send-a1' if independent else '64p-t16-local-fused-a1')
+    if not independent: valid(local)
     case=root/'cases'/('64p-t16-'+stage+'-a1')
     assert not case.exists(), 'case_already_exists'
     golden=case.with_name(case.name+'-golden')
@@ -55,7 +56,7 @@ def main(root,stage,abis):
         ws=bytearray(registered)
         name='rank%02d'%rank
         inp=(local/'input_bin'/name/'input.bin').read_bytes()
-        partial=(local/'actual'/name/'output.bin').read_bytes()
+        partial=(local/'fixture-data'/name/'golden-output.bin').read_bytes() if independent else (local/'actual'/name/'output.bin').read_bytes()
         provenance.update(hashlib.sha256(partial).digest())
         ws[config['inputOffset']:config['inputOffset']+len(inp)]=inp
         ws[config['partialOffset']:config['partialOffset']+len(partial)]=partial
@@ -153,6 +154,11 @@ def main(root,stage,abis):
             images[key]=b'\xde'*512
             pointers[key]=addr
             guards.append(dict(name=key,addr=base+addr,size=512,expected_byte=222))
+        if stage.startswith('final'):
+            for key,addr in (('output_guard_before',pointers['output']-512),('output_guard_after',pointers['output']+len(final))):
+                images[key]=b'\xde'*512
+                pointers[key]=addr
+                guards.append(dict(name=key,addr=base+addr,size=512,expected_byte=222))
         specs.append(dict(rank=rank,abi_size=len(args),fields=[dict(name='word%d'%(i//8),offset=i,type='uint64_t',value=v)
                           for i,(v,) in zip(range(0,len(args),8),struct.iter_unpack('<Q',args))],gm_size=runtime.GM_BYTES,
                           sys_va_base_addr=base,ub_base_addr=0x80000,stack_base_addr=0x100000,param_base_addr=base+0x80000000,
@@ -168,7 +174,9 @@ def main(root,stage,abis):
     meta={'world':64,'tokens':16,'hidden':128,'topk':6,'experts':256,'stage':stage,'dtype':'fp32',
           'candidate_commit':'013cc3e2f8abf8157abdc609afcfe2369806b1e1','entry':ENTRY[stage],
           'kernel_sha256':digest(case/'kernel/inter_server_send.o'),'routes_sha256':digest(local/'routes.json'),
-          'consumed_actual_sha256':provenance.hexdigest(),'blocks':blocks}
+          'input_mode':'independent_known_inputs' if independent else 'actual_predecessor_outputs',
+          'consumed_actual_sha256':None if independent else provenance.hexdigest(),
+          'consumed_input_sha256':provenance.hexdigest(),'blocks':blocks}
     (case/'fixture-data/manifest.json').write_text(json.dumps(meta,indent=2))
     print(json.dumps(meta,separators=(',',':')))
 

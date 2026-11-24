@@ -71,7 +71,8 @@ def main(request):
         proc=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,timeout=1330)
     result={'stage':stage,'case':str(case),'runner_exit':proc.returncode,'wall_seconds':time.monotonic()-start,
             'candidate_commit':meta['candidate_commit'],'kernel_sha256':meta['kernel_sha256'],
-            'routes_sha256':meta['routes_sha256'],'consumed_actual_sha256':meta['consumed_actual_sha256']}
+            'routes_sha256':meta['routes_sha256'],'consumed_actual_sha256':meta['consumed_actual_sha256'],
+            'input_mode':meta['input_mode'],'consumed_input_sha256':meta['consumed_input_sha256']}
     if (case/'run.json').is_file():
         run=json.loads((case/'run.json').read_text())
         result['run']={k:run[k] for k in ('status','returncode','guards') if k in run}
