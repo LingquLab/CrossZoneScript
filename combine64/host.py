@@ -201,6 +201,12 @@ def main(request):
         if tokens!=4 and action not in ('instrument','pipeline-build'):
             gate=ROOT/'cases/64p-t4-pipeline-a1/phase-result.json'
             assert gate.is_file() and json.loads(gate.read_text())['qualified'],'bs4_joint_gate'
+        if action=='trace-pipeline':
+            code=execute(cid,['python3',runtime+'/trace_pipeline.py'],ROOT/'pipeline-trace-runner.log',900)
+            report=ROOT/'cases/64p-t4-pipeline-trace-a1/diagnostic.json'
+            if report.is_file():
+                data=json.loads(report.read_text());files=data.get('dump_files',[]);data['dump_file_count']=len(files);data['dump_files']=files[:12];print(json.dumps(data,separators=(',',':')),flush=True)
+            return code
         if action=='independent-bs':
             import importlib.util
             spec=importlib.util.spec_from_file_location('install_prepared',tools/'install_prepared.py')
