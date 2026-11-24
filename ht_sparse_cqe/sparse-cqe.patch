@@ -1,0 +1,25 @@
+--- a/src/ep/combine_ht/inter_server_send_kernel.cpp
++++ b/src/ep/combine_ht/inter_server_send_kernel.cpp
+@@ -186 +186,4 @@
+-                const uint32_t quiet = TileXR::UDMAQuietStatusOnQp(args_, peer, qp);
++                auto *info = TileXR::GetUDMAInfo(args_);
++                auto *context = TileXR::UDMAGetWQCtx(info, peer, qp);
++                const uint32_t target = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr));
++                const uint32_t quiet = flush ? flush : TileXR::UDMAPollCQUntilSqTail(info, peer, qp, target);
+@@ -276,0 +280,2 @@
++        // This SST probe admits a single logical window inside the SQ capacity.
++        // There is no completion checkpoint before the window SO.
+@@ -278,5 +283 @@
+-            TileXR::UDMARingDoorbell(head, context);
+-            const uint32_t target = head + required - depth;
+-            if (TileXR::UDMAPollCQUntilSqTail(info, peer, qp, target)) {
+-                return TransportError;
+-            }
++            return TransportError;
+@@ -305 +306 @@
+-                target, memory, head + count, TileXR::TILEXR_UDMA_SQE_FLAG_COMPLETION);
++                target, memory, head + count, 0U);
+@@ -313 +313,0 @@
+-        const uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
+@@ -315 +314,0 @@
+-        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount + count);
