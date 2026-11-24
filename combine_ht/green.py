@@ -21,6 +21,7 @@ INPUTS = (
 
 
 def main(args):
+    assert "diagnostic_simt_urma_flag" not in args, "SIM_SEND requires scalar URMA mode"
     stage = args["stage"]
     assert stage in ("setup", "rebuild", "refresh", "run", "status", "stop", "inspect", "read")
     assert args["ssh_target"] == "root@141.61.94.26"
@@ -96,8 +97,6 @@ def main(args):
         result = compact
     elif stage == "run":
         result = phase_summary(result)
-        if args.get("diagnostic_simt_urma_flag") is True:
-            result["diagnostic_simt_urma_flag"] = True
     print(json.dumps(result, ensure_ascii=True))
     return 0 if result["ok"] else 1
 

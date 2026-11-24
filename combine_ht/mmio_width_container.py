@@ -8,6 +8,7 @@ import struct
 import subprocess
 import sys
 import time
+import yaml
 
 sys.path.insert(0, "/work")
 import sst
@@ -19,11 +20,12 @@ snapshot = json.loads(Path("/work/environment.snapshot.json").read_text())
 original = json.loads((BASE / "workload.json").read_text())
 
 
-def run_case(name, gm64, bits):
+def run_case(name, gm64, bits, store_only=False, store_mte=False):
     folder = ROOT / name
     folder.mkdir()
     source = folder / "probe.cpp"
-    source.write_text("#define PROBE_GM64 %d\n#define PROBE_STORE_BITS %d\n" % (gm64, bits) + (ROOT / "mmio_width_probe.cpp").read_text())
+    source.write_text("#define PROBE_GM64 %d\n#define PROBE_STORE_BITS %d\n#define PROBE_STORE_ONLY %d\n#define PROBE_STORE_MTE %d\n" %
+        (gm64, bits, store_only, store_mte) + (ROOT / "mmio_width_probe.cpp").read_text())
     binary = folder / "probe.o"
     with (folder / "build.log").open("wb") as log:
         sst.build_kernel(snapshot["settings"], log, source=source, binary=binary)
@@ -44,7 +46,8 @@ def run_case(name, gm64, bits):
         params = {} if gm64 else {k: v for k, v in old["kernel_param"].items() if "input_bin" in v}
         image = 0 if gm64 else old["kernel_param"]["prefill"]["value"] + template_offset
         info = 0 if gm64 else old["kernel_param"]["fullmesh_info"]["value"]
-        for offset, (key, value) in enumerate((("image", image), ("info", info), ("marker", marker), ("gm", 0x20000000))):
+        destination = 0x401C00000A80 if store_only else 0x20000000
+        for offset, (key, value) in enumerate((("image", image), ("info", info), ("marker", marker), ("gm", destination))):
             params[key] = dict(value=value, param_offset=str(offset * 8), param_type="11")
         params["rank"] = dict(value=rank, param_offset="32", param_type="5")
         outputs = {} if gm64 else {"workspace": old["output_param"]["workspace"]}
@@ -59,6 +62,16 @@ def run_case(name, gm64, bits):
             bin_param=dict(addr=base + 0x40000000, size=max(0x26C40, sst.fixtures.align(binary.stat().st_size))), output_param=outputs)
     with (folder / "model.log").open("w") as log, sst.redirect_stdout(log):
         sst.write_model(folder, snapshot, work, 8)
+    modes = []
+    def transport_modes(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "simt_urma_flag": modes.append(item)
+                else: transport_modes(item)
+        elif isinstance(value, list):
+            for item in value: transport_modes(item)
+    transport_modes(yaml.safe_load((folder / "UBusSim_config/UBusSim_simulator_config.yml").read_text()))
+    assert modes and all(value is False for value in modes), "SIM_SEND scalar transport required"
     command = sst.shell_command(snapshot["settings"], "sst", [snapshot["settings"]["sst_bin"], "-n", "32", folder / "test_UBusSim.py"])
     start = time.monotonic()
     timed_out = False
@@ -75,6 +88,7 @@ def run_case(name, gm64, bits):
     text = (folder / "sim.log").read_text(errors="replace")
     result = dict(name=name, qualified=False, bits=bits, simulator_exit=process.returncode,
         timed_out=timed_out, wall_s=time.monotonic() - start, report=str(folder), object_sha256=sst.checksum(binary),
+        simt_urma_flag=False, store_only=store_only, sq_doorbell="MTE4B" if store_mte else "st_dev",
         completions=[m.group(0) for m in sst.SIM_TIME.finditer(text)][-1:],
         fatals=[line[:450] for line in text.splitlines() if "FATAL:" in line][:2])
     if process.returncode == 0 and result["completions"] and not timed_out:
@@ -84,7 +98,7 @@ def run_case(name, gm64, bits):
             struct.pack_into("<Q", expected, 0, 0x2468ACE013579BDF)
             struct.pack_into("<3I", expected, 1536, 0, 0, 0)
         else:
-            struct.pack_into("<3I", expected, 0, 0, 1, 1)
+            struct.pack_into("<3I", expected, 0, 0, 0 if store_only else 1, 0 if store_only else 1)
         result["marker_and_guards_match"] = raw == expected
         result["qualified"] = raw == expected
         if not gm64:
@@ -102,7 +116,7 @@ def run_case(name, gm64, bits):
                     checks = checks and actual[lo:lo+512] == oracle[lo:lo+512]
                     changes.append(dict(rank=rank, offset=lo))
             result["payload_blocks"] = changes
-            result["payload_matches_oracle"] = checks and len(changes) == 1
+            result["payload_matches_oracle"] = checks and len(changes) == (0 if store_only else 1)
             result["qualified"] = result["qualified"] and result["payload_matches_oracle"]
     (folder / "run.json").write_text(json.dumps(result, indent=2))
     out["cases"].append(result)
@@ -114,11 +128,16 @@ try:
     assert json.loads(Path("/work/revisions.json").read_text())["candidate"] == out["source_revision"]
     assert sst.checksum(sst.KERNEL) == "519c9fba13122634af8f58c50947e1765e1627b6fa6263a312116fbce0bfb790"
     sst.verify_environment(snapshot)
-    gm = run_case("gm64", 1, 64)
-    if gm["qualified"]:
-        control = run_case("mmio32", 0, 32)
-        candidate = run_case("mmio64", 0, 64)
+    if ROOT.name == "mmio-mte-a1":
+        control = run_case("store-only32", 0, 32, True)
+        candidate = run_case("mmio-mte4", 0, 32, store_mte=True)
         out["ok"] = candidate["qualified"]
+    else:
+        gm = run_case("gm64", 1, 64)
+        if gm["qualified"]:
+            control = run_case("mmio32", 0, 32)
+            candidate = run_case("mmio64", 0, 64)
+            out["ok"] = candidate["qualified"]
 except Exception as error:
     out["error_type"] = type(error).__name__
     out["detail"] = str(error)[:400]

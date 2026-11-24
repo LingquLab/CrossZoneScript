@@ -28,6 +28,7 @@ def compact(value):
 out["records"]={}
 for name in ("revisions.json","progress.json","run-summary-a0840f02-8p.json",
              "diagnostics/mmio-width-a1/summary.json",
+             "diagnostics/mmio-mte-a1/summary.json",
              "cases/8p-bs16-a0840f02-a1/send-only/run.json","cases/8p-bs16-a0840f02-a1/reduce-only/run.json",
              "cases/8p-bs16-a0840f02-simtflag-a1/send-only/run.json"):
     path=work/name

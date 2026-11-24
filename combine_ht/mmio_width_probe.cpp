@@ -1,4 +1,10 @@
 // Diagnostic: publish one real WQE through UB/MTE3 and qualify scalar doorbell width.
+#ifndef PROBE_STORE_ONLY
+#define PROBE_STORE_ONLY 0
+#endif
+#ifndef PROBE_STORE_MTE
+#define PROBE_STORE_MTE 0
+#endif
 #include "kernel_operator.h"
 #include "combine_ht_prefill.h"
 #include "/work/candidate/src/moonep/combine_ht/kernels/combine_ht_queue_state.h"
@@ -20,6 +26,8 @@ extern "C" __global__ __aicore__ void tilexr_moonep_combine_ht_kernel(ProbeArgs 
 #if PROBE_GM64
     st_dev(uint64_t(0x2468ace013579bdfULL),
         reinterpret_cast<__gm__ uint64_t *>(reinterpret_cast<uint64_t>(args.gm) >> 7), 0);
+#elif PROBE_STORE_ONLY
+    st_dev(uint32_t(0), reinterpret_cast<__gm__ uint32_t *>(reinterpret_cast<uint64_t>(args.gm) >> 3), 0);
 #else
     auto *info = reinterpret_cast<__gm__ TileXR::UDMAInfo *>(args.info);
     auto *sq = TileXR::UDMAGetWQCtx(info, 2, 2);
@@ -32,7 +40,9 @@ extern "C" __global__ __aicore__ void tilexr_moonep_combine_ht_kernel(ProbeArgs 
         TileXR::TILEXR_UDMA_SQE_FLAG_ORDERED_COMPLETION));
     TileXR::UDMAPublishWqe(wqes.Get<uint8_t>(), sq, 0, 1);
     state.Store(sq->headAddr, 1); state.Store(sq->wqeCntAddr, 1);
-#if PROBE_STORE_BITS == 64
+#if PROBE_STORE_MTE
+    state.Store(sq->dbAddr, 1);
+#elif PROBE_STORE_BITS == 64
     st_dev(uint64_t(1), reinterpret_cast<__gm__ uint64_t *>(sq->dbAddr >> 7), 0);
 #else
     st_dev(uint32_t(1), reinterpret_cast<__gm__ uint32_t *>(sq->dbAddr >> 3), 0);
