@@ -1,0 +1,229 @@
+--- a/include/tilexr/comm/udma/device/api.h
++++ b/include/tilexr/comm/udma/device/api.h
+@@ -254,0 +255,39 @@
++template <AscendC::HardEvent event>
++__attribute__((always_inline)) inline __aicore__ void UDMASyncEvent()
++{
++    const auto eventId = GetTPipePtr()->FetchEventID(event);
++    AscendC::SetFlag<event>(eventId);
++    AscendC::WaitFlag<event>(eventId);
++}
++
++// The first TPipe buffer in the SST kernel reserves these 32 bytes per AIV.
++__aicore__ inline AscendC::LocalTensor<uint32_t> UDMASstStateScratch()
++{
++    return AscendC::LocalTensor<uint32_t>(AscendC::TPosition::VECCALC, 0, 8);
++}
++
++__aicore__ inline uint32_t UDMASstLoadState(__gm__ uint32_t* address)
++{
++    AscendC::GlobalTensor<uint32_t> state;
++    state.SetGlobalBuffer(address, 1);
++    state.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);
++    auto scratch = UDMASstStateScratch();
++    UDMASyncEvent<AscendC::HardEvent::S_MTE2>();
++    AscendC::DataCopyPad(scratch, state, AscendC::DataCopyExtParams(1, 4, 0, 0, 0),
++        AscendC::DataCopyPadExtParams<uint32_t>{false, 0, 0, 0});
++    UDMASyncEvent<AscendC::HardEvent::MTE2_S>();
++    return scratch.GetValue(0);
++}
++
++__aicore__ inline void UDMASstStoreState(__gm__ uint32_t* address, uint32_t value)
++{
++    AscendC::GlobalTensor<uint32_t> state;
++    state.SetGlobalBuffer(address, 1);
++    state.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);
++    auto scratch = UDMASstStateScratch();
++    scratch.SetValue(0, value);
++    UDMASyncEvent<AscendC::HardEvent::S_MTE3>();
++    AscendC::DataCopyPad(state, scratch, AscendC::DataCopyExtParams(1, 4, 0, 0, 0));
++    UDMASyncEvent<AscendC::HardEvent::MTE3_S>();
++}
++
+@@ -258,2 +297,2 @@
+-    st_dev(cqTail, reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr), 0);
+-    st_dev(sqTail, reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr), 0);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr), cqTail);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr), sqTail);
+@@ -284,2 +323,2 @@
+-    uint32_t cqTail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr), 0);
+-    uint32_t sqTail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr), 0);
++    uint32_t cqTail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr));
++    uint32_t sqTail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr));
+@@ -308 +347 @@
+-        const uint32_t sqHead = ld_dev(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->headAddr), 0);
++        const uint32_t sqHead = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->headAddr));
+@@ -335 +374 @@
+-        return ld_dev(reinterpret_cast<__gm__ uint32_t *>(address), 0);
++        return UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(address));
+@@ -443,8 +481,0 @@
+-}
+-
+-template <AscendC::HardEvent event>
+-__attribute__((always_inline)) inline __aicore__ void UDMASyncEvent()
+-{
+-    const auto eventId = GetTPipePtr()->FetchEventID(event);
+-    AscendC::SetFlag<event>(eventId);
+-    AscendC::WaitFlag<event>(eventId);
+@@ -601,2 +632,2 @@
+-    const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t head = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t tail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -634 +665 @@
+-            ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
++            UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
+@@ -637 +668 @@
+-            ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++            UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+@@ -653,2 +684,2 @@
+-    uint32_t curHead = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    uint32_t wqeCnt = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    uint32_t curHead = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    uint32_t wqeCnt = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+@@ -674,2 +705,2 @@
+-    st_dev(curHead, reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    st_dev(wqeCnt, reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), curHead);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), wqeCnt);
+@@ -1055 +1086 @@
+-    return ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
++    return UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
+@@ -1073,2 +1104,2 @@
+-    const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t head = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t tail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -1098,4 +1129,2 @@
+-    const uint32_t submittedHead = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t submittedTail = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t submittedHead = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t submittedTail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -1126,2 +1155 @@
+-    const uint32_t completionTarget = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    const uint32_t completionTarget = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+@@ -1204,2 +1232,2 @@
+-    const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t head = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t tail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -1244,2 +1272 @@
+-    const uint32_t completionTarget = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    const uint32_t completionTarget = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+--- a/src/ep/combine_ht/inter_server_send_kernel.cpp
++++ b/src/ep/combine_ht/inter_server_send_kernel.cpp
+@@ -93 +93 @@
+-                forward_ + (uint64_t(peer) * c_.forwardCapacity + first) * sizeof(Record)));
++                forward_ + (uint64_t(peer) * c_.forwardCapacity + first) * kUbBlockBytes));
+@@ -97,3 +97,2 @@
+-            // The public records remain packed 24B. Each independent source
+-            // block is padded to a 32B UB row, including the bounded last page.
+-            DataCopyPad(page, gm, DataCopyExtParams(rows, sizeof(Record), 0, 0, 0),
++            // SST uses the baseline fixture's 32B GM and UB stride.
++            DataCopyPad(page, gm, DataCopyExtParams(rows, kUbBlockBytes, 0, 0, 0),
+@@ -269,2 +268,2 @@
+-        uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), 0);
+-        uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t *>(context->tailAddr), 0);
++        uint32_t head = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr));
++        uint32_t tail = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->tailAddr));
+@@ -311,6 +310,2 @@
+-        // Publish the contiguous UB batch in one MTE3 copy, or two at wrap.
+-        // No SQ/head state changes until all descriptors have been validated.
+-        TileXR::UDMAPublishWqe(scratch, context, head, count);
+-        const uint32_t wqeCount = ld_dev(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), 0);
+-        st_dev(head + count, reinterpret_cast<__gm__ uint32_t *>(context->headAddr), 0);
+-        st_dev(wqeCount + count, reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), 0);
++        constexpr uint32_t stripeEntries = kSlotBytes / TileXR::TILEXR_UDMA_WQE_BB_BYTES;
++        uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
+@@ -318 +313,14 @@
+-        TileXR::UDMARingDoorbell(head + count, context);
++        for (uint32_t posted = 0; posted < count;) {
++            const uint32_t remainingInStripe = stripeEntries - head % stripeEntries;
++            const uint32_t stripeCount = count - posted < remainingInStripe ? count - posted : remainingInStripe;
++            TileXR::UDMAPublishWqe(scratch[posted * TileXR::TILEXR_UDMA_WQE_BB_BYTES], context, head, stripeCount);
++            head += stripeCount;
++            wqeCount += stripeCount;
++            posted += stripeCount;
++            TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), head);
++            TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount);
++            TileXR::UDMARingDoorbell(head, context);
++            if (TileXR::UDMAQuietStatusOnQp(args_, peer, qp) != TileXR::TILEXR_UDMA_STATUS_SUCCESS) {
++                return TransportError;
++            }
++        }
+@@ -406,0 +415,2 @@
++    TBuf<QuePosition::VECCALC> queueStateScratch;
++    pipe.InitBuffer(queueStateScratch, 32);
+--- a/src/ep/combine_ht/send_schedule.h
++++ b/src/ep/combine_ht/send_schedule.h
+@@ -73 +73 @@
+-template <class Transport>
++template <bool PeerFirst = false, class Transport>
+@@ -78 +78,2 @@
+-    while (peer.range.begin < peer.range.end && sent[0] < kRowsPerPeerVisit && sent[1] < kRowsPerPeerVisit) {
++    while (peer.range.begin < peer.range.end &&
++           (PeerFirst || (sent[0] < kRowsPerPeerVisit && sent[1] < kRowsPerPeerVisit))) {
+@@ -98 +99 @@
+-template <class Transport>
++template <bool PeerFirst = false, class Transport>
+@@ -115 +116,4 @@
+-        const Range range = transport.LoadRange(peer.peer, i, chunk);
++        Range range = transport.LoadRange(peer.peer, i, chunk);
++        if constexpr (PeerFirst) {
++            range.begin = transport.LoadRange(peer.peer, i, 0).begin;
++        }
+@@ -128,3 +132 @@
+-    bool pending = true;
+-    while (pending) {
+-        pending = false;
++    if constexpr (PeerFirst) {
+@@ -133 +135,4 @@
+-            status = SubmitPeerRows(c, peer, tokenBegin, tokenEnd, transport);
++            if (peer.range.begin == peer.range.end) {
++                continue;
++            }
++            status = SubmitPeerRows<true>(c, peer, tokenBegin, tokenEnd, transport);
+@@ -137,7 +142,23 @@
+-            pending = pending || peer.range.begin < peer.range.end;
+-        }
+-    }
+-
+-    status = transport.Flush();
+-    if (status != Success) {
+-        return status;
++            status = transport.Flush();
++            if (status != Success) {
++                return status;
++            }
++        }
++    } else {
++        bool pending = true;
++        while (pending) {
++            pending = false;
++            for (uint32_t i = 0; i < activeCount; ++i) {
++                auto &peer = *activePeers[i];
++                status = SubmitPeerRows(c, peer, tokenBegin, tokenEnd, transport);
++                if (status != Success) {
++                    return status;
++                }
++                pending = pending || peer.range.begin < peer.range.end;
++            }
++        }
++
++        status = transport.Flush();
++        if (status != Success) {
++            return status;
++        }
+@@ -174,0 +196,8 @@
++    // Benchmark mode consumes the entire token span peer by peer. Use the
++    // existing final SO slot so both modes use the same workspace and metadata.
++    if (c.reserved == 1U) {
++        if (c.tokens > kTokensPerChunk || !c.chunks) {
++            return InvalidRoute;
++        }
++        return SubmitChunk<true>(c, owner, peers, count, c.chunks - 1, 0, c.tokens, transport);
++    }
