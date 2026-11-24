@@ -81,7 +81,9 @@ def environment(profile, case):
     for key, group in sst.RESOURCE_GROUPS.items():
         if group == "v310_deployment":
             candidates = sorted((Path("/opt/sim/simulator") / group).rglob(Path(key).name))
-            selected = [path for path in candidates if profile + "_config" in path.parts]
+            selected = ([Path("/opt/sim/simulator/v310_deployment/config") / Path(key).name]
+                        if profile == "default" else [path for path in candidates if profile + "_config" in path.parts])
+            selected = [path for path in selected if path.is_file()]
             if len(selected) != 1:
                 raise ValueError(profile + " configuration unavailable for " + key)
             paths[key] = str(selected[0])
@@ -192,20 +194,42 @@ def run(profile, workload, layout):
     return result
 
 
-out = dict(diagnostic_only=True, experiment_completed=False, image_version="V1.1.0", cases=[])
-try:
-    identity, workload, layout = prepare()
-    out["published_artifact_source"] = identity["commit"]
-    out["equivalent_published_source"] = "211f7e97728781c4d7f01283c46e02872a34998f"
-    for profile in ("perf", "pv"):
-        out["cases"].append(run(profile, workload, layout))
-        sst.write_json(ROOT / "summary.json", out)
-    assert out["cases"][0]["workload_sha256"] == out["cases"][1]["workload_sha256"]
-    out["experiment_completed"] = True
-except Exception as error:
-    out["error_type"] = type(error).__name__
-    out["detail"] = str(error)[:300]
-finally:
-    sst.write_json(ROOT / "summary.json", out)
-print(json.dumps(out))
-sys.exit(0 if out["experiment_completed"] else 1)
+def main():
+    resume_default = sys.argv[1:] == ["resume-default"]
+    assert resume_default or not sys.argv[1:]
+    summary = ROOT / ("default-summary.json" if resume_default else "summary.json")
+    out = dict(diagnostic_only=True, experiment_completed=False, image_version="V1.1.0", cases=[])
+    try:
+        if resume_default:
+            baseline = json.loads((ROOT / "summary.json").read_text())
+            assert len(baseline["cases"]) == 1 and baseline["cases"][0]["profile"] == "perf"
+            assert baseline["cases"][0]["simulator_exit"] == 255 and not baseline["cases"][0]["timed_out"]
+            assert sst.checksum(SHARED / "kernel/inter_server_send.o") == KERNEL_SHA
+            assert sst.checksum(ASSETS / "fixture.tar.gz") == ARCHIVE_SHA
+            identity = json.loads((ASSETS / "identity.json").read_text())
+            workload = yaml.safe_load((SHARED / "relocated-workload.yml").read_text())
+            layout = json.loads((SHARED / "export-layout.json").read_text())
+            profiles = ("default",)
+            out["baseline_perf"] = baseline["cases"][0]
+        else:
+            identity, workload, layout = prepare()
+            profiles = ("perf", "pv")
+        out["published_artifact_source"] = identity["commit"]
+        out["equivalent_published_source"] = "211f7e97728781c4d7f01283c46e02872a34998f"
+        for profile in profiles:
+            out["cases"].append(run(profile, workload, layout))
+            sst.write_json(summary, out)
+        comparison = [out["baseline_perf"], out["cases"][0]] if resume_default else out["cases"]
+        assert comparison[0]["workload_sha256"] == comparison[1]["workload_sha256"]
+        out["experiment_completed"] = True
+    except Exception as error:
+        out["error_type"] = type(error).__name__
+        out["detail"] = str(error)[:300]
+    finally:
+        sst.write_json(summary, out)
+    print(json.dumps(out))
+    return 0 if out["experiment_completed"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
