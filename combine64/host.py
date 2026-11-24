@@ -210,6 +210,13 @@ def main(request):
             if code:
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/'pipeline-dcci-prepare.log')}));return code
             return run_case(cid,ROOT/'cases/64p-t4-pipeline-dcci-diagnostic-a1',tools,'check_pipeline.py','tilexr_ht_pipeline_sst',1200)
+        if action=='snapshot-pipeline':
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
+            code=execute(cid,['python3',runtime+'/snapshot_pipeline.py'],ROOT/'pipeline-snapshot-runner.log',1800)
+            report=ROOT/'cases/64p-t4-pipeline-snapshot200us-a1/diagnostic.json'
+            if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
+            return code
         if action=='pending-layout':
             import runpy
             runpy.run_path(str(tools/'pending_layout_remote.py'),run_name='__main__');return 0
