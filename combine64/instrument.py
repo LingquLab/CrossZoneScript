@@ -6,7 +6,8 @@ from pathlib import Path
 def main(root):
     root=Path(root);source=root/'source';dest=root/'profile-build';dest.mkdir(exist_ok=False)
     cann=Path('/opt/sim/Ascend/cann-9.1.0')
-    include=['-I'+str(source/'include'),'-I'+str(source/'src/ep/combine_ht')]
+    include=['-I'+str(source/'include'),'-I'+str(source/'src/ep/combine_ht'),
+        '-I'+str(source/'src/moonep/combine_ht/common'),'-I'+str(source/'src/moonep/combine_ht/kernels'),'-I'+str(Path(__file__).parent)]
     for rel in ('compiler/tikcpp','compiler/tikcpp/tikcfw','compiler/tikcpp/tikcfw/impl','compiler/tikcpp/tikcfw/interface',
                 'aarch64-linux/ascendc/include','aarch64-linux/asc/include','aarch64-linux/include','aarch64-linux/pkg_inc','aarch64-linux/pkg_inc/runtime'):
         include+=['-I'+str(cann/rel)]
@@ -18,8 +19,8 @@ def main(root):
         '-DTILEXR_EP_HT_FINAL_REDUCE_SST_FP32=1','-DTILEXR_EP_HT_PIPELINE_FP32=1',
         '-DTILEXR_ENABLE_PROFILING=1','--cce-aicore-only','-std=gnu++17']+include
     targets={}
-    for stage in ('local_return','inter_server_send','final_reduce'):
-        origin=source/'src/ep/combine_ht'/(stage+'_kernel.cpp');text=origin.read_text()
+    for stage in ('local_ht','local_return','inter_server_send','final_reduce'):
+        origin=source/('src/moonep/combine_ht/kernels/combine_ht.cpp' if stage=='local_ht' else 'src/ep/combine_ht/'+stage+'_kernel.cpp');text=origin.read_text()
         # Only the exported compute entry's signature and prologue/epilogue change.
         start=text.rindex('extern "C" __global__ __aicore__ void ')
         # The final entry has a conditional symbol name; its argument list is shared.
@@ -29,8 +30,10 @@ def main(root):
         signature=signature.rstrip()[:-1]+', GM_ADDR profiling)'
         body=text[opening+2:closing]
         prologue='\n    TileXR::Profiling::DirectWriter capture;\n    capture.Initialize(profiling, AscendC::GetBlockIdx());\n    capture.RecordAt(1, AscendC::GetSystemCycle());\n'
-        epilogue='\n    capture.RecordAt(2, AscendC::GetSystemCycle());\n    capture.Publish();\n'
-        code='#include <tilexr/profiling/device/direct_writer.h>\n'+text[:start]+signature+'\n{'+prologue+body+epilogue+text[closing:]
+        epilogue='\n    capture.RecordAt(2, AscendC::GetSystemCycle());\n    capture.Publish();\n    FlushProfile(profiling);\n'
+        code='#include <tilexr/profiling/device/direct_writer.h>\n#include \"profile_flush.h\"\n'+text[:start]+signature+'\n{'+prologue+body+epilogue+text[closing:]
+        if stage=='local_ht':
+            code='#include \"combine_ht_kernel.h\"\n#include \"profile_flush.h\"\nextern \"C\" __global__ __aicore__ void tilexr_moonep_combine_ht_kernel(TileXRCombineHT::KernelArgs args) { RunCombineHT(args); FlushProfile(args.profiling); }\n'
         wrapper=dest/(stage+'.cpp');wrapper.write_text(code)
         obj=dest/(stage+'.rel.o');binary=dest/(stage+'.o')
         commands=[['bisheng']+flags+['-c',str(wrapper),'-o',str(obj)],

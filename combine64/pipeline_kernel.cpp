@@ -9,6 +9,7 @@
 #include <tilexr/comm/device/sync.h>
 #include <tilexr/profiling/device/direct_writer.h>
 #include "queue_state.h"
+#include "profile_flush.h"
 #include "local_return_args.h"
 #include "local_return_schedule.h"
 #include "final_reduce_schedule.h"
@@ -109,6 +110,7 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
     capture.RecordAt(10, GetSystemCycle());
     LocalStage::RunCombineHT(args.local);
     capture.RecordAt(11, GetSystemCycle());
+    FlushProfile(args.local.profiling);
     if(!JointBarrier(args,1)) return;
     capture.RecordAt(20, GetSystemCycle());
     JointCopyPartial(args);
@@ -169,4 +171,5 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
     JointStatus(pipe,args.barrierStatus+uint64_t(block)*32,0);
     capture.RecordAt(2, GetSystemCycle());
     capture.Publish();
+    FlushProfile(reinterpret_cast<GM_ADDR>(args.profiling));
 }

@@ -8,7 +8,7 @@ export PATH="$ASCEND_HOME_PATH/tools/bisheng_compiler/bin:$ASCEND_HOME_PATH/aarc
 target=/work/pipeline-build-40596e2-a1
 mkdir "$target"
 cp "$1" "$target/pipeline_kernel.cpp"
-includes=(-I/work/source/include -I/work/source/src/moonep/combine_ht/common
+includes=("-I$(dirname "$1")" -I/work/source/include -I/work/source/src/moonep/combine_ht/common
           -I/work/source/src/moonep/combine_ht/kernels -I/work/source/src/ep/combine_ht)
 for path in compiler/tikcpp compiler/tikcpp/tikcfw compiler/tikcpp/tikcfw/impl compiler/tikcpp/tikcfw/interface \
             aarch64-linux/ascendc/include aarch64-linux/asc/include aarch64-linux/include aarch64-linux/pkg_inc aarch64-linux/pkg_inc/runtime; do

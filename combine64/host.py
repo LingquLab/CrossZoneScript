@@ -85,11 +85,12 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     print(json.dumps(result,separators=(',',':')),flush=True)
     return 0 if result['qualified'] else 1
 
-def local(cid,tools,tokens,phase):
+def local(cid,tools,tokens,phase,attempt="a1"):
+    assert attempt in ("a1","a2","a3")
     assert phase in ('send','reduce','fused')
     asset=ROOT/'assets'/('64p-t%d'%tokens)
     identity=json.loads((asset/'identity.json').read_text())
-    case=ROOT/'cases'/('64p-t%d-local-%s-a1'%(tokens,phase));case.mkdir(parents=True,exist_ok=False)
+    case=ROOT/'cases'/('64p-t%d-local-%s-%s'%(tokens,phase,attempt));case.mkdir(parents=True,exist_ok=False)
     for name in ('input_bin','kernel'):shutil.copytree(asset/'loader'/name,case/name)
     shutil.copytree(asset/'fixture-data',case/'fixture-data');shutil.copyfile(asset/'routes.json',case/'routes.json')
     layout=json.loads((asset/'loader/export-layout.json').read_text());layout['required_exports']=['returned','completed','status','output','profiling']
@@ -98,7 +99,7 @@ def local(cid,tools,tokens,phase):
     workload=json.loads((asset/'loader/workload.yml').read_text().replace(identity['runtime_root'],runtime))
     provenance=hashlib.sha256()
     if phase=='reduce':
-        prior=case.with_name('64p-t%d-local-send-a1'%tokens)
+        prior=case.with_name('64p-t%d-local-send-a2'%tokens)
         assert json.loads((prior/'phase-result.json').read_text())['qualified'],'predecessor_not_qualified'
     for row in layout['ranks']:
         folder=case/'input_bin'/('rank%02d'%row['rank']);args=bytearray((folder/'kernel_args.bin').read_bytes())
@@ -111,8 +112,12 @@ def local(cid,tools,tokens,phase):
                 assert len(payload)==bounds['size'];offset=bounds['addr']-struct.unpack_from('<Q',args,0)[0]
                 ws[offset:offset+len(payload)]=payload;provenance.update(hashlib.sha256(payload).digest())
             (folder/'workspace.bin').write_bytes(ws)
+    if (ROOT/'profile-build/result.json').is_file():
+        instrument=json.loads((ROOT/'profile-build/result.json').read_text())['targets']['local_ht']
+        binary=ROOT/instrument['path'];assert sha(binary)==instrument['sha256']
+        raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
     write(case/'workload.yml',workload)
-    meta=json.loads((case/'fixture-data/manifest.json').read_text());meta.update(phase=phase,
+    meta=json.loads((case/'fixture-data/manifest.json').read_text());meta.update(kernel_sha256=sha(case/'kernel/inter_server_send.o'),profiling_tail_flush=(ROOT/'profile-build/result.json').is_file(),phase=phase,
         input_mode='actual_predecessor_outputs' if phase=='reduce' else 'expert_outputs_and_routes',
         consumed_actual_sha256=provenance.hexdigest() if phase=='reduce' else None)
     write(case/'fixture-data/manifest.json',meta)
@@ -182,7 +187,7 @@ def main(request):
                 print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
             case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
             return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
-        if action=='local':return local(cid,tools,tokens,request['phase'])
+        if action=='local':return local(cid,tools,tokens,request['phase'],request.get('attempt','a1'))
         if action=='pipeline-build':
             code=execute(cid,['bash',runtime+'/pipeline_build.sh',runtime+'/pipeline_kernel.cpp'],ROOT/'pipeline-build.log',350)
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
@@ -195,8 +200,9 @@ def main(request):
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d.log'%tokens))}));return code
             case=ROOT/'cases'/('64p-t%d-pipeline-a1'%tokens)
             return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',1200)
-        if action=='instrument':
+        if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
-            if (ROOT/'profile-build/result.json').is_file():print((ROOT/'profile-build/result.json').read_text())
+            if (ROOT/'profile-build/result.json').is_file():print((ROOT/'profile-build/result.json').read_text(),flush=True)
+            if code==0 and action=='repair-profile-send':return local(cid,tools,4,'send','a2')
             return code
         raise ValueError('phase_not_yet_implemented_'+action)
