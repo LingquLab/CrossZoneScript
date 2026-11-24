@@ -42,12 +42,23 @@ def read_capture(case):
     assert scenario["rank_size"] == RANKS and scenario["block_dim"] == CORES
     assert scenario["copyout_enabled"] is False
     assert len(scenario["ranks"]) == RANKS
+    streams = read_streams(case, scenario, CORES)
 
+    markers = case / "two_group_events.jsonl"
+    if markers.is_file():
+        recorded = [json.loads(line) for line in markers.read_text().splitlines()]
+        decoded = [[core, [[cycle, event] for cycle, event in events if 50 <= event <= 53]]
+                   for (_, core), events in streams.items()]
+        assert decoded == recorded, f"profile event mismatch in {case}"
+    return result, scenario, streams
+
+
+def read_streams(case, scenario, cores):
     sys.path.insert(0, str(case))
     try:
         case_tools = importlib.import_module("case_tools")
         profiling = importlib.import_module("profiling_view")
-        layout = profiling.compute_layout(CORES, 256)
+        layout = profiling.compute_layout(cores, 256)
         streams = {}
         for rank, record in enumerate(scenario["ranks"]):
             assert rank == record["rank"]
@@ -58,20 +69,14 @@ def read_capture(case):
                 layout["bytes"],
             )
             assert len(profile) == layout["bytes"], (case, rank)
-            for core in range(CORES):
+            for core in range(cores):
                 streams[rank, core] = list(profiling.stream_events(profile, layout, core))
     finally:
         sys.path.pop(0)
         for module in ("case_tools", "full_validation", "profiling_view", "sim_environment", "jetty_status"):
             sys.modules.pop(module, None)
 
-    markers = case / "two_group_events.jsonl"
-    if markers.is_file():
-        recorded = [json.loads(line) for line in markers.read_text().splitlines()]
-        decoded = [[core, [[cycle, event] for cycle, event in events if 50 <= event <= 53]]
-                   for (_, core), events in streams.items()]
-        assert decoded == recorded, f"profile event mismatch in {case}"
-    return result, scenario, streams
+    return streams
 
 
 def pair_events(events):
