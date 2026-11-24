@@ -29,6 +29,8 @@ try:
     s=(WORK/'sst.py').read_text()
     s=s.replace('elif len(candidates) == 1 and (key == "installed_model.py" or directory == "UBusSim_deployment"):','elif len(candidates) == 1:')
     s=s.replace('bf93fd6d0749fc3c6eaae365c7cba558988e1fa25c1b9a26e139be61b60a3da3','6d4cd3b729177646ca1c43d57971e5266a946405b6f820f3d0d914114b7ccfce')
+    s=s.replace('rank_size=ranks, log_level=1, instruction_dump_chips=[]','rank_size=ranks, log_level=0, instruction_dump_chips=[]')
+    s=s.replace('    for name, config in configs.items():', '    def quiet(value):\n        if isinstance(value, dict):\n            for key, child in value.items():\n                if key in ("enable_dump", "enable_dump_detail"): value[key] = 0\n                elif key == "stat_trace_flag": value[key] = False\n                else: quiet(child)\n        elif isinstance(value, list):\n            for child in value: quiet(child)\n    quiet(configs)\n    for name, config in configs.items():')
     (WORK/'sst.py').write_text(s)
     (WORK/'revisions.json').write_text(json.dumps(REVISIONS))
     call(['docker','run','-dt','--name',NAME,'--label','crosszone.session='+SESSION,
