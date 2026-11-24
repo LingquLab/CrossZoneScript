@@ -125,6 +125,16 @@ def local(cid,tools,tokens,phase,attempt="a1"):
     write(case/'fixture-data/manifest.json',meta)
     return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel')
 
+def return_phase(cid,tools,tokens,stage):
+    runtime='/work/'+tools.name
+    assert stage in ('return-independent','return','inter-send-independent','inter-send','final-independent','final-joint')
+    code=execute(cid,['python3',runtime+'/return_fixture.py','--root','/work','--stage',stage,'--tokens',str(tokens),
+        '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-%d-%s.log'%(tokens,stage)),500)
+    if code:
+        print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
+    case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
+    return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
+
 def status(cid,info):
     result={'root':str(ROOT),'container_id':cid,'running':info['State']['Running'],'oom_killed':info['State']['OOMKilled']}
     if (ROOT/'progress.json').is_file():result['progress']=json.loads((ROOT/'progress.json').read_text())
@@ -181,14 +191,12 @@ def main(request):
                 code=local(cid,tools,tokens,phase)
                 if code:return code
             return 0
-        if action=='return':
-            stage=request['stage'];assert stage in ('return-independent','return','inter-send-independent','inter-send','final-independent','final-joint')
-            code=execute(cid,['python3',runtime+'/return_fixture.py','--root','/work','--stage',stage,'--tokens',str(tokens),
-                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-%d-%s.log'%(tokens,stage)),500)
-            if code:
-                print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
-            case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
-            return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
+        if action in ('return','qualify-return'):
+            stages=[request['stage']] if action=='return' else ['return-independent','inter-send-independent','final-independent','return','inter-send','final-joint']
+            for stage in stages:
+                code=return_phase(cid,tools,tokens,stage)
+                if code:return code
+            return 0
         if action=='local':return local(cid,tools,tokens,request['phase'],request.get('attempt','a1'))
         if action=='calibrate':
             reports=[]
