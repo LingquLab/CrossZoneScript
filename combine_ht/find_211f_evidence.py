@@ -46,6 +46,8 @@ for root in sorted(roots):
         try:entries=list(directory.iterdir())
         except OSError:continue
         for path in entries:
+            if scanned>=700 or time.monotonic()>=deadline:
+                limited=True;break
             if path.is_dir():
                 if depth<4 and path.name not in (".git","candidate","baseline-candidate","tooling","input_bin","bin","dumps","OUTPUT","node_modules","source","TileXR") and not path.name.startswith("previous-"):
                     pending.append((path,depth+1))
