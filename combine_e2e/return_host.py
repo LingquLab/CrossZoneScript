@@ -35,13 +35,15 @@ def diagnose_local_send():
     return results
 def main(request):
     stage=request['stage']
+    tokens=request.get('tokens',16)
+    assert tokens in (4,16)
     assert stage in ('return','inter-send','return-independent','inter-send-independent','final-independent','final-joint')
     identity=json.loads((ROOT/'identity.json').read_text())
     cid=identity['container_id']
     info=json.loads(subprocess.check_output(['docker','inspect',cid]))[0]
     assert info['Id']==cid and info['State']['Running'] and info['Image']==identity['image']
     assert info['HostConfig']['NetworkMode']=='none'
-    diagnostic=diagnose_local_send() if stage=='final-independent' else None
+    diagnostic=diagnose_local_send() if stage=='final-independent' and tokens==16 else None
     version=hashlib.sha256(json.dumps(request['files'],sort_keys=True).encode()).hexdigest()[:12]
     tools=ROOT/('return-tools-'+version)
     tools.mkdir(exist_ok=True)
@@ -50,16 +52,17 @@ def main(request):
         dest=tools/name
         if dest.exists():assert dest.read_text()==text
         else:dest.write_text(text)
-    case=ROOT/'cases'/('64p-t16-'+stage+'-a1')
+    case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage))
     runtime='/work/cases/'+case.name
     command=['docker','exec',cid,'python3','/work/'+tools.name+'/return_fixture.py',
-             '--root','/work','--stage',stage,'--abis','/work/'+tools.name+'/send-abis.json']
-    with (ROOT/('prepare-'+stage+'.log')).open('wb') as log:
+             '--root','/work','--stage',stage,'--tokens',str(tokens),'--abis','/work/'+tools.name+'/send-abis.json']
+    prepare_name='prepare-t%d-%s'%(tokens,stage)
+    with (ROOT/(prepare_name+'.log')).open('wb') as log:
         prepared=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,timeout=180)
     if prepared.returncode:
-        result={'stage':stage,'prepare_exit':prepared.returncode,'qualified':False,'evidence':str(ROOT/('prepare-'+stage+'.log'))}
+        result={'stage':stage,'tokens':tokens,'prepare_exit':prepared.returncode,'qualified':False,'evidence':str(ROOT/(prepare_name+'.log'))}
         if diagnostic is not None:result['local_send_diagnostic']=diagnostic
-        write(ROOT/('prepare-'+stage+'-result.json'),result)
+        write(ROOT/(prepare_name+'-result.json'),result)
         print(json.dumps(result,separators=(',',':')))
         return 1
     meta=json.loads((case/'fixture-data/manifest.json').read_text())
@@ -97,7 +100,7 @@ def main(request):
     start=time.monotonic()
     with (case/'runner.log').open('wb') as log:
         proc=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,timeout=1330)
-    result={'stage':stage,'case':str(case),'runner_exit':proc.returncode,'wall_seconds':time.monotonic()-start,
+    result={'stage':stage,'tokens':tokens,'case':str(case),'runner_exit':proc.returncode,'wall_seconds':time.monotonic()-start,
             'candidate_commit':meta['candidate_commit'],'kernel_sha256':meta['kernel_sha256'],
             'routes_sha256':meta['routes_sha256'],'consumed_actual_sha256':meta['consumed_actual_sha256'],
             'input_mode':meta['input_mode'],'consumed_input_sha256':meta['consumed_input_sha256']}

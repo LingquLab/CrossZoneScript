@@ -14,22 +14,23 @@ def valid(case):
     p=case/'phase-result.json'
     assert p.is_file() and json.loads(p.read_text()).get('qualified') is True, 'predecessor_not_qualified'
 
-def main(root,stage,abis):
+def main(root,stage,abis,tokens=16):
     root=Path(root)
-    world,tokens,hidden,topk=64,16,128,6
+    world,hidden,topk=64,128,6
+    assert tokens in (4,16)
     source=root/'source'
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0,str(support))
     import loader,runtime
     independent=stage.endswith('-independent')
     kind='return' if stage.startswith('return') else ('inter-send' if stage.startswith('inter-send') else 'final')
-    local=root/'cases'/('64p-t16-local-send-a1' if independent else '64p-t16-local-fused-a1')
+    local=root/'cases'/('64p-t%d-local-%s-a1'%(tokens,'send' if independent else 'fused'))
     if not independent: valid(local)
-    case=root/'cases'/('64p-t16-'+stage+'-a1')
+    case=root/'cases'/('64p-t%d-%s-a1'%(tokens,stage))
     assert not case.exists(), 'case_already_exists'
     golden=case.with_name(case.name+'-golden')
     golden.mkdir(exist_ok=False)
-    previous=case.with_name('64p-t16-'+('return' if stage=='inter-send' else 'inter-send')+'-a1')
+    previous=case.with_name('64p-t%d-%s-a1'%(tokens,'return' if stage=='inter-send' else 'inter-send'))
     if stage in ('inter-send','final-joint'): valid(previous)
     routes=json.loads((local/'routes.json').read_text())
     assert len(routes)==world*tokens
@@ -45,7 +46,7 @@ def main(root,stage,abis):
     provenance=hashlib.sha256()
     for rank,abi in enumerate(abis):
         config={x['name'].split('.',1)[1]:x['value'] for x in abi['fields'][6:]}
-        assert config['world']==64 and config['rank']==rank and config['tokens']==16 and config['hidden']==128
+        assert config['world']==64 and config['rank']==rank and config['tokens']==tokens and config['hidden']==128
         c=bytearray(112)
         for field in abi['fields'][6:]:
             fmt={'uint32_t':'I','uint64_t':'Q','int64_t':'q'}[field['type']]
@@ -144,7 +145,7 @@ def main(root,stage,abis):
             assert len(args)==160
             blocks=16
         else:
-            images.update(serverMask=struct.pack('<16Q',*masks),output=b'\xa5'*len(final))
+            images.update(serverMask=struct.pack('<%dQ'%tokens,*masks),output=b'\xa5'*len(final))
             args=struct.pack('<5Q',base+pointers['workspace'],base+pointers['serverMask'],base+pointers['workspace']+local_ready,
                              base+pointers['output'],base+pointers['status'])+c
             assert len(args)==152
@@ -184,7 +185,7 @@ def main(root,stage,abis):
     workload=json.loads((case/'workload.yml').read_text())
     for chip in workload['workload_config'].values(): chip['block_dim']=blocks
     (case/'workload.yml').write_text(json.dumps(workload,indent=2))
-    meta={'world':64,'tokens':16,'hidden':128,'topk':6,'experts':256,'stage':stage,'dtype':'fp32',
+    meta={'world':64,'tokens':tokens,'hidden':128,'topk':6,'experts':256,'stage':stage,'dtype':'fp32',
           'candidate_commit':'013cc3e2f8abf8157abdc609afcfe2369806b1e1','entry':ENTRY[stage],
           'kernel_sha256':digest(case/'kernel/inter_server_send.o'),'routes_sha256':digest(local/'routes.json'),
           'input_mode':'independent_known_inputs' if independent else 'actual_predecessor_outputs',
@@ -197,6 +198,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--root',required=True)
     p.add_argument('--stage',choices=list(ENTRY),required=True)
+    p.add_argument('--tokens',type=int,choices=(4,16),default=16)
     p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args()
-    main(a.root,a.stage,json.loads(a.abis.read_text()))
+    main(a.root,a.stage,json.loads(a.abis.read_text()),a.tokens)
