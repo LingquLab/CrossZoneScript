@@ -19,7 +19,7 @@ bisheng -xcce -O2 -DCATLASS_ARCH=3510 --cce-auto-sync -Wno-deprecated-declaratio
     --cce-aicore-arch=dav-c310-vec -mllvm -cce-aicore-stack-size=0x8000 \
     -mllvm -cce-aicore-function-stack-size=0x8000 -mllvm -cce-aicore-addr-transform \
     -mllvm -cce-aicore-dcci-insert-for-scalar=false \
-    -DTILEXR_COMBINE_HT_SIM_SEND=1 -DTILEXR_COMBINE_HT_SST_FP32=1 \
+    -DTILEXR_ENABLE_PROFILING=1 -DTILEXR_COMBINE_HT_SIM_SEND=1 -DTILEXR_COMBINE_HT_SST_FP32=1 \
     -DTILEXR_EP_HT_SST_SPLIT_WRITES=1 -DTILEXR_EP_HT_FINAL_REDUCE_SST_FP32=1 \
     -DTILEXR_EP_HT_PIPELINE_FP32=1 --cce-aicore-only -std=gnu++17 \
     "${includes[@]}" -c "$target/pipeline_kernel.cpp" -o "$target/rel.o" > "$target/compile.log" 2>&1
@@ -36,7 +36,7 @@ import hashlib,json,re,sys
 from pathlib import Path
 root=Path(sys.argv[1])
 result={'compile_exit':int(sys.argv[2]),'link_exit':int(sys.argv[3]),'entry':'tilexr_ht_pipeline_sst',
-        'candidate_commit':'40596e2d9d454b7a7b00b4b34b96d49158e1c3a3','test_wrapper':True,'abi_bytes':504}
+        'candidate_commit':'40596e2d9d454b7a7b00b4b34b96d49158e1c3a3','test_wrapper':True,'abi_bytes':512}
 for name in ('compile','link'):
     p=root/(name+'.log')
     if p.is_file():

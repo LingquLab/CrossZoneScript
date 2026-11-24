@@ -1,6 +1,7 @@
 # Copyright (c) 2026 TileXR Project.
 """Build one-invocation HT inputs with distinct local and return queue resources."""
 import argparse,hashlib,json,shutil,struct,subprocess,sys
+import profile as ht_profile
 from pathlib import Path
 
 LOCAL_WS=0x200000000
@@ -9,18 +10,18 @@ EXTRA={'localComm':0x2ff100000,'localInfo':0x300080000,'localRegistry':0x3000a00
        'localSq':0x317000000,'localCq':0x318000000,'localMem':0x319000000,
        'prefill':0x405000000,'masks':0x406000000,'backward':0x407000000,
        'backward_counts':0x408000000,'backward_ranges':0x409000000,
-       'serverMask':0x40c000000,'output':0x40e000000,'barriers':0x40f000000}
+       'profiling':0x432000000,'local_profiling':ht_profile.ADDRESS,'returnForward':0x40d000000,'serverMask':0x40c000000,'output':0x40e000000,'barriers':0x40f000000}
 GUARD=struct.pack('<f',-17.)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def local_slot(g):return (g%2)*20+16+g//2
 
-def main(root,directory,abis):
+def main(root,directory,abis,tokens=4):
     root,directory=Path(root),Path(directory)
-    local=root/'cases/64p-t4-local-fused-a1'
+    local=root/'cases'/('64p-t%d-local-fused-a1'%tokens)
     assert json.loads((local/'phase-result.json').read_text())['qualified'] is True
     build=json.loads((root/'pipeline-build-40596e2-a1/build-result.json').read_text())
-    assert build['compile_exit']==build['link_exit']==0 and build['abi_bytes']==504
-    case=root/'cases/64p-t4-pipeline-a1'
+    assert build['compile_exit']==build['link_exit']==0 and build['abi_bytes']==512
+    case=root/'cases'/('64p-t%d-pipeline-a1'%tokens)
     assert not case.exists()
     temporary=case.with_name(case.name+'-preparation')
     temporary.mkdir(exist_ok=False)
@@ -31,7 +32,7 @@ def main(root,directory,abis):
     source=root/'source'
     common=source/'src/moonep/combine_ht/common'
     helper=temporary/'prefill-tool'
-    subprocess.run(['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-I'+str(source/'include'),
+    subprocess.run(['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-I'+str(source/'include'),
                     '-I'+str(common),str(directory/'prefill.cpp'),
                     str(source/'src/moonep/combine_ht/host/combine_ht_prefill.cpp'),'-o',str(helper)],check=True)
     sys.path.insert(0,str(source/'tools/unitest/simulator/experiments/inter_server_send/sst'))
@@ -39,12 +40,12 @@ def main(root,directory,abis):
     original_workspace=runtime.BASES['workspace']
     assert original_workspace==LOCAL_WS
     routes=json.loads((local/'routes.json').read_text())
-    assert len(routes)==256
+    assert len(routes)==64*tokens
     specs=[]
     golden=temporary/'fixture-data';golden.mkdir()
     for rank,abi in enumerate(abis):
         c={f['name'].split('.',1)[1]:f['value'] for f in abi['fields'][6:]}
-        assert (c['rank'],c['world'],c['tokens'],c['hidden'],c['topk'])==(rank,64,4,128,6)
+        assert (c['rank'],c['world'],c['tokens'],c['hidden'],c['topk'])==(rank,64,tokens,128,6)
         config=bytearray(112)
         for field in abi['fields'][6:]:struct.pack_into('<'+{'uint32_t':'I','uint64_t':'Q','int64_t':'q'}[field['type']],config,field['offset']-48,field['value'])
         local_ready=c['workspaceBytes']
@@ -114,8 +115,8 @@ def main(root,directory,abis):
         returned[c['returnOffset']:c['signalOffset']]=GUARD*((c['signalOffset']-c['returnOffset'])//4)
         gold=bytearray(returned)
         masks=[];final=bytearray()
-        for token in range(4):
-            selected=routes[rank*4+token]['experts']
+        for token in range(tokens):
+            selected=routes[rank*tokens+token]['experts']
             servers={};all_values=[]
             for slot,e in enumerate(selected):
                 value=[1+(rank*17+token*3+e*5+slot*11+h%13)/256 for h in range(128)]
@@ -132,19 +133,24 @@ def main(root,directory,abis):
             struct.pack_into('<q',gold,local_ready+4096+g*512,2026)
         for owner in range(16):struct.pack_into('<q',gold,c['signalOffset']+owner*512,2026)
         for gateway in range(8):struct.pack_into('<q',gold,local_ready+gateway*512,2026)
-        images.update(workspace=local_ws,returnWorkspace=returned,status=b'\xa5'*3072,
+        packed_forward=(old/'forward.bin').read_bytes()
+        return_forward=b''.join(struct.pack('<8i',*record,0,0) for record in struct.iter_unpack('<6i',packed_forward))
+        assert abi['forward_record_words']==8
+        images.update(profiling=ht_profile.image(base+EXTRA['profiling'],32),
+                      local_profiling=(old/'profiling.bin').read_bytes(),returnForward=return_forward,
+                      workspace=local_ws,returnWorkspace=returned,status=b'\xa5'*3072,
                       forward=(old/'forward.bin').read_bytes(),counts=(old/'counts.bin').read_bytes(),ranges=(old/'ranges.bin').read_bytes(),
                       masks=(old/'masks.bin').read_bytes(),backward=(old/'backward.bin').read_bytes(),
                       backward_counts=(old/'backward_counts.bin').read_bytes(),backward_ranges=(old/'backward_ranges.bin').read_bytes(),
-                      prefill=Path(str(stem)+'.prefill').read_bytes(),serverMask=struct.pack('<4Q',*masks),
+                      prefill=Path(str(stem)+'.prefill').read_bytes(),serverMask=struct.pack('<%dQ'%tokens,*masks),
                       output=b'\xa5'*len(final),barriers=bytes(8192))
         status_base=base+runtime.BASES['status']
         returned_args=struct.pack('<8Q',base+runtime.BASES['commArgs'],base+RETURN_WS,base+LOCAL_WS,
-                                  base+runtime.BASES['forward'],base+runtime.BASES['counts'],base+runtime.BASES['ranges'],status_base,status_base+512)
+                                  base+EXTRA['returnForward'],base+runtime.BASES['counts'],base+runtime.BASES['ranges'],status_base,status_base+512)
         returned_args+=config+struct.pack('<2Q2I',(3*64+96+32)*512,local_ready,4,8)
         packed=raw+returned_args+struct.pack('<7Q',base+EXTRA['serverMask'],base+EXTRA['output'],status_base+1024,
-                                            status_base+1536,status_base+2048,base+EXTRA['barriers'],status_base+2560)
-        assert len(packed)==504
+                                            status_base+1536,status_base+2048,base+EXTRA['barriers'],status_base+2560)+struct.pack('<Q',base+EXTRA['profiling'])
+        assert len(packed)==512
         out=golden/name;out.mkdir()
         golden_status=bytearray(b'\xa5'*3072)
         for i in range(8):struct.pack_into('<I',golden_status,i*4,0)
@@ -161,6 +167,8 @@ def main(root,directory,abis):
             ('returned',base+RETURN_WS+c['returnOffset']),('completed',base+RETURN_WS+c['readyOffset']),
             ('output',base+EXTRA['output']),('status',status_base),('gather',base+LOCAL_WS+gather_offset),
             ('partial',base+LOCAL_WS+partial_offset),('barriers',base+EXTRA['barriers']))}
+        exports['profiling']={'addr':base+EXTRA['profiling'],'size':ht_profile.layout(32)['bytes']}
+        exports['local_profiling']={'addr':base+EXTRA['local_profiling'],'size':len(images['local_profiling'])}
         guards=[]
         for label,address,size in (('local',LOCAL_WS,local_bytes),('return',RETURN_WS,return_bytes),
                                    ('output',EXTRA['output'],len(final)),('status',runtime.BASES['status'],3072),('barrier',EXTRA['barriers'],8192)):
@@ -168,17 +176,17 @@ def main(root,directory,abis):
                 key=label+'_'+suffix
                 images[key]=b'\xde'*512;addresses[key]=at
                 guards.append(dict(name=key,addr=base+at,size=512,expected_byte=222))
-        specs.append(dict(rank=rank,abi_size=504,fields=[dict(name='word%d'%(i//8),offset=i,type='uint64_t',value=v)
-                          for i,(v,) in zip(range(0,504,8),struct.iter_unpack('<Q',packed))],gm_size=runtime.GM_BYTES,
+        specs.append(dict(rank=rank,abi_size=512,fields=[dict(name='word%d'%(i//8),offset=i,type='uint64_t',value=v)
+                          for i,(v,) in zip(range(0,512,8),struct.iter_unpack('<Q',packed))],gm_size=runtime.GM_BYTES,
                           sys_va_base_addr=base,ub_base_addr=0x80000,stack_base_addr=0x100000,param_base_addr=base+0x80000000,
                           binary_addr=base+0x40000000,images=[dict(name=k,addr=base+addresses[k],data=v) for k,v in images.items()],
                           exports=exports,guards=guards))
     loader.prepare_loader(case,'/work/cases/'+case.name,padded,sha(padded),'tilexr_ht_pipeline_sst',specs)
     shutil.move(str(golden),str(case/'fixture-data'))
     layout=json.loads((case/'export-layout.json').read_text())
-    layout['required_exports']=['returned','completed','output','status','gather','partial','barriers']
+    layout['required_exports']=['returned','completed','output','status','gather','partial','barriers','profiling','local_profiling']
     (case/'export-layout.json').write_text(json.dumps(layout,indent=2))
-    meta={'world':64,'tokens':4,'hidden':128,'topk':6,'experts':256,'entry':'tilexr_ht_pipeline_sst',
+    meta={'world':64,'tokens':tokens,'profiling_capacity':32,'blocks':16,'hidden':128,'topk':6,'experts':256,'entry':'tilexr_ht_pipeline_sst',
           'candidate_commit':'40596e2d9d454b7a7b00b4b34b96d49158e1c3a3','kernel_sha256':sha(case/'kernel/inter_server_send.o'),
           'wrapper_sha256':build['sha256'],'routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,
           'local_physical_qps':[local_slot(g) for g in range(8)],'return_physical_qps':[runtime.physical_qp(q) for q in range(32)]}
@@ -186,5 +194,5 @@ def main(root,directory,abis):
     print(json.dumps(meta,separators=(',',':')))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
-    a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()))
+    p=argparse.ArgumentParser();p.add_argument('--tokens',type=int,choices=(4,16,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
+    a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()),a.tokens)

@@ -183,6 +183,18 @@ def main(request):
             case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
             return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
         if action=='local':return local(cid,tools,tokens,request['phase'])
+        if action=='pipeline-build':
+            code=execute(cid,['bash',runtime+'/pipeline_build.sh',runtime+'/pipeline_kernel.cpp'],ROOT/'pipeline-build.log',350)
+            report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
+            if report.is_file():print(report.read_text())
+            return code
+        if action=='pipeline':
+            code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
+                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-pipeline-%d.log'%tokens),500)
+            if code:
+                print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d.log'%tokens))}));return code
+            case=ROOT/'cases'/('64p-t%d-pipeline-a1'%tokens)
+            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',1200)
         if action=='instrument':
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
             if (ROOT/'profile-build/result.json').is_file():print((ROOT/'profile-build/result.json').read_text())

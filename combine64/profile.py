@@ -16,10 +16,11 @@ def image(address,cap):
         address+o['timestamps'],address+o['events'],address+o['counts'],address+o['dropped'],address+o['states'],0,1)
     return bytes(raw)
 
-def summarize(case,cap,lanes=16):
+def summarize(case,cap,lanes=16,field="profiling"):
+    intervals={}
     case=Path(case);o=layout(cap);records=[]
     for rank in range(64):
-        raw=(case/'actual'/('rank%02d'%rank)/'profiling.bin').read_bytes()
+        raw=(case/'actual'/('rank%02d'%rank)/(field+'.bin')).read_bytes()
         assert len(raw)==o['bytes'],'profiling_size'
         for lane in range(lanes):
             at=lane*64
@@ -30,12 +31,17 @@ def summarize(case,cap,lanes=16):
             ts=struct.unpack_from('<%dQ'%n,raw,o['timestamps']+lane*cap*8)
             ev=struct.unpack_from('<%dI'%n,raw,o['events']+lane*cap*4)
             assert ev[0]==1 and ev[-1]==2 and all(a<=b for a,b in zip(ts,ts[1:])),('profile_events',rank,lane)
+            for begin,end,label in ((10,11,'local_send_reduce'),(20,21,'copy_partial'),(30,31,'local_return'),(40,41,'inter_server_send'),(50,51,'final_reduce'),(60,61,'fence')):
+                if begin in ev and end in ev:
+                    duration=ts[ev.index(end)]-ts[ev.index(begin)]
+                    intervals.setdefault(label,[]).append(duration)
             records.append(dict(rank=rank,lane=lane,count=n,first=ts[0],last=ts[-1],elapsed_ticks=ts[-1]-ts[0]))
     result=dict(expected_lanes=64*lanes,committed_lanes=len(records),dropped_records=0,
         global_elapsed_ticks=max(r['last'] for r in records)-min(r['first'] for r in records),
         max_lane_ticks=max(r['elapsed_ticks'] for r in records),
         median_lane_ticks=statistics.median(r['elapsed_ticks'] for r in records),
+        stages={k:dict(max_lane_ticks=max(v),sum_lane_ticks=sum(v)) for k,v in intervals.items()},
         tick_frequency_hz=None,operator_us=None,conversion_status='awaiting_model_clock_evidence')
-    (case/'profiling-records.json').write_text(json.dumps(records,indent=2))
-    (case/'profiling-summary.json').write_text(json.dumps(result,indent=2))
+    (case/(field+'-records.json')).write_text(json.dumps(records,indent=2))
+    (case/(field+'-summary.json')).write_text(json.dumps(result,indent=2))
     return result

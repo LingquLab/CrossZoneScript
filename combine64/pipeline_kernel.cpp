@@ -8,6 +8,7 @@
 #include <tilexr/comm/udma/device/api.h>
 #include <tilexr/comm/device/sync.h>
 #include <tilexr/profiling/device/direct_writer.h>
+#include "queue_state.h"
 #include "local_return_args.h"
 #include "local_return_schedule.h"
 #include "final_reduce_schedule.h"
@@ -29,9 +30,9 @@ namespace FinalStage {
 struct PipelineArgs {
     TileXRCombineHT::KernelArgs local;
     TileXREpHt::LocalReturnArgs returned;
-    uint64_t serverMask, output, sendStatus, finalStatus, fenceStatus, barrier, barrierStatus;
+    uint64_t serverMask, output, sendStatus, finalStatus, fenceStatus, barrier, barrierStatus, profiling;
 };
-static_assert(sizeof(PipelineArgs)==504,"joint SST argument layout");
+static_assert(sizeof(PipelineArgs)==512,"joint SST argument layout");
 
 namespace {
 template<AscendC::HardEvent E> __aicore__ inline void JointSync() {
@@ -102,10 +103,18 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
     using namespace AscendC;
     using namespace TileXREpHt;
     const uint32_t block=GetBlockIdx();
+    TileXR::Profiling::DirectWriter capture;
+    capture.Initialize(reinterpret_cast<GM_ADDR>(args.profiling), block);
+    capture.RecordAt(1, GetSystemCycle());
+    capture.RecordAt(10, GetSystemCycle());
     LocalStage::RunCombineHT(args.local);
+    capture.RecordAt(11, GetSystemCycle());
     if(!JointBarrier(args,1)) return;
+    capture.RecordAt(20, GetSystemCycle());
     JointCopyPartial(args);
+    capture.RecordAt(21, GetSystemCycle());
     if(!JointBarrier(args,2)) return;
+    capture.RecordAt(30, GetSystemCycle());
     if(block<8) {
         TPipe pipe;
         ReturnStage::LocalTransport transport(args.returned,pipe);
@@ -120,7 +129,9 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
         }
         transport.Store<uint32_t>(args.returned.status+uint64_t(block)*32,result);
     }
+    capture.RecordAt(31, GetSystemCycle());
     if(!JointBarrier(args,3)) return;
+    capture.RecordAt(40, GetSystemCycle());
     {
         TPipe pipe;
         InterStage::DeviceTransport transport(reinterpret_cast<GM_ADDR>(args.returned.comm),
@@ -132,7 +143,9 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
         if(result==Success) result=drained;
         JointStatus(pipe,args.sendStatus+uint64_t(block)*32,result);
     }
+    capture.RecordAt(41, GetSystemCycle());
     if(!JointBarrier(args,4)) return;
+    capture.RecordAt(50, GetSystemCycle());
     {
         TPipe pipe;
         FinalStage::FinalReduceWorker worker(reinterpret_cast<GM_ADDR>(args.returned.workspace),
@@ -142,13 +155,18 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
         worker.Drain();
         JointStatus(pipe,args.finalStatus+uint64_t(block)*32,result);
     }
+    capture.RecordAt(51, GetSystemCycle());
     if(!JointBarrier(args,5)) return;
+    capture.RecordAt(60, GetSystemCycle());
     if(block==0) {
         TPipe pipe;
         ReturnStage::LocalTransport transport(args.returned,pipe);
         transport.Store<uint32_t>(args.fenceStatus,transport.Fence());
     }
+    capture.RecordAt(61, GetSystemCycle());
     if(!JointBarrier(args,6)) return;
     TPipe pipe;
     JointStatus(pipe,args.barrierStatus+uint64_t(block)*32,0);
+    capture.RecordAt(2, GetSystemCycle());
+    capture.Publish();
 }
