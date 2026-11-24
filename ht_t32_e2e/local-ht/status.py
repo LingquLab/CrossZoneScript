@@ -9,7 +9,9 @@ from green_auth import askpass_environment
 
 args = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
 case = "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-local-ht-fp32-9f0f0f9a"
-if args.get("aligned_forward") is True:
+if args.get("release") is True:
+    case = case.replace("9f0f0f9a", "7832b693")
+elif args.get("aligned_forward") is True:
     case = case.replace("9f0f0f9a", "ff82ec9c")
 elif args.get("bounded") is True:
     case = case.replace("9f0f0f9a", "604c76ac")
