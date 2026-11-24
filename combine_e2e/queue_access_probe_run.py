@@ -59,16 +59,24 @@ def main():
     raw=(TARGET/'kernel.o').read_bytes();padded=TARGET/'padded.o';padded.write_bytes(raw+bytes(10485760-len(raw)))
     case=TARGET/'case'
     loader.prepare_loader(case,str(case),padded,digest(padded),ENTRY,ranks)
-    for name in ('test_UBusSim.py','v310_config','UBusSim_config','sst-environment.json'):
-        src,dst=source/name,case/name
-        if src.is_dir():shutil.copytree(src,dst)
-        else:shutil.copyfile(src,dst)
+    platform=json.loads((source/'case-manifest.json').read_text())
+    skip={'workload.yml','export-layout.json','case-manifest.json','blue-build-record.json','loader-manifest.json',
+          'runtime-layout.json','blue-case-identity.json','v310_config/workload_config.yml'}
+    for name,expected in platform['files'].items():
+        relative=Path(name)
+        assert not relative.is_absolute() and '..' not in relative.parts
+        if relative.parts[0] in ('input_bin','fixture-data','kernel') or name in skip:continue
+        src,dst=source/relative,case/relative
+        assert digest(src)==expected,'platform_file_changed'
+        dst.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(src,dst)
+    assert (case/'environment.snapshot.json').is_file()
     workload=json.loads((case/'workload.yml').read_text())
     for chip in workload['workload_config'].values():chip['block_dim']=1
     (case/'workload.yml').write_text(json.dumps(workload,indent=2))
     shutil.copyfile(case/'workload.yml',case/'v310_config/workload_config.yml')
     env=json.loads((case/'sst-environment.json').read_text())
-    command=['bash','-c','set -e; source "$1"; shift; exec "$@"','bash',env['env_script'],env['sst_bin'],'-n','8','--stop-at=10us',str(case/'test_UBusSim.py')]
+    command=['bash','-c','set -e; source "$1"; shift; exec "$@"','bash',env['env_script'],env['sst_bin'],'-n','8','--stop-at=100us',str(case/'test_UBusSim.py')]
     start=time.monotonic()
     with (case/'sim.log').open('wb') as log:
         child=subprocess.Popen(command,cwd=case,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
