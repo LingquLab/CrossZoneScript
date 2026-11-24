@@ -169,6 +169,19 @@ def main(request):
             else:print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-%d.log'%tokens))}))
             if code==0 and action=='smoke':return local(cid,tools,tokens,'send')
             return code
+        if action=='qualify-local':
+            for phase in ('reduce','fused'):
+                code=local(cid,tools,tokens,phase)
+                if code:return code
+            return 0
+        if action=='return':
+            stage=request['stage'];assert stage in ('return-independent','return','inter-send-independent','inter-send','final-independent','final-joint')
+            code=execute(cid,['python3',runtime+'/return_fixture.py','--root','/work','--stage',stage,'--tokens',str(tokens),
+                '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-%d-%s.log'%(tokens,stage)),500)
+            if code:
+                print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
+            case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
+            return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
         if action=='local':return local(cid,tools,tokens,request['phase'])
         if action=='instrument':
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)

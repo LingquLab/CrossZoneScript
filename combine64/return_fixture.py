@@ -1,6 +1,7 @@
 # Copyright (c) 2026 TileXR Project.
 """Bind isolated return, inter-server and final kernels to verified upstream data."""
 import argparse,hashlib,json,shutil,struct,sys
+import profile as ht_profile
 from pathlib import Path
 
 MAGIC=2026
@@ -17,7 +18,7 @@ def valid(case):
 def main(root,stage,abis,tokens=16):
     root=Path(root)
     world,hidden,topk=64,128,6
-    assert tokens in (4,16)
+    assert tokens in (4,16,64,128)
     source=root/'source'
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0,str(support))
@@ -34,9 +35,9 @@ def main(root,stage,abis,tokens=16):
     if stage in ('inter-send','final-joint'): valid(previous)
     routes=json.loads((local/'routes.json').read_text())
     assert len(routes)==world*tokens
-    build=json.loads((root/'bootstrap-result.json').read_text())['build']['targets']
+    build=json.loads((root/'profile-build/result.json').read_text())['targets']
     target=ENTRY[stage]
-    key='fp32-'+target
+    key={'return':'local_return','inter-send':'inter_server_send','final':'final_reduce'}[kind]
     binary=root/build[key]['path']
     assert digest(binary)==build[key]['sha256']
     padded=golden/'kernel.o'
@@ -53,7 +54,7 @@ def main(root,stage,abis,tokens=16):
             struct.pack_into('<'+fmt,c,field['offset']-48,field['value'])
         base=rank*runtime.GM_BYTES
         pointers=dict(runtime.BASES,localWorkspace=0x40a000000,localStatus=0x40b000000,
-                      serverMask=0x40c000000,output=0x40e000000)
+                      serverMask=0x40c000000,output=0x40e000000,profiling=ht_profile.ADDRESS)
         local_ready=config['workspaceBytes']
         registered=local_ready+8*512+world*512
         ws=bytearray(registered)
@@ -118,7 +119,10 @@ def main(root,stage,abis,tokens=16):
                 start=config['returnOffset']+offset
                 ws[start:start+512]=gold_returned[offset:offset+512]
         images=runtime.runtime_images(abi,rank,registered,world=world)
-        images.update(workspace=ws,forward=(local/'input_bin'/name/'forward.bin').read_bytes(),
+        packed_forward=(local/'input_bin'/name/'forward.bin').read_bytes()
+        return_forward=b''.join(struct.pack('<8i',*record,0,0) for record in struct.iter_unpack('<6i',packed_forward))
+        assert abi['forward_record_words']==8
+        images.update(profiling=ht_profile.image(base+ht_profile.ADDRESS,32),workspace=ws,forward=return_forward,
                       counts=(local/'input_bin'/name/'counts.bin').read_bytes(),ranges=(local/'input_bin'/name/'ranges.bin').read_bytes(),
                       status=b'\xa5'*512)
         if kind=='return':
@@ -150,6 +154,7 @@ def main(root,stage,abis,tokens=16):
                              base+pointers['output'],base+pointers['status'])+c
             assert len(args)==152
             blocks=16
+        args+=struct.pack('<Q',base+ht_profile.ADDRESS)
         out=golden/name
         out.mkdir()
         for field,data in (('returned',gold_returned),('completed',completed),
@@ -162,7 +167,8 @@ def main(root,stage,abis,tokens=16):
                  'completed':{'addr':base+pointers['workspace']+config['readyOffset'],'size':len(completed)},
                  'output':{'addr':base+pointers['output'],'size':len(final)} if stage.startswith('final') else
                           {'addr':base+pointers['workspace']+local_ready,'size':4096},
-                 'status':{'addr':base+pointers['status'],'size':512}}
+                 'status':{'addr':base+pointers['status'],'size':512},
+                 'profiling':{'addr':base+ht_profile.ADDRESS,'size':ht_profile.layout(32)['bytes']}}
         guards=[]
         for key,addr in (('guard_before',pointers['workspace']-512),('guard_after',pointers['workspace']+registered)):
             images[key]=b'\xde'*512
@@ -180,6 +186,9 @@ def main(root,stage,abis,tokens=16):
                           exports=exports,guards=guards))
     runtime_root=str(case)
     loader.prepare_loader(case,runtime_root,padded,digest(padded),ENTRY[stage],specs)
+    layout=json.loads((case/'export-layout.json').read_text())
+    layout['required_exports']=['returned','completed','status','output','profiling']
+    (case/'export-layout.json').write_text(json.dumps(layout,indent=2))
     padded.unlink()
     shutil.move(str(golden),str(case/'fixture-data'))
     workload=json.loads((case/'workload.yml').read_text())
@@ -190,7 +199,8 @@ def main(root,stage,abis,tokens=16):
           'kernel_sha256':digest(case/'kernel/inter_server_send.o'),'routes_sha256':digest(local/'routes.json'),
           'input_mode':'independent_known_inputs' if independent else 'actual_predecessor_outputs',
           'consumed_actual_sha256':None if independent else provenance.hexdigest(),
-          'consumed_input_sha256':provenance.hexdigest(),'blocks':blocks}
+          'consumed_input_sha256':provenance.hexdigest(),'blocks':blocks,'profiling_capacity':32,
+          'instrumentation_only':True,'baseline_object_sha256':build[key]['original_sha256']}
     if (root/'adapter.json').is_file():
         adapter=json.loads((root/'adapter.json').read_text())
         meta['simulator_adapter']={k:adapter[k] for k in ('id','baseline_revision','overlay_api_sha256','overlay_inter_sha256')}
@@ -201,7 +211,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--root',required=True)
     p.add_argument('--stage',choices=list(ENTRY),required=True)
-    p.add_argument('--tokens',type=int,choices=(4,16),default=16)
+    p.add_argument('--tokens',type=int,choices=(4,16,64,128),default=16)
     p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args()
     main(a.root,a.stage,json.loads(a.abis.read_text()),a.tokens)
