@@ -75,7 +75,7 @@ def main(args):
                 package.add(Path(__file__).with_name("prefill_bridge.cpp"), arcname="prefill_bridge.cpp")
             upload(scripts)
             remote(["tar", "-xf", WORK + "/scripts.tar", "-C", WORK], 20)
-        timeout = 960 if stage in ("setup", "rebuild") else (args.get("stage_timeout", 60) + 120)
+        timeout = (args.get("stage_timeout", 60) + 600 if args.get("run_after_build") else 960) if stage in ("setup", "rebuild") else (args.get("stage_timeout", 60) + 120)
         result = json.loads(remote(["timeout", "--kill-after=25", str(timeout), "python3",
                                     WORK + "/host.py", json.dumps(args)], timeout + 45))
     except (OSError, ValueError, RuntimeError, AssertionError, subprocess.SubprocessError) as error:
