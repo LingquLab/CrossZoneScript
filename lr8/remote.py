@@ -254,7 +254,7 @@ def run():
         sources='/work/sources', output='/work/kernel', runtime_commit=LOCK['runtime_commit'],
         source_lock_sha256=LOCK['source_lock_sha256'], cann_root='/opt/sim/Ascend/cann-9.1.0',
         driver_root='/usr/local/Ascend/driver', cann_env=cann_env, cann_env_sha256=hashes[0].split()[0],
-        ubus_library=ubus, ubus_sha256=hashes[1].split()[0], kernel_name='urma_lr8',
+        ubus_library=ubus, ubus_sha256=hashes[1].split()[0], kernel_name=ARGS.get('kernel_name', 'urma_lr8'),
         sim_variant=ARGS.get('sim_variant', 'sim-split1'),
         stage_profiling=int(ARGS.get('profiling', False)),
         suite_adapter_sha256=hashlib.sha256(suite.encode()).hexdigest())

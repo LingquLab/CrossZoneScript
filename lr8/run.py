@@ -43,6 +43,10 @@ def main():
         assert len(chips) == len(set(chips)) and all(type(chip) is int and 0 <= chip < args['cases'][0][0] for chip in chips)
     assert args.get('routing', 'installed') in ('installed', 'with-clos')
     assert args.get('sim_variant', 'sim-split1') in ('sim-split1', 'sim-device-split1')
+    name = args.get('kernel_name', 'urma_lr8')
+    assert name in ('urma_lr8', 'urma_cw', 'urma_lr8_p16_s16_local7', 'urma_lr8_p16_s8_local7')
+    if name != 'urma_lr8':
+        assert settings == [0] and not args.get('profiling') and not args.get('tune')
     assert args.get('optimization', 'O2') in ('O1', 'O2')
     assert type(args.get('ta_tp_info', False)) is bool
     assert type(args.get('zero_logging', False)) is bool
