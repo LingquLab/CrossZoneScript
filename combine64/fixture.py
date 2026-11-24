@@ -16,7 +16,22 @@ import profile as ht_profile
 GUARD=struct.pack('<f',-17.)
 
 
-def prepare(source, output, world, tokens, kernel):
+class DiskImages:
+    """Keep only paths between ranks; the immutable loader reads one image at a time."""
+    def __init__(self,directory,images):
+        directory.mkdir(parents=True,exist_ok=False)
+        self.rows=[]
+        for image in images:
+            name=image['name'];assert Path(name).name==name and '/' not in name and '\\' not in name
+            path=directory/(name+'.bin');path.write_bytes(image['data'])
+            self.rows.append((name,image['addr'],path,len(image['data'])))
+
+    def __iter__(self):
+        for name,address,path,size in self.rows:
+            payload=path.read_bytes();assert len(payload)==size
+            yield dict(name=name,addr=address,data=payload)
+
+def prepare(source, output, world, tokens, kernel,disk_backed=False):
     source,output,kernel=map(Path,(source,output,kernel))
     output.mkdir(parents=True,exist_ok=False)
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
@@ -158,6 +173,7 @@ def prepare(source, output, world, tokens, kernel):
         for key,addr in [('guard_before',addresses['workspace']-512),('guard_after',addresses['workspace']+workspace_bytes)]:
             inputs.append(dict(name=key,addr=base+addr,data=b'\xde'*512))
             guards.append(dict(name=key,addr=base+addr,size=512,expected_byte=222))
+        if disk_backed:inputs=DiskImages(output/'.image-spool'/name,inputs)
         specs.append(dict(rank=rank,abi_size=248,fields=[dict(name='word%d'%(i//8),offset=i,type='uint64_t',value=v)
                           for i,(v,) in zip(range(0,len(raw),8),struct.iter_unpack('<Q',raw))],
                           gm_size=runtime.GM_BYTES,sys_va_base_addr=base,ub_base_addr=0x80000,stack_base_addr=0x100000,
@@ -188,5 +204,6 @@ if __name__=='__main__':
     p.add_argument('--kernel',required=True)
     p.add_argument('--world',type=int,default=64)
     p.add_argument('--tokens',type=int,default=16)
+    p.add_argument('--disk-backed-images',action='store_true')
     a=p.parse_args()
-    prepare(a.source,a.output,a.world,a.tokens,a.kernel)
+    prepare(a.source,a.output,a.world,a.tokens,a.kernel,a.disk_backed_images)
