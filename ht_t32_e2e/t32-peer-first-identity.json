@@ -1,0 +1,25 @@
+{
+  "tokens": 32,
+  "hidden": 256,
+  "rows": 60,
+  "chunks": 1,
+  "world": 64,
+  "topk": 6,
+  "row_bytes": 1024,
+  "return_slots": 8,
+  "entry": "tilexr_ep_ht_combine_sst_fp32",
+  "block_dim": 16,
+  "ready_epoch": 1,
+  "magic": 2026,
+  "validation": "generated_not_simulated",
+  "scheduling": "finish each peer before issuing the next",
+  "wire_dtype": "float32",
+  "stages": [
+    "inter_server_send",
+    "final_reduce"
+  ],
+  "input_archive_sha256": "5a55feb3369f312577ad61f7ca6b8812f74ba4478958e8e008fcd9d79b482b1b",
+  "kernel_sha256": "fd8452259b40f75091caab7e3e5b60575e5178070abe0d8da48c43a4550d74d3",
+  "runtime_root": "/work/inter-server-native/t32-combine-fp32-spread-peer-first-data",
+  "commit": "b13556eb4f84afc103ba993f4e9151dc104d2b95"
+}

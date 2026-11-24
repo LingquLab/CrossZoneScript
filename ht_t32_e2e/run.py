@@ -41,6 +41,10 @@ elif args.get("t16_b512") is True:
 elif args.get("spread_gateways") is True:
     identity_name = "t32-spread-identity.json"
     fixture_name = "t32-spread-fixture-delta.tar.gz"
+elif args.get("t32_peer_first") is True:
+    identity_name = "t32-peer-first-identity.json"
+    fixture_name = "t32-peer-first-fixture-images.tar.gz"
+    object_name = "t32-peer-first.o.gz"
 identity = json.loads((root / identity_name).read_text())
 fixture = (root / fixture_name).read_bytes()
 object_package = (root / object_name).read_bytes()
