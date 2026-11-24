@@ -10,7 +10,7 @@ def run_e2e(request):
     if request.get("spread_gateways"):
         assert tokens == 32 and request["identity"]["runtime_root"].endswith("-spread-data")
     if "profile" in request:
-        assert tokens == 4 and not suffix
+        assert tokens in (4, 16) and not suffix
         suffix = "-profile"
     variant += suffix
     case = MOUNT / variant

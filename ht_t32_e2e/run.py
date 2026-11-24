@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -17,8 +18,13 @@ args = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-fi
 object_name = "inter_server_send.o.gz"
 identity_name = "fixture-identity.json"
 fixture_name = "fixture-images.tar.gz"
-profile = args.get("fused_profile") is True
-if profile:
+profile_t16 = args.get("t16_b512_profile") is True
+profile = args.get("fused_profile") is True or profile_t16
+if profile_t16:
+    identity_name = "t16-b512-profile-identity.json"
+    fixture_name = "t16-b512-fixture-images.tar.gz"
+    object_name = "t16-b512-profile.o.gz"
+elif profile:
     identity_name = "t4-profile-identity.json"
     fixture_name = "t4-fixture-images.tar.gz"
     object_name = "t4-profile.o.gz"
@@ -110,7 +116,7 @@ def fetch_profile(result, environment):
     if "trace_sha256" not in report:
         return
     path = result["case"].removeprefix("/work/inter-server-native/")
-    assert path == f"t4-combine-fp32-{identity['kernel_sha256'][:8]}-profile"
+    assert path == f"t{identity['tokens']}-combine-fp32-{identity['kernel_sha256'][:8]}-profile"
     remote = "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/" + path
     destination = Path("D:/project/tilexr-inter-server-sst") / path
     destination.mkdir(parents=True, exist_ok=True)
@@ -126,6 +132,21 @@ def fetch_profile(result, environment):
         pending.replace(destination / name)
     result["green_perfetto_file"] = str(destination / "perfetto_trace.json")
     result["green_profile_summary"] = str(destination / "profile-summary.json")
+    if profile_t16:
+        from profile_stage_report import annotate, source_stages, write_report
+
+        source = destination / "combine_sst_fp32_profile.cpp"
+        shutil.copyfile(root / "t16-b512-profile.cpp", source)
+        stages = source_stages(source, wqes_per_row=1)
+        annotated = destination / "perfetto_trace.with-markers.json"
+        trace_stats = annotate(destination / "perfetto_trace.json", annotated, stages)
+        assert trace_stats["slices"] == report["slices"]
+        stage_report = destination / "stage-report.md"
+        workload = f"EP64 / BS16 / TopK 6 / 256 experts / 每行 512 B，打点对象 `{identity['kernel_sha256'][:8]}`"
+        write_report(report, stage_report, stages, workload)
+        result["green_perfetto_file"] = str(annotated)
+        result["green_stage_report"] = str(stage_report)
+        result["green_profile_source"] = str(source)
 
 
 try:

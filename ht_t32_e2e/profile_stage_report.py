@@ -1,6 +1,7 @@
 """Annotate the EA1CA889 Perfetto export and write the stage reference table."""
 import argparse
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -32,26 +33,44 @@ def marker_ids(stage):
     return 2 * index + 1, 2 * index + 2
 
 
-def write_report(summary, destination):
+def source_stages(source, wqes_per_row):
+    stage_lines = {name: [] for name in STAGES}
+    for number, line in enumerate(source.read_text().splitlines(), 1):
+        marker = re.search(r"// Perfetto \d+ begin(?:, \d+ end)? \((\w+)\)", line)
+        if not marker:
+            marker = re.search(r"// Perfetto \d+ end \((\w+)\)", line)
+        if marker:
+            stage_lines[marker[1]].append(number)
+    assert all(stage_lines.values())
+    stages = {}
+    for name, (category, description, function, _) in STAGES.items():
+        if name == "send_post_batch":
+            description = description.replace("两个 512 B 写的 WQE", f"{wqes_per_row} 条 512 B 写 WQE")
+        stages[name] = category, description, function, stage_lines[name]
+    return stages
+
+
+def write_report(summary, destination, stages=STAGES, workload="EP64 / BS4 / H256，打点对象 `ea1ca889`"):
     lines = [
-        "# BS4 FP32 发送与归约阶段表", "",
-        "本表对应 EP64 / T4 / H256 的打点对象 `ea1ca889`。源码行号对应同目录的 "
+        "# FP32 发送与归约阶段表", "",
+        f"本表对应 {workload}。源码行号对应同目录的 "
         "`combine_sst_fp32_profile.cpp`。Perfetto 时间片的 Arguments 显示 begin 和 end 打点号。", "",
         "耗时是每条 AIV 轨道内同阶段时间片的累计值。中位数和最大值只统计执行过该阶段的轨道。"
-        "父阶段含子阶段，同一条轨道上的父子耗时需避免重复计数。核入口打点缺失，核总段以首个有效阶段标记起算。", "",
+        "父阶段含子阶段，同一条轨道上的父子耗时需避免重复计数。核入口打点缺失时，核总段以首个有效阶段标记起算。", "",
         "| 阶段 | 打点号 起 / 止 | 动作类型 | 阶段在做什么 | 源码位置 | AIV 数 | 中位 µs | 最大 µs |",
         "|---|---|---|---|---|---:|---:|---:|",
     ]
-    for name, (category, description, symbol, lines_in_source) in STAGES.items():
+    for name, (category, description, symbol, lines_in_source) in stages.items():
         begin, end = marker_ids(name)
         source = ", ".join(map(str, lines_in_source))
-        stats = summary["stages"][name]
+        stats = summary["stages"].get(name)
+        timing = f"{stats['tracks']} | {stats['median_us']:.3f} | {stats['max_us']:.3f}" if stats else "0 | — | —"
         lines.append(f"| `{name}` | {begin} / {end} | {category} | {description} | `{symbol}` · {source}"
-                     f" | {stats['tracks']} | {stats['median_us']:.3f} | {stats['max_us']:.3f} |")
+                     f" | {timing} |")
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def annotate(trace_file, destination):
+def annotate(trace_file, destination, stages=STAGES):
     trace = json.loads(trace_file.read_bytes())
     finish_by_rank = {}
     counts = Counter()
@@ -59,7 +78,7 @@ def annotate(trace_file, destination):
         if event.get("ph") != "X":
             continue
         name = event["name"]
-        category, description, symbol, lines = STAGES[name]
+        category, description, symbol, lines = stages[name]
         begin, end = marker_ids(name)
         args = event.setdefault("args", {})
         args.update(begin_event_id=begin, end_event_id=end, source_file="combine_sst_fp32_profile.cpp",
@@ -69,7 +88,7 @@ def annotate(trace_file, destination):
             rank, owner = event["pid"], event["tid"]
             finish_by_rank[rank] = max(finish_by_rank.get(rank, (-1.0, -1)), (event["ts"] + event["dur"], owner))
         counts[name] += 1
-    assert set(counts) == STAGES.keys()
+    assert "kernel" in counts
     destination.write_text(json.dumps(trace, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return {"slices": sum(counts.values()), "stages": len(counts),
             "latest_aiv_by_rank": dict(sorted(Counter(owner for _, owner in finish_by_rank.values()).items()))}
