@@ -35,7 +35,7 @@ def diagnose_local_send():
     return results
 def main(request):
     stage=request['stage']
-    assert stage in ('return','inter-send','final-independent','final-joint')
+    assert stage in ('return','inter-send','return-independent','inter-send-independent','final-independent','final-joint')
     identity=json.loads((ROOT/'identity.json').read_text())
     cid=identity['container_id']
     info=json.loads(subprocess.check_output(['docker','inspect',cid]))[0]

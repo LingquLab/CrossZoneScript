@@ -6,6 +6,7 @@ from pathlib import Path
 MAGIC=2026
 GUARD=struct.pack('<f',-17.)
 ENTRY={'return':'tilexr_ep_ht_local_return_kernel','inter-send':'tilexr_ep_ht_inter_server_send_kernel',
+       'return-independent':'tilexr_ep_ht_local_return_kernel','inter-send-independent':'tilexr_ep_ht_inter_server_send_kernel',
        'final-independent':'tilexr_ep_ht_final_reduce_kernel','final-joint':'tilexr_ep_ht_final_reduce_kernel'}
 
 def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -20,7 +21,8 @@ def main(root,stage,abis):
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0,str(support))
     import loader,runtime
-    independent=stage=='final-independent'
+    independent=stage.endswith('-independent')
+    kind='return' if stage.startswith('return') else ('inter-send' if stage.startswith('inter-send') else 'final')
     local=root/'cases'/('64p-t16-local-send-a1' if independent else '64p-t16-local-fused-a1')
     if not independent: valid(local)
     case=root/'cases'/('64p-t16-'+stage+'-a1')
@@ -80,12 +82,12 @@ def main(root,stage,abis):
             masks.append(sum(1<<server for server in server_values))
             final.extend(struct.pack('<128f',*[sum(v[h] for v in all_values) for h in range(hidden)]))
             for server,values in server_values.items():
-                if stage=='return' and server!=rank//8: continue
+                if kind=='return' and server!=rank//8: continue
                 offset=(token*8+server)*512
                 gold_returned[offset:offset+512]=struct.pack('<128f',*[sum(v[h] for v in values) for h in range(hidden)])
         for reducer in range(40): struct.pack_into('<qq',completed,reducer*512,MAGIC,4)
         for gateway in range(8): struct.pack_into('<q',local_flags,gateway*512,MAGIC)
-        if stage!='return':
+        if kind!='return':
             for gateway in range(world):
                 if gateway//8==rank//8: continue
                 for lane in range(2): struct.pack_into('<q',completed,(40+(gateway*4+3)*2+lane)*512,MAGIC)
@@ -107,26 +109,37 @@ def main(root,stage,abis):
             ws[config['readyOffset']:config['returnOffset']]=completed
             ws[config['returnOffset']:config['signalOffset']]=gold_returned
             ws[local_ready:local_ready+4096]=local_flags
+        elif stage=='inter-send-independent':
+            ws[config['readyOffset']:config['readyOffset']+40*512]=completed[:40*512]
+            ws[local_ready:local_ready+4096]=local_flags
+            for token in range(tokens):
+                offset=(token*8+rank//8)*512
+                start=config['returnOffset']+offset
+                ws[start:start+512]=gold_returned[offset:offset+512]
         images=runtime.runtime_images(abi,rank,registered,world=world)
         images.update(workspace=ws,forward=(local/'input_bin'/name/'forward.bin').read_bytes(),
                       counts=(local/'input_bin'/name/'counts.bin').read_bytes(),ranges=(local/'input_bin'/name/'ranges.bin').read_bytes(),
                       status=b'\xa5'*512)
-        if stage=='return':
+        if kind=='return':
             local_ws=bytearray((local/'input_bin'/name/'workspace.bin').read_bytes())
             old_args=(local/'input_bin'/name/'kernel_args.bin').read_bytes()
             old_workspace=struct.unpack_from('<Q',old_args,0)[0]
             old_layout=json.loads((local/'export-layout.json').read_text())['ranks'][rank]
             for field in ('returned','completed','output'):
                 bounds=old_layout['exports'][field]
-                data=(local/'actual'/name/(field+'.bin')).read_bytes()
+                data=(local/'fixture-data'/name/('golden-'+field+'.bin')).read_bytes() if independent else (local/'actual'/name/(field+'.bin')).read_bytes()
                 offset=bounds['addr']-old_workspace
                 local_ws[offset:offset+len(data)]=data
-            images.update(localWorkspace=local_ws,localStatus=(local/'actual'/name/'status.bin').read_bytes())
+            if independent:
+                for reducer in range(8):struct.pack_into('<I',local_ws,(3*world+96+4*8+reducer)*512,4)
+                local_status=bytes(32)+b'\xa5'*480
+            else:local_status=(local/'actual'/name/'status.bin').read_bytes()
+            images.update(localWorkspace=local_ws,localStatus=local_status)
             args=struct.pack('<8Q',*[base+pointers[k] for k in ('commArgs','workspace','localWorkspace','forward','counts','ranges','localStatus','status')])
             args+=c+struct.pack('<2Q2I',(3*world+96+4*8)*512,local_ready,4,8)
             assert len(args)==200
             blocks=8
-        elif stage=='inter-send':
+        elif kind=='inter-send':
             args=struct.pack('<6Q',*[base+pointers[k] for k in ('commArgs','workspace','forward','counts','ranges','status')])+c
             assert len(args)==160
             blocks=16
