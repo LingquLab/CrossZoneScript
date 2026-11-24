@@ -33,7 +33,7 @@ def main():
     for filename in ("mmio_width_probe.cpp", "mmio_width_container.py"):
         assert remote(["bash", "-c", 'umask 077; set -C; cat > "$1"', "upload", directory + "/" + filename],
                       Path(__file__).with_name(filename).read_bytes()).returncode == 0
-    assert remote(["bash", "-c", 'umask 077; cat > "$1.tmp"; mv "$1.tmp" "$1"', "upload", work + "/sst.py"],
+    assert remote(["bash", "-c", 'set -e; umask 077; cat > "$1.tmp"; mv "$1.tmp" "$1"', "upload", work + "/sst.py"],
                   Path(__file__).with_name("sst.py").read_bytes()).returncode == 0
     p = remote(["docker", "exec", "tilexr-combine-ht-f71d0252-v11", "python3",
                 "/work/diagnostics/" + experiment + "/mmio_width_container.py"], timeout=1500)
