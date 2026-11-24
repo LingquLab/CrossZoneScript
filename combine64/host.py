@@ -65,6 +65,9 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         'stage_isolation_noinline':meta.get('stage_isolation_noinline',False),
         'barrier_algorithm':meta.get('barrier_algorithm'),
         'extra_round_fence':meta.get('extra_round_fence'),
+        'kernel_compatibility_variant':meta.get('kernel_compatibility_variant','original'),
+        'compatibility_header_sha256':meta.get('compatibility_header_sha256'),
+        'compatibility_baseline_header_sha256':meta.get('compatibility_baseline_header_sha256'),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -108,9 +111,17 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     print(json.dumps(result,separators=(',',':')),flush=True)
     return 0 if result['qualified'] else 1
 
-def local(cid,tools,tokens,phase,attempt="a1"):
+def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
     assert attempt in ("a1","a2","a3")
     assert phase in ('send','reduce','fused')
+    assert kernel_variant in ('original','cq-memory-barrier')
+    compatibility=None
+    if kernel_variant=='cq-memory-barrier':
+        assert (tokens,phase,attempt)==(16,'send','a2')
+        compatibility=json.loads((ROOT/'cq-compiler-barrier-a2/report.json').read_text())
+        assert compatibility['exit_codes']==[0,0] and compatibility['text_identical'] is False
+        assert sha(ROOT/'source/include/tilexr/comm/udma/device/api.h')==compatibility['baseline_header_sha256']
+        assert sha(ROOT/'cq-compiler-barrier-a2/include/tilexr/comm/udma/device/api.h')==compatibility['overlay_header_sha256']
     asset=ROOT/'assets'/('64p-t%d'%tokens)
     identity=json.loads((asset/'identity.json').read_text())
     case=ROOT/'cases'/('64p-t%d-local-%s-%s'%(tokens,phase,attempt));case.mkdir(parents=True,exist_ok=False)
@@ -134,7 +145,10 @@ def local(cid,tools,tokens,phase,attempt="a1"):
                 assert len(payload)==bounds['size'];offset=bounds['addr']-struct.unpack_from('<Q',args,0)[0]
                 ws[offset:offset+len(payload)]=payload;provenance.update(hashlib.sha256(payload).digest())
             (folder/'workspace.bin').write_bytes(ws)
-    if (ROOT/'profile-build/result.json').is_file():
+    if compatibility is not None:
+        binary=ROOT/'cq-compiler-barrier-a2/local_ht.o';assert sha(binary)==compatibility['overlay_object_sha256']
+        raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
+    elif (ROOT/'profile-build/result.json').is_file():
         instrument=json.loads((ROOT/'profile-build/result.json').read_text())['targets']['local_ht']
         binary=ROOT/instrument['path'];assert sha(binary)==instrument['sha256']
         raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
@@ -142,8 +156,14 @@ def local(cid,tools,tokens,phase,attempt="a1"):
     meta=json.loads((case/'fixture-data/manifest.json').read_text());meta.update(kernel_sha256=sha(case/'kernel/inter_server_send.o'),profiling_tail_flush=(ROOT/'profile-build/result.json').is_file(),phase=phase,
         input_mode='independent_known_inputs' if phase=='reduce' else 'expert_outputs_and_routes',
         consumed_actual_sha256=None,consumed_input_sha256=provenance.hexdigest() if phase=='reduce' else None)
+    meta['kernel_compatibility_variant']=kernel_variant
+    if compatibility is not None:
+        meta.update(compatibility_header_sha256=compatibility['overlay_header_sha256'],
+            compatibility_baseline_header_sha256=compatibility['baseline_header_sha256'],
+            compatibility_scope='40596e2 plus two compiler memory clobbers around existing DCCI; original source mount unchanged')
     write(case/'fixture-data/manifest.json',meta)
-    return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel',{4:900,16:1800,32:2700,64:3600,128:5400}[tokens])
+    seconds=900 if compatibility is not None else {4:900,16:1800,32:2700,64:3600,128:5400}[tokens]
+    return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel',seconds)
 
 def prepare_asset(cid,tools,tokens):
     runtime='/work/'+tools.name
@@ -369,7 +389,7 @@ def main(request):
                 code=return_phase(cid,tools,tokens,stage,request.get('attempt','a1') if index==first else 'a1')
                 if code:return code
             return 0
-        if action=='local':return local(cid,tools,tokens,request['phase'],request.get('attempt','a1'))
+        if action=='local':return local(cid,tools,tokens,request['phase'],request.get('attempt','a1'),request.get('kernel_variant','original'))
         if action=='calibrate':
             reports=[]
             for ticks in (100000,200000):
