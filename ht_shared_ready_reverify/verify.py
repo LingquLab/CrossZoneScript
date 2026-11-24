@@ -60,7 +60,7 @@ def reverify(manifest, attached_request, return_request, fixed):
             return report
     abis = json.loads(gzip.decompress(base64.b64decode(attached_request['abis'], validate=True)))
     report['sender_handoff'] = byte_handoff('inter_server_send', abis)
-    if report['local_return'].get('status') != 'failed' or report['local_return'].get('owner_status') != {'0':64, '3':448}:
+    if report['local_return'].get('status') != 'failed' or report['local_return'].get('owner_status') != {0:64, 3:448}:
         return report
 
     REVISION = manifest['fixed_revision']
