@@ -12,8 +12,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--args-file", type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
 revision = args["revision"]
+variant = args.get("variant", "two-group")
 if not re.fullmatch(r"[0-9a-f]{40}", revision):
     parser.error("invalid revision")
+if variant not in ("two-group", "clos-4plus8"):
+    parser.error("invalid Full variant")
 
 entry = Path(__file__).resolve().with_name("remote-build.sh")
 remote_script = entry.read_text(encoding="utf-8")
@@ -43,7 +46,7 @@ try:
         archive = git(directory, "archive", "--format=tar.gz", revision, "src")
         stage = "build"
         result = subprocess.run(
-            ssh + ["bash -c " + shlex.quote(remote_script) + " -- " + revision],
+            ssh + ["bash -c " + shlex.quote(remote_script) + " -- " + revision + " " + variant],
             input=archive, capture_output=True, timeout=550,
         )
     Path("sst-host-build.stderr.log").write_bytes(result.stderr)
