@@ -68,15 +68,16 @@ def stats(rows):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('tokens', type=int)
+    parser.add_argument('tokens', type=int, choices=(32, 64))
+    parser.add_argument('--pairs', type=int, choices=range(1, 11), default=10)
     parser.add_argument('output', type=Path)
     parser.add_argument('receipts', type=Path, nargs='+')
     args = parser.parse_args()
     rounds, object_hash = read_rounds(args.receipts, args.tokens)
-    rows = list(compare(rounds, range(BASE, BASE+10)))
+    rows = list(compare(rounds, range(BASE, BASE+args.pairs)))
     args.output.mkdir(parents=True, exist_ok=True)
     with (args.output/'rounds.csv').open('w') as file:
-        writer = csv.DictWriter(file, fieldnames=COLUMNS)
+        writer = csv.DictWriter(file, fieldnames=COLUMNS, lineterminator='\n')
         writer.writeheader()
         writer.writerows(rows)
     summary = dict(tokens=args.tokens, object_sha256=object_hash, requested_pairs=len(rows),

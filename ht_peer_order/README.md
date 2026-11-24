@@ -31,3 +31,16 @@ python3 ht_peer_order/reproduce_fixture.py /path/TileXR ./fixture-t32-20261124 -
 ```
 
 使用配套 `run.py` 在保留的 SST 模板上执行，用 `status.py` 读取单次运行状态。参数 `tokens` 是 BS，`start` 与 `stop` 指定从 0 起算的 seed 序号区间。现有模板、checker 和导出器由脚本固定，运行使用 8 个 SST 线程。用 `report.py 32 OUTPUT RECEIPT...` 汇总两组 SST 回执。
+
+## BS32 结果
+
+10 对、20 次 SST 均通过。每对的 CQE 数、payload、SO、status 和 guard 一致。不轮转在 9 对中更快。
+
+| 调度 | 最短（µs） | 中位数（µs） | 平均（µs） | 最长（µs） |
+| --- | ---: | ---: | ---: | ---: |
+| 轮转 | 158.036 | 163.439 | 164.373 | 176.598 |
+| 不轮转 | 149.815 | 155.133 | 156.493 | 166.897 |
+
+不轮转平均少 7.880 µs。按每对的轮转时间归一化，平均少 4.762%。[逐轮数据](results/bs32/rounds.csv) · [统计和正式回执](results/bs32)
+
+`routes.json.gz` 保存原始 TopK 表、payload lane 计数和路由哈希。BS64 复用前三个 seed，作为批量增大时的补测。
