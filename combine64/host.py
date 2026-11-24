@@ -62,6 +62,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result={'case':str(case),'candidate_commit':REVISION,'world':64,'tokens':meta['tokens'],'hidden':128,'topk':6,'experts':256,
         'dtype':'fp32','phase':meta.get('phase',meta.get('stage','pipeline')),'runner_exit':code,
         'compiler_scalar_dcci':meta.get('compiler_scalar_dcci',False),'pipeline_build_variant':meta.get('pipeline_build_variant'),
+        'stage_isolation_noinline':meta.get('stage_isolation_noinline',False),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -217,6 +218,14 @@ def main(request):
             report=ROOT/'cases/64p-t4-pipeline-snapshot200us-a1/diagnostic.json'
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             return code
+        if action=='isolate-pipeline':
+            assert tokens==4 and request.get('attempt')=='a3' and request.get('build_variant')=='isolated-inter'
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
+            code=execute(cid,['python3',runtime+'/isolate_inter_pipeline.py',runtime],ROOT/'pipeline-isolated-inter-runner.log',350)
+            report=ROOT/'pipeline-isolated-inter-a1/build-result.json'
+            if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
+            if code:return code
         if action=='pending-layout':
             import runpy
             runpy.run_path(str(tools/'pending_layout_remote.py'),run_name='__main__');return 0
@@ -293,13 +302,14 @@ def main(request):
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code or action=='pipeline-build':return code
-        if action in ('pipeline','qualify-pipeline','matrix-case','independent-bs'):
+        if action in ('pipeline','qualify-pipeline','matrix-case','independent-bs','isolate-pipeline'):
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
                 '--abis','/work/assets/64p-t%d/send-abis.json'%tokens,'--attempt',request.get('attempt','a1'),'--build-variant',request.get('build_variant','original')],ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))),500)
             if code:
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))))}));return code
             case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,request.get('attempt','a1')))
-            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:2400,16:1800,32:2700,64:3600,128:5400}[tokens])
+            seconds=900 if action=='isolate-pipeline' else {4:2400,16:1800,32:2700,64:3600,128:5400}[tokens]
+            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',seconds)
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
             if (ROOT/'profile-build/result.json').is_file():
