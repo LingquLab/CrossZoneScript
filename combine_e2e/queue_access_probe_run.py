@@ -9,7 +9,10 @@ TARGET=ROOT/'queue-access-probe-a1'
 
 def digest(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def main():
+    global TARGET
     tools=Path(sys.argv[1])
+    fresh=len(sys.argv)>2 and sys.argv[2]=='fresh'
+    if fresh:TARGET=ROOT/'queue-access-probe-cache-a4'
     TARGET.mkdir(exist_ok=False)
     assert json.loads((ROOT/'identity.json').read_text())['revision']=='013cc3e2f8abf8157abdc609afcfe2369806b1e1'
     for process in Path('/proc').glob('[0-9]*/comm'):
@@ -22,11 +25,12 @@ def main():
              '--cce-aicore-arch=dav-c310-vec','-mllvm','-cce-aicore-stack-size=0x8000',
              '-mllvm','-cce-aicore-function-stack-size=0x8000','-mllvm','-cce-aicore-addr-transform',
              '-mllvm','-cce-aicore-dcci-insert-for-scalar=false','--cce-aicore-only','-std=gnu++17']
+    if fresh:command+=['-DTILEXR_PROBE_FRESH_NATIVE=1']
     for name in ('compiler/tikcpp','compiler/tikcpp/tikcfw','compiler/tikcpp/tikcfw/impl','compiler/tikcpp/tikcfw/interface',
                  'aarch64-linux/ascendc/include','aarch64-linux/asc/include','aarch64-linux/include','aarch64-linux/pkg_inc','aarch64-linux/pkg_inc/runtime'):
         command+=['-I'+str(cann/name)]
     command+=['-c',str(tools/'queue_access_probe.cpp'),'-o',str(TARGET/'rel.o')]
-    result={'diagnostic_only':True,'operator_qualified':False,'source_sha256':digest(tools/'queue_access_probe.cpp')}
+    result={'diagnostic_only':True,'operator_qualified':False,'fresh_native':fresh,'source_sha256':digest(tools/'queue_access_probe.cpp')}
     report=TARGET/'result.json'
     with (TARGET/'compile.log').open('wb') as log:
         p=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,timeout=90)
@@ -102,7 +106,8 @@ def main():
             row=dict(rank=rank,cell=cell,expected=expected,actual=actual);all_rows.append(row)
             if actual!=expected:mismatches.append(row)
     result.update(comparisons_per_column=512,matched_columns=matched,mismatch_cells=len(mismatches),examples=mismatches[:6],diagnostic_finished=matched[1]==matched[5]==512)
+    if fresh:result['fresh_native_verified']=matched==[512]*8
     report.write_text(json.dumps(dict(result,all_rows=all_rows),indent=2))
     print(json.dumps(result,separators=(',',':')))
-    return 0 if result['diagnostic_finished'] else 1
+    return 0 if result['diagnostic_finished'] and (not fresh or matched==[512]*8) else 1
 if __name__=='__main__':raise SystemExit(main())

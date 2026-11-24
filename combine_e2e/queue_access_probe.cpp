@@ -5,6 +5,17 @@
 #include "kernel_operator.h"
 using namespace AscendC;
 namespace {
+__aicore__ inline uint32_t LoadNative(__gm__ uint32_t *pointer)
+{
+#if defined(TILEXR_PROBE_FRESH_NATIVE)
+    GlobalTensor<uint8_t> line;
+    line.SetGlobalBuffer(reinterpret_cast<__gm__ uint8_t *>(reinterpret_cast<uint64_t>(pointer) / 64 * 64));
+    __asm__ __volatile__("" ::: "memory");
+    DataCacheCleanAndInvalid<uint8_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(line[0]);
+    __asm__ __volatile__("" ::: "memory");
+#endif
+    return ld_dev(pointer, 0);
+}
 template <HardEvent E> __aicore__ inline void Sync()
 {
     SetFlag<E>(EVENT_ID0);
@@ -47,19 +58,19 @@ extern "C" __global__ __aicore__ void tilexr_queue_access_probe(GM_ADDR counters
         const uint64_t address = reinterpret_cast<uint64_t>(counters) + cell * 512;
         auto pointer = reinterpret_cast<__gm__ uint32_t *>(address);
         const uint32_t initial = LoadMte(address, read.Get<uint32_t>());
-        values.SetValue(cell * 8, ld_dev(pointer, 0));
+        values.SetValue(cell * 8, LoadNative(pointer));
         values.SetValue(cell * 8 + 1, initial);
         st_dev(initial + 17, pointer, 0);
-        values.SetValue(cell * 8 + 2, ld_dev(pointer, 0));
+        values.SetValue(cell * 8 + 2, LoadNative(pointer));
         values.SetValue(cell * 8 + 3, LoadMte(address, read.Get<uint32_t>()));
         StoreMte(address, initial + 33, write.Get<uint32_t>());
-        values.SetValue(cell * 8 + 4, ld_dev(pointer, 0));
+        values.SetValue(cell * 8 + 4, LoadNative(pointer));
         values.SetValue(cell * 8 + 5, LoadMte(address, read.Get<uint32_t>()));
         for (uint32_t step = 0; step < 8; ++step) {
-            const uint32_t value = ld_dev(pointer, 0);
+            const uint32_t value = LoadNative(pointer);
             st_dev(value + 1, pointer, 0);
         }
-        values.SetValue(cell * 8 + 6, ld_dev(pointer, 0));
+        values.SetValue(cell * 8 + 6, LoadNative(pointer));
         values.SetValue(cell * 8 + 7, LoadMte(address, read.Get<uint32_t>()));
     }
     GlobalTensor<uint32_t> gm;
