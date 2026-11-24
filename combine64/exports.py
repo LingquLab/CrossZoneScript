@@ -70,7 +70,7 @@ def export_actual(layout, dump_dir, output, decoder_library):
     ranks = layout["ranks"]
     required = set(layout.get("required_exports", ("returned", "completed", "status", "output")))
     standard = {"returned", "completed", "status", "output"}
-    if required not in (standard, standard | {"gather", "partial", "barriers"}):
+    if required - {"profiling"} not in (standard, standard | {"gather", "partial", "barriers"}):
         raise ValueError("Unsupported checker export contract")
     if len(ranks) not in (16, 32, 64) or {row["rank"] for row in ranks} != set(range(len(ranks))):
         raise ValueError("Expected all logical ranks")

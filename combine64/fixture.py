@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import profile as ht_profile
 
 GUARD=struct.pack('<f',-17.)
 
@@ -45,7 +46,7 @@ def prepare(source, output, world, tokens, kernel):
                 ledger[row]=(rank,value)
     (output/'routes.json').write_text(json.dumps(routes,separators=(',',':')))
     stats={'world':world,'tokens':tokens,'hidden':hidden,'topk':topk,'experts':experts,'seed':20261124,
-           'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'send_rows':0,'direct_rows':0,'reduce_rows':0}
+           'profiling_capacity':8192,'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'send_rows':0,'direct_rows':0,'reduce_rows':0}
     assert len(ledger)==world*tokens*topk
     specs=[]
     for rank in range(world):
@@ -119,7 +120,8 @@ def prepare(source, output, world, tokens, kernel):
         Path(str(meta)+'.backward_counts').write_bytes(struct.pack('<8i',*backward_counts))
         Path(str(meta)+'.native_mem_info').write_bytes(images['native_mem_info'])
         subprocess.run([str(helper),str(meta)],check=True)
-        raw=Path(str(meta)+'.args').read_bytes()
+        raw=bytearray(Path(str(meta)+'.args').read_bytes())
+        struct.pack_into('<Q',raw,80,base+ht_profile.ADDRESS)
         layout=struct.unpack('<6I4Q',Path(str(meta)+'.layout').read_bytes())
         gather_offset,partial_offset,workspace_bytes=layout[6:9]
         assert len(raw)==248 and layout[:2]==(chunks,1)
@@ -128,9 +130,9 @@ def prepare(source, output, world, tokens, kernel):
         for g in range(64): struct.pack_into('<Q',ws,(3*world+g)*512,1)
         ws[gather_offset:partial_offset]=GUARD*((partial_offset-gather_offset)//4)
         ws[partial_offset:]=GUARD*((workspace_bytes-partial_offset)//4)
-        addresses=dict(runtime.BASES,input=0x404000000,prefill=0x405000000,masks=0x406000000,
+        addresses=dict(runtime.BASES,profiling=ht_profile.ADDRESS,input=0x404000000,prefill=0x405000000,masks=0x406000000,
                        backward=0x407000000,backward_counts=0x408000000,backward_ranges=0x409000000)
-        images.update(workspace=ws,input=inp,forward=fwd.tobytes(),counts=struct.pack('<%di'%world,*counts),
+        images.update(profiling=ht_profile.image(base+ht_profile.ADDRESS,8192),workspace=ws,input=inp,forward=fwd.tobytes(),counts=struct.pack('<%di'%world,*counts),
                       ranges=struct.pack('<%di'%len(ranges),*ranges),masks=struct.pack('<%di'%chunks,*masks),
                       backward=packed.tobytes(),backward_counts=struct.pack('<8i',*backward_counts),
                       backward_ranges=Path(str(meta)+'.backward_ranges').read_bytes(),status=b'\xa5'*512,
@@ -149,7 +151,8 @@ def prepare(source, output, world, tokens, kernel):
         exports={k:{'addr':base+address,'size':size} for k,address,size in (
             ('returned',addresses['workspace']+gather_offset,len(gathered)),
             ('completed',addresses['workspace']+(3*world+96)*512,len(completed)),
-            ('output',addresses['workspace']+partial_offset,len(partial)),('status',addresses['status'],512))}
+            ('output',addresses['workspace']+partial_offset,len(partial)),('status',addresses['status'],512),
+            ('profiling',ht_profile.ADDRESS,ht_profile.layout(8192)['bytes']))}
         inputs=[dict(name=k,addr=base+addresses[k],data=v) for k,v in images.items()]
         guards=[]
         for key,addr in [('guard_before',addresses['workspace']-512),('guard_after',addresses['workspace']+workspace_bytes)]:
