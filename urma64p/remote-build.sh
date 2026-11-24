@@ -8,45 +8,6 @@ run_dir=$(mktemp -d /opt/urma64p-full.XXXXXX)
 tar -xzf - -C "$run_dir"
 printf '{"stage":"staged","revision":"%s","run_dir":"%s"}\n' "$revision" "$run_dir"
 
-if [[ "$variant" == two-group ]]; then
-python3 - "$image" <<'PY'
-import json
-import os
-import re
-import subprocess
-import sys
-
-result = subprocess.run(
-    ["docker", "ps", "-a", "--filter", f"ancestor={sys.argv[1]}", "-q"],
-    check=True, text=True, capture_output=True, timeout=10,
-)
-roots = {"/home", "/root", "/opt", "/work", "/data", "/mnt"}
-for container in result.stdout.splitlines()[:40]:
-    record = subprocess.run(
-        ["docker", "inspect", "--format", "{{json .Mounts}}", container],
-        check=True, text=True, capture_output=True, timeout=10,
-    )
-    roots.update(m["Source"] for m in json.loads(record.stdout) if m["Type"] == "bind")
-campaigns = set()
-for base in sorted(roots):
-    if base == "/" or not os.path.isdir(base):
-        continue
-    root_depth = base.rstrip("/").count("/")
-    for root, dirs, files in os.walk(base):
-        if re.search(r"full-(?:performance-matrix|finalcq)|full.*80cc17", os.path.basename(root)):
-            campaigns.add(root)
-            dirs[:] = []
-            continue
-        if root.count("/") - root_depth >= 4 or len(campaigns) >= 16:
-            dirs[:] = []
-        else:
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in {
-                "overlay2", "docker", "Ascend", "node_modules", "site-packages", "lost+found",
-            }]
-print(json.dumps({"stage": "case_discovery", "campaigns": sorted(campaigns)[:16]}))
-PY
-fi
-
 if ! docker run --rm --network none -v "$run_dir:/work" -w /work \
     --entrypoint /bin/bash "$image" -lc '
 set -eo pipefail
