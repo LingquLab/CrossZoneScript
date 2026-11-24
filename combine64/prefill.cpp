@@ -31,7 +31,8 @@ int main(int argc, char **argv) {
     Write(p+".backward_ranges",ranges.data(),ranges.size());
     const uint64_t stride=0x2000000000ULL,base=a.config.rank*stride;
     a.workspace=reinterpret_cast<uint8_t *>(base+0x200000000ULL);
-    const uint64_t inputOffset=argc==3?std::stoull(argv[2]):0x404000000ULL;
+    const uint64_t inputOffset=argc==3?std::stoull(argv[2]):
+        (uint64_t(a.config.input_rows)*a.config.hidden*4 > 0x1000000 ? 0x440000000ULL : 0x404000000ULL);
     a.input=reinterpret_cast<uint8_t *>(base+inputOffset);
     a.forward=reinterpret_cast<uint8_t *>(base+0x400000000ULL);
     a.forward_counts=reinterpret_cast<uint8_t *>(base+0x401000000ULL);

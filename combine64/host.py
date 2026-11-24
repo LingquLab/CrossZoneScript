@@ -33,7 +33,15 @@ def platform(case,tools,checker,entry):
         elif name=='adapter/exports.py':shutil.copyfile(tools/'exports.py',dst)
         elif name=='adapter/run.py':
             s=src.read_text();needle='manifest["entry"] != "tilexr_ep_ht_inter_server_send_kernel"';assert s.count(needle)==1
-            dst.write_text(s.replace(needle,'manifest["entry"] != '+repr(entry)))
+            s=s.replace(needle,'manifest["entry"] != '+repr(entry))
+            assert s.count('            child = subprocess.Popen(')==1
+            s=s.replace('import subprocess\n','import subprocess\nimport time\n')
+            s=s.replace('            child = subprocess.Popen(',
+                '            record["sst_started_unix"] = time.time()\n            sst_wall_start = time.monotonic()\n            child = subprocess.Popen(')
+            needle_final='        finally:\n            signal.signal(signal.SIGTERM, previous)'
+            assert s.count(needle_final)==1
+            s=s.replace(needle_final,'        finally:\n            record["sst_wall_seconds"] = time.monotonic() - sst_wall_start\n            record["sst_finished_unix"] = time.time()\n            record_path.write_text(json.dumps(record, indent=2) + "\\n")\n            signal.signal(signal.SIGTERM, previous)')
+            dst.write_text(s)
         elif name=='v310_config/workload_config.yml':continue
         else:shutil.copyfile(src,dst)
     shutil.copyfile(case/'workload.yml',case/'v310_config/workload_config.yml')
@@ -58,6 +66,9 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         'platform_simulated_us':None,'profiling_operator_us':None}
     if (case/'run.json').is_file():
         r=json.loads((case/'run.json').read_text());result['run']=r
+        result['sst_wall_seconds']=r.get('sst_wall_seconds')
+        result['wall_scope']='runner_including_SST_integrity_export_checker'
+        result['sst_wall_scope']='SST_Popen_to_wait_exit' if r.get('sst_wall_seconds') is not None else 'not_separately_instrumented'
     if (case/'check.log').is_file():
         text=(case/'check.log').read_text(errors='replace').strip()
         try:result['checked']=json.loads(text)
@@ -101,7 +112,7 @@ def local(cid,tools,tokens,phase,attempt="a1"):
     workload=json.loads((asset/'loader/workload.yml').read_text().replace(identity['runtime_root'],runtime))
     provenance=hashlib.sha256()
     if phase=='reduce':
-        prior=case.with_name('64p-t%d-local-send-a2'%tokens)
+        prior=case.with_name('64p-t%d-local-send-%s'%(tokens,'a2' if tokens==4 else 'a1'))
         assert json.loads((prior/'phase-result.json').read_text())['qualified'],'predecessor_not_qualified'
     for row in layout['ranks']:
         folder=case/'input_bin'/('rank%02d'%row['rank']);args=bytearray((folder/'kernel_args.bin').read_bytes())

@@ -54,7 +54,7 @@ def main(root,stage,abis,tokens=16,attempt="a1"):
             fmt={'uint32_t':'I','uint64_t':'Q','int64_t':'q'}[field['type']]
             struct.pack_into('<'+fmt,c,field['offset']-48,field['value'])
         base=rank*runtime.GM_BYTES
-        pointers=dict(runtime.BASES,localWorkspace=0x40a000000,localStatus=0x40b000000,
+        pointers=dict(runtime.BASES,localWorkspace=0x470000000,localStatus=0x40b000000,
                       serverMask=0x40c000000,output=0x40e000000,profiling=ht_profile.ADDRESS)
         local_ready=config['workspaceBytes']
         registered=local_ready+8*512+world*512

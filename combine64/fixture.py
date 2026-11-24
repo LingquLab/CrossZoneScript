@@ -130,7 +130,7 @@ def prepare(source, output, world, tokens, kernel):
         for g in range(64): struct.pack_into('<Q',ws,(3*world+g)*512,1)
         ws[gather_offset:partial_offset]=GUARD*((partial_offset-gather_offset)//4)
         ws[partial_offset:]=GUARD*((workspace_bytes-partial_offset)//4)
-        addresses=dict(runtime.BASES,profiling=ht_profile.ADDRESS,input=0x404000000,prefill=0x405000000,masks=0x406000000,
+        addresses=dict(runtime.BASES,profiling=ht_profile.ADDRESS,input=(0x440000000 if len(inp)>0x1000000 else 0x404000000),prefill=0x405000000,masks=0x406000000,
                        backward=0x407000000,backward_counts=0x408000000,backward_ranges=0x409000000)
         images.update(profiling=ht_profile.image(base+ht_profile.ADDRESS,8192),workspace=ws,input=inp,forward=fwd.tobytes(),counts=struct.pack('<%di'%world,*counts),
                       ranges=struct.pack('<%di'%len(ranges),*ranges),masks=struct.pack('<%di'%chunks,*masks),
