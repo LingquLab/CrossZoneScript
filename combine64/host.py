@@ -202,6 +202,11 @@ def main(request):
             gates=list((ROOT/'cases').glob('64p-t4-pipeline-a*/phase-result.json'))
             gate_reports=[json.loads(p.read_text()) for p in gates]
             assert any(q.get('qualified') and q.get('operator_qualified') and q.get('candidate_commit')==REVISION for q in gate_reports),'bs4_joint_gate'
+        if action=='debug-pipeline':
+            code=execute(cid,['python3',runtime+'/debug_pipeline.py',runtime],ROOT/'pipeline-debug-runner.log',400)
+            report=ROOT/'pipeline-debug-result.json'
+            if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
+            return code
         if action=='trace-pipeline':
             code=execute(cid,['python3',runtime+'/trace_pipeline.py'],ROOT/'pipeline-trace-runner.log',900)
             report=ROOT/'cases/64p-t4-pipeline-trace-a1/diagnostic.json'
