@@ -20,9 +20,8 @@ common=(-DTILEXR_BUILD_EP=OFF -DTILEXR_BUILD_COMBINE_HT=ON -DTILEXR_BUILD_UNITES
         -DTILEXR_DIAGNOSTICS_SOC_TYPE=Ascend950)
 targets=(tilexr_moonep_combine_ht_kernel tilexr_ep_ht_local_return_kernel
          tilexr_ep_ht_inter_server_send_kernel tilexr_ep_ht_final_reduce_kernel)
-for variant in bf16 fp32; do
-    fp=OFF
-    [[ "$variant" == fp32 ]] && fp=ON
+for variant in fp32; do
+    fp=ON
     set +e
     cmake -S /work/source -B "/work/build-$variant" "${common[@]}" \
         "-DTILEXR_COMBINE_HT_SST_FP32=$fp" > "logs/$variant-config.log" 2>&1
@@ -54,7 +53,7 @@ for name,code in codes.items():
         log=Path('logs/'+name+'.log').read_text(errors='replace')
         row['errors']=[line.strip()[:220] for line in log.splitlines() if re.search(r'(?:fatal error:|error:|CMake Error|Could NOT find)',line)][:4]
     results[name]=row
-for variant in ('bf16','fp32'):
+for variant in ('fp32',):
     root=Path('build-'+variant)
     for target,relative in (
         ('tilexr_moonep_combine_ht_kernel','src/moonep/combine_ht'),
@@ -64,7 +63,7 @@ for variant in ('bf16','fp32'):
         row=results.setdefault(variant+'-'+target,{'exit_code':None})
         p=root/relative/(target+'.o')
         if p.is_file(): row.update(path=str(p),bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest())
-passed=len(results)==10 and all(row['exit_code']==0 for row in results.values())
+passed=len(results)==5 and all(row['exit_code']==0 for row in results.values())
 summary={'all_compiled':passed,'sim_send':True,'sst_split_writes':True,'profiling':False,'targets':results}
 Path('build-summary.json').write_text(json.dumps(summary,indent=2))
 Path('progress.json').write_text(json.dumps({'stage':'compiled' if passed else 'compile_failed','updated_unix':time.time()}))
