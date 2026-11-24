@@ -12,8 +12,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-    assert args in ({}, {"mte": True})
-    experiment = "mmio-mte-a1" if args.get("mte") else "mmio-width-a1"
+    assert args in ({}, {"mte": True}, {"unbonded": True})
+    experiment = "mmio-mte-unbonded-a1" if args.get("unbonded") else "mmio-mte-a1" if args.get("mte") else "mmio-width-a1"
     key = Path(os.environ["USERPROFILE"]) / ".ssh/id_ed25519"
     ssh = ["ssh", "-T", "-i", str(key), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=12", "root@141.61.94.26"]

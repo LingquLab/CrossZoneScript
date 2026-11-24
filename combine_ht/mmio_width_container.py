@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import struct
 import subprocess
 import sys
@@ -20,15 +21,22 @@ snapshot = json.loads(Path("/work/environment.snapshot.json").read_text())
 original = json.loads((BASE / "workload.json").read_text())
 
 
-def run_case(name, gm64, bits, store_only=False, store_mte=False):
+def run_case(name, gm64, bits, store_only=False, store_mte=False, unbonded=False):
     folder = ROOT / name
     folder.mkdir()
     source = folder / "probe.cpp"
     source.write_text("#define PROBE_GM64 %d\n#define PROBE_STORE_BITS %d\n#define PROBE_STORE_ONLY %d\n#define PROBE_STORE_MTE %d\n" %
         (gm64, bits, store_only, store_mte) + (ROOT / "mmio_width_probe.cpp").read_text())
     binary = folder / "probe.o"
-    with (folder / "build.log").open("wb") as log:
-        sst.build_kernel(snapshot["settings"], log, source=source, binary=binary)
+    if unbonded:
+        prior = Path("/work/diagnostics/mmio-mte-a1/mmio-mte4")
+        assert sst.checksum(prior / "probe.o") == "7695b470022e748cde09fceac23939f45021bc5e54086e1772a5fefec5ae48c5"
+        assert source.read_bytes() == (prior / "probe.cpp").read_bytes(), "probe_source_changed"
+        shutil.copyfile(prior / "probe.o", binary)
+        shutil.copyfile(prior / "build.json", folder / "original-build.json")
+    else:
+        with (folder / "build.log").open("wb") as log:
+            sst.build_kernel(snapshot["settings"], log, source=source, binary=binary)
     work = {"workload_config": {}} if gm64 else copy.deepcopy(original)
     marker = 0x20000000 + 1536 if gm64 else 3 * sst.rt.GM_BYTES + 0x2F0000000
     poison = folder / "poison.bin"
@@ -62,6 +70,13 @@ def run_case(name, gm64, bits, store_only=False, store_mte=False):
             bin_param=dict(addr=base + 0x40000000, size=max(0x26C40, sst.fixtures.align(binary.stat().st_size))), output_param=outputs)
     with (folder / "model.log").open("w") as log, sst.redirect_stdout(log):
         sst.write_model(folder, snapshot, work, 8)
+    ubus_path = folder / "UBusSim_config/UBusSim_simulator_config.yml"
+    if unbonded:
+        document = yaml.safe_load(ubus_path.read_text())
+        assert document["architecture_config"]["host_ba_mem_wr_bond_mode_flag"] is True
+        assert document["simulator_config"]["ba_layer"]["params"]["host_ba_mem_wr_bond_mode_flag"] is True
+        sst.replace_keys(document, {"host_ba_mem_wr_bond_mode_flag": False})
+        ubus_path.write_text(yaml.safe_dump(document, sort_keys=False))
     modes = []
     def transport_modes(value):
         if isinstance(value, dict):
@@ -77,8 +92,27 @@ def run_case(name, gm64, bits, store_only=False, store_mte=False):
     timed_out = False
     with (folder / "sim.log").open("wb") as log:
         process = subprocess.Popen(command, cwd=folder, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        loaded = {}
+        if unbonded:
+            deadline = start + 30
+            while process.poll() is None and time.monotonic() < deadline:
+                for directory in Path("/proc").iterdir():
+                    if not directory.name.isdecimal(): continue
+                    try:
+                        if (directory / "comm").read_text().strip() != "sstsim.x": continue
+                        if str(folder / "test_UBusSim.py").encode() not in (directory / "cmdline").read_bytes(): continue
+                        for line in (directory / "maps").read_text().splitlines():
+                            pieces = line.split(maxsplit=5)
+                            if len(pieces) != 6: continue
+                            path = Path(pieces[5])
+                            if path.name in ("libV310.so", "libDavinciSimulator.so", "libDavinciSimulatorV310.so", "libUBusSimulator.so"):
+                                loaded[str(path.resolve())] = directory.name
+                    except OSError:
+                        continue
+                if len(loaded) >= 3: break
+                time.sleep(0.1)
         try:
-            process.wait(timeout=150)
+            process.wait(timeout=max(0.01, 150 - (time.monotonic() - start)))
         except subprocess.TimeoutExpired:
             timed_out = True
             os.killpg(process.pid, signal.SIGTERM)
@@ -91,6 +125,10 @@ def run_case(name, gm64, bits, store_only=False, store_mte=False):
         simt_urma_flag=False, store_only=store_only, sq_doorbell="MTE4B" if store_mte else "st_dev",
         completions=[m.group(0) for m in sst.SIM_TIME.finditer(text)][-1:],
         fatals=[line[:450] for line in text.splitlines() if "FATAL:" in line][:2])
+    if unbonded:
+        result["host_ba_mem_wr_bond_mode_flag"] = False
+        result["ubus_config_sha256"] = sst.checksum(ubus_path)
+        result["loaded_libraries"] = [dict(path=path, pid=pid, sha256=sst.checksum(Path(path))) for path, pid in loaded.items()]
     if process.returncode == 0 and result["completions"] and not timed_out:
         raw = sst.read_output(folder, 0 if gm64 else 3, "probe", 0x20000000 if gm64 else marker, 32768 if gm64 else 32)
         expected = bytearray(poison.read_bytes())
@@ -128,7 +166,10 @@ try:
     assert json.loads(Path("/work/revisions.json").read_text())["candidate"] == out["source_revision"]
     assert sst.checksum(sst.KERNEL) == "519c9fba13122634af8f58c50947e1765e1627b6fa6263a312116fbce0bfb790"
     sst.verify_environment(snapshot)
-    if ROOT.name == "mmio-mte-a1":
+    if ROOT.name == "mmio-mte-unbonded-a1":
+        candidate = run_case("mmio-mte4", 0, 32, store_mte=True, unbonded=True)
+        out["ok"] = candidate["qualified"]
+    elif ROOT.name == "mmio-mte-a1":
         control = run_case("store-only32", 0, 32, True)
         candidate = run_case("mmio-mte4", 0, 32, store_mte=True)
         out["ok"] = candidate["qualified"]
