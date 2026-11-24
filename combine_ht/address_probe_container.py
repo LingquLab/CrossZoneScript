@@ -12,6 +12,7 @@ import time
 
 sys.path.insert(0, "/work")
 import sst
+from case_tools import extract_ranges
 
 
 def main():
@@ -91,7 +92,7 @@ def main():
             entry["die_samples"] = []
             for die in (1, 2):
                 path = folder / "bin" / ("david_0_die%d_region%d.bin" % (die, index))
-                raw = path.read_bytes()
+                raw = extract_ranges([path], {"region": (address, 32768)})["region"]
                 entry["die_samples"].append(dict(die=die, bytes=len(raw),
                     samples={str(i): raw[i:i+4].hex() for i in (0, 512, 1024, 1536, 8192)}))
             result["checks"].append(entry)
