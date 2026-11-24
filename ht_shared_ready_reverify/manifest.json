@@ -1,0 +1,20 @@
+{
+  "revision": "3bfa9fe51fb821ab9d7a4f5823a19824bff4ad87",
+  "tree": "0bfceb414ee80d644979373677a9b36bee78c7f7",
+  "fixed_revision": "d9c5835c03ce60965182b564ca693aebb7438583",
+  "build": "CANN 9.1.0, Ascend950",
+  "object_sha256": {
+    "attached": "bd695db02f0bbba65322b864cae7ceb0684a97a5533d7e3d8d7d910c7c2872ff",
+    "inter_server_send": "c17f98891e2f208d44811c4e465ca8849926b5a1ea105862daa1f9b19965a16d",
+    "local_return_fixed": "4e5778137124f3813ddeb80e23bee0043d6d1d55828fa7f9b279b102ff6e242f",
+    "final_reduce": "561e4bcb78c036a2bde27bb19f8e38e18e72b2488c691500151cd6eba90037d5",
+    "local_return": "eb1a5f0acd959b69d942a1891f0b8fcd9f3422b483112d390a97ca13ec65e13f"
+  },
+  "shape": {
+    "ranks": 64,
+    "tokens": 4,
+    "hidden": 128,
+    "dtype": "FP32",
+    "reducer_count": 8
+  }
+}

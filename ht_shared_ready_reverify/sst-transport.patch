@@ -1,0 +1,159 @@
+--- a/include/tilexr/comm/udma/device/api.h
++++ b/include/tilexr/comm/udma/device/api.h
+@@ -254,0 +255,39 @@
++template <AscendC::HardEvent event>
++__attribute__((always_inline)) inline __aicore__ void UDMASyncEvent()
++{
++    const auto eventId = GetTPipePtr()->FetchEventID(event);
++    AscendC::SetFlag<event>(eventId);
++    AscendC::WaitFlag<event>(eventId);
++}
++
++// The first TPipe buffer in the SST kernel reserves these 32 bytes per AIV.
++__aicore__ inline AscendC::LocalTensor<uint32_t> UDMASstStateScratch()
++{
++    return AscendC::LocalTensor<uint32_t>(AscendC::TPosition::VECCALC, 0, 8);
++}
++
++__aicore__ inline uint32_t UDMASstLoadState(__gm__ uint32_t* address)
++{
++    AscendC::GlobalTensor<uint32_t> state;
++    state.SetGlobalBuffer(address, 1);
++    state.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);
++    auto scratch = UDMASstStateScratch();
++    UDMASyncEvent<AscendC::HardEvent::S_MTE2>();
++    AscendC::DataCopyPad(scratch, state, AscendC::DataCopyExtParams(1, 4, 0, 0, 0),
++        AscendC::DataCopyPadExtParams<uint32_t>{false, 0, 0, 0});
++    UDMASyncEvent<AscendC::HardEvent::MTE2_S>();
++    return scratch.GetValue(0);
++}
++
++__aicore__ inline void UDMASstStoreState(__gm__ uint32_t* address, uint32_t value)
++{
++    AscendC::GlobalTensor<uint32_t> state;
++    state.SetGlobalBuffer(address, 1);
++    state.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);
++    auto scratch = UDMASstStateScratch();
++    scratch.SetValue(0, value);
++    UDMASyncEvent<AscendC::HardEvent::S_MTE3>();
++    AscendC::DataCopyPad(state, scratch, AscendC::DataCopyExtParams(1, 4, 0, 0, 0));
++    UDMASyncEvent<AscendC::HardEvent::MTE3_S>();
++}
++
+@@ -258,2 +297,2 @@
+-    st_dev(cqTail, reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr), 0);
+-    st_dev(sqTail, reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr), 0);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr), cqTail);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr), sqTail);
+@@ -284,2 +323,2 @@
+-    uint32_t cqTail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr), 0);
+-    uint32_t sqTail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr), 0);
++    uint32_t cqTail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(cqCtxEntry->tailAddr));
++    uint32_t sqTail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->tailAddr));
+@@ -308 +347 @@
+-        const uint32_t sqHead = ld_dev(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->headAddr), 0);
++        const uint32_t sqHead = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(wqCtxEntry->headAddr));
+@@ -335 +374 @@
+-        return ld_dev(reinterpret_cast<__gm__ uint32_t *>(address), 0);
++        return UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(address));
+@@ -443,8 +481,0 @@
+-}
+-
+-template <AscendC::HardEvent event>
+-__attribute__((always_inline)) inline __aicore__ void UDMASyncEvent()
+-{
+-    const auto eventId = GetTPipePtr()->FetchEventID(event);
+-    AscendC::SetFlag<event>(eventId);
+-    AscendC::WaitFlag<event>(eventId);
+@@ -601,2 +632,2 @@
+-    const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t head = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t tail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -634 +665 @@
+-            ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
++            UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
+@@ -637 +668 @@
+-            ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++            UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+@@ -653,2 +684,2 @@
+-    uint32_t curHead = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    uint32_t wqeCnt = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    uint32_t curHead = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    uint32_t wqeCnt = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+@@ -674,2 +705,2 @@
+-    st_dev(curHead, reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    st_dev(wqeCnt, reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), curHead);
++    UDMASstStoreState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), wqeCnt);
+@@ -1055 +1086 @@
+-    return ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
++    return UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
+@@ -1073,2 +1104,2 @@
+-    const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t head = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t tail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -1098,4 +1129,2 @@
+-    const uint32_t submittedHead = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t submittedTail = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t submittedHead = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t submittedTail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -1126,2 +1155 @@
+-    const uint32_t completionTarget = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    const uint32_t completionTarget = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+@@ -1204,2 +1232,2 @@
+-    const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr), 0);
+-    const uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr), 0);
++    const uint32_t head = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->headAddr));
++    const uint32_t tail = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->tailAddr));
+@@ -1244,2 +1272 @@
+-    const uint32_t completionTarget = ld_dev(
+-        reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr), 0);
++    const uint32_t completionTarget = UDMASstLoadState(reinterpret_cast<__gm__ uint32_t*>(qpCtxEntry->wqeCntAddr));
+--- a/src/ep/combine_ht/inter_server_send_kernel.cpp
++++ b/src/ep/combine_ht/inter_server_send_kernel.cpp
+@@ -93 +93 @@
+-                forward_ + (uint64_t(peer) * c_.forwardCapacity + first) * sizeof(Record)));
++                forward_ + (uint64_t(peer) * c_.forwardCapacity + first) * kUbBlockBytes));
+@@ -99 +99 @@
+-            DataCopyPad(page, gm, DataCopyExtParams(rows, sizeof(Record), 0, 0, 0),
++            DataCopyPad(page, gm, DataCopyExtParams(rows, kUbBlockBytes, 0, 0, 0),
+@@ -231,2 +231,2 @@
+-        uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), 0);
+-        uint32_t tail = ld_dev(reinterpret_cast<__gm__ uint32_t *>(context->tailAddr), 0);
++        uint32_t head = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr));
++        uint32_t tail = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->tailAddr));
+@@ -276,3 +276,3 @@
+-        const uint32_t wqeCount = ld_dev(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), 0);
+-        st_dev(head + count, reinterpret_cast<__gm__ uint32_t *>(context->headAddr), 0);
+-        st_dev(wqeCount + count, reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), 0);
++        const uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
++        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), head + count);
++        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount + count);
+@@ -368,0 +369,2 @@
++    TBuf<QuePosition::VECCALC> queueStateScratch;
++    pipe.InitBuffer(queueStateScratch, 32);
+--- a/src/ep/combine_ht/local_return_kernel.cpp
++++ b/src/ep/combine_ht/local_return_kernel.cpp
+@@ -55 +55 @@
+-          forward_(reinterpret_cast<__gm__ int32_t *>(forward) + uint64_t(peer_) * config.forwardCapacity * 6),
++          forward_(reinterpret_cast<__gm__ int32_t *>(forward) + uint64_t(peer_) * config.forwardCapacity * (kUbBlockBytes / sizeof(int32_t))),
+@@ -84 +84 @@
+-            gm.SetGlobalBuffer(forward_ + uint64_t(first) * (sizeof(Record) / sizeof(int32_t)));
++            gm.SetGlobalBuffer(forward_ + uint64_t(first) * (kUbBlockBytes / sizeof(int32_t)));
+@@ -87 +87 @@
+-            DataCopyPad(page, gm, DataCopyExtParams(rows, sizeof(Record), 0, 0, 0),
++            DataCopyPad(page, gm, DataCopyExtParams(rows, kUbBlockBytes, 0, 0, 0),
+@@ -156 +156 @@
+-        const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t *>(sq_->headAddr), 0);
++        const uint32_t head = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(sq_->headAddr));
+@@ -166 +166 @@
+-            const uint32_t head = ld_dev(reinterpret_cast<__gm__ uint32_t *>(sq_->headAddr), 0);
++            const uint32_t head = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(sq_->headAddr));
+@@ -235,0 +236,2 @@
++    TBuf<QuePosition::VECCALC> queueStateScratch;
++    pipe.InitBuffer(queueStateScratch, 32);

@@ -1,0 +1,7 @@
+diff --git a/src/ep/combine_ht/local_return_kernel.cpp b/src/ep/combine_ht/local_return_kernel.cpp
+index 6e1be11b..72b3b9b4 100644
+--- a/src/ep/combine_ht/local_return_kernel.cpp
++++ b/src/ep/combine_ht/local_return_kernel.cpp
+@@ -66 +66 @@ public:
+-            pipe.InitBuffer(wqe_, TileXR::TILEXR_UDMA_WQE_BB_BYTES);
++            pipe.InitBuffer(wqe_, TileXR::TILEXR_UDMA_WQE_SCRATCH_BYTES);
