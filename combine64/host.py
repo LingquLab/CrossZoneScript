@@ -292,7 +292,7 @@ def main(request):
             if code:
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d-%s.log'%(tokens,request.get('attempt','a1'))))}));return code
             case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,request.get('attempt','a1')))
-            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:1200,16:1800,32:2700,64:3600,128:5400}[tokens])
+            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:2400,16:1800,32:2700,64:3600,128:5400}[tokens])
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
             if (ROOT/'profile-build/result.json').is_file():

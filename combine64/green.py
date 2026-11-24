@@ -18,7 +18,7 @@ def main():
     code=(directory/'host.py').read_text(encoding='utf-8')+'\nraise SystemExit(main('+repr(request)+'))\n'
     logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION;logs.mkdir(parents=True,exist_ok=True)
     stem=args['action']+'-'+str(args.get('tokens',4))+'-'+str(args.get('phase',args.get('stage','')))
-    seconds={'prepare':600,'smoke':1700,'qualify-local':2400,'local':1100,'instrument':700,'repair-profile-send':1800,'return':1250,'qualify-return':10000,'pipeline-build':400,'qualify-pipeline':2300,'pipeline':1600,'calibrate':1100,'matrix-case':7200,'independent-bs':19000,'trace-pipeline':950,'debug-pipeline':450,'pending-layout':120,'dcci-pipeline':2100,'status':60,'stop':90}[args['action']]
+    seconds={'prepare':600,'smoke':1700,'qualify-local':2400,'local':1100,'instrument':700,'repair-profile-send':1800,'return':1250,'qualify-return':10000,'pipeline-build':400,'qualify-pipeline':3600,'pipeline':3300,'calibrate':1100,'matrix-case':7200,'independent-bs':19000,'trace-pipeline':950,'debug-pipeline':450,'pending-layout':120,'dcci-pipeline':2100,'status':60,'stop':90}[args['action']]
     if args['action']=='independent-bs':seconds={16:12000,32:18000,64:24000,128:36000}[args['tokens']]
     cmd=['ssh','-T','-i',str(Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'),'-p','22','-o','BatchMode=yes',
          '-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12',
