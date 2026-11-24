@@ -9,6 +9,7 @@ sys.path[:0] = [str(workspace / "ht_t32_e2e"), str(workspace / "alltoall")]
 from green_auth import askpass_environment
 from ssh_transport import HOST
 
+options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
 source = r'''
 import json,re,time
 from pathlib import Path
@@ -34,6 +35,9 @@ for stage in ("local-send","local-reduce","inter-send","final-reduce"):
     result[stage]=info
 print(json.dumps(result))
 '''
+
+if options.get('guarded_local') is True:
+    source = source.replace('ht-bs64-random-20261124-', 'ht-bs64-random-20261124-guarded-')
 
 ssh = ["ssh", "-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10",
        "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1",

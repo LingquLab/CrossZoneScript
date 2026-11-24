@@ -191,7 +191,10 @@ def rank_case(rank, fields, images, exports, runtime):
 
 def phase_object(phase, request, temp):
     build = MOUNT.parent / BUILD
-    if phase <= 2:
+    if phase == 1 and 'guarded_local' in request:
+        data = gzip.decompress(base64.b64decode(request['guarded_local'], validate=True))
+        expected = '3a781340ce77e377a71629518c5d619df03eed648eac9fad089df645a8326344'
+    elif phase <= 2:
         data = (build / 'sst/src/moonep/combine_ht' / (NATIVE + '.o')).read_bytes()
         assert hashlib.sha256(data).hexdigest() == EXPECTED
         data = data.ljust(10485760, b'\0')
@@ -266,6 +269,9 @@ def prepare_phase(phase, request, temp, modules):
 
 
 def execute_request(request):
+    global STEM
+    if 'guarded_local' in request:
+        STEM = 'ht-bs64-random-20261124-guarded-'
     support = MOUNT.parent / BUILD / 'source/tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0, str(support))
     import loader

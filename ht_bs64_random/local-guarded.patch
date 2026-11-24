@@ -1,0 +1,32 @@
+--- a/src/moonep/combine_ht/kernels/combine_ht_kernel.h
++++ b/src/moonep/combine_ht/kernels/combine_ht_kernel.h
+@@ -716,12 +716,18 @@
+                 const auto fields = directory.Get<uint64_t>();
+                 const uint64_t payload = fields.GetValue(0), count = fields.GetValue(1), signal = fields.GetValue(2);
+                 Mark(writer, StageBegin);
+-                for (uint64_t offset = 0; offset < count; offset += kBatchRows) {
+-                    const uint32_t batchCount = count - offset < kBatchRows ? uint32_t(count - offset) : kBatchRows;
++                constexpr uint32_t stripeEntries = kSlotBytes / kWqeBytes;
++                for (uint64_t offset = 0; offset < count;) {
++                    const uint32_t remainingInStripe = stripeEntries - batch.head % stripeEntries;
++                    const uint32_t batchCount = count - offset < remainingInStripe ?
++                        uint32_t(count - offset) : remainingInStripe;
+                     const uint32_t status = batch.Flush<false>(LocalTensor<int64_t>{}, batchCount, 0, 0, 0,
+                         payloadRow + offset, view.prefill + payload + offset * kWqeBytes);
+                     if (status) return status;
++                    const uint32_t completion = batch.Quiet();
++                    if (completion) return completion;
+                     issued = true;
++                    offset += batchCount;
+                     Mark(writer, Batches);
+                 }
+                 payloadRow += count;
+@@ -732,6 +738,8 @@
+                         signalRow, view.prefill + signal);
+                     if (status) return status;
+                     issued = true;
++                    const uint32_t completion = batch.Quiet();
++                    if (completion) return completion;
+                     Mark(writer, SoSubmit);
+                 }
+             }
