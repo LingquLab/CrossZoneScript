@@ -6,12 +6,31 @@ from pathlib import Path
 import shlex
 import subprocess
 
+FAILURE_QUERY = r'''
+import json,pathlib,re,sys
+root=pathlib.Path(sys.argv[1]);out={"read_only":True,"cases":{}}
+for version in ("v11","v10"):
+    case=root/version;data={"logs":{}}
+    for name in ("sim.log","native-runner.log"):
+        path=case/name
+        if not path.is_file():continue
+        with path.open("rb") as source:
+            source.seek(max(0,path.stat().st_size-2**20));text=source.read().decode(errors="replace")
+        lines=text.splitlines()
+        data["logs"][name]={"bytes":path.stat().st_size,
+            "frames":[line.strip()[:250] for line in lines if re.match(r'\s*File "[^"]+", line \d+',line)][-8:],
+            "exceptions":[line[:300] for line in lines if re.match(r'^(?:KeyError|TypeError|ValueError|FileNotFoundError|ImportError|ModuleNotFoundError|AssertionError|RuntimeError|IndexError|AttributeError):',line)][:3],
+            "fatals":[line[:350] for line in lines if "FATAL:" in line][:2]}
+    out["cases"][version]=data
+print(json.dumps(out))
+'''
+
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--args-file",type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-    assert args in ({},{"status":True})
+    assert args in ({},{"status":True},{"failure":True})
     key=Path(os.environ["USERPROFILE"])/".ssh/id_ed25519"
     ssh=["ssh","-T","-i",str(key),"-o","BatchMode=yes","-o","IdentitiesOnly=yes","-o","StrictHostKeyChecking=yes","-o","ConnectTimeout=12","root@141.61.94.26"]
     def remote(argv,payload=None,timeout=30):
@@ -25,6 +44,9 @@ def main():
     p=remote(["docker","top",name,"-eo","pid,comm"])
     assert p.returncode==0 and not any(line.split()[-1] in ("sst","sstsim.x") for line in p.stdout.decode().splitlines()[1:])
     root="/var/tmp/tilexr-combine-ht-f71d0252-ef1e-4b5c-b299-c2429ebcfbdf-v11/diagnostics/verified-platform-a1"
+    if args.get("failure"):
+        p=remote(["python3","-",root],payload=FAILURE_QUERY.encode(),timeout=45);assert p.returncode==0
+        print(json.dumps(json.loads(p.stdout)));return
     if args.get("status"):
         p=remote(["cat",root+"/summary.json"]);assert p.returncode==0
         print(json.dumps(json.loads(p.stdout)));return
