@@ -57,7 +57,7 @@ def main(args):
             if not repo.exists():
                 call(["git", "init", "--bare", repo], 20)
             for name, revision, paths in INPUTS:
-                ref = "refs/heads/" + name
+                ref = "refs/heads/" + name + "-" + revision
                 call(["git", "-C", repo, "fetch", "--no-tags", "--depth=1", ORIGIN, revision + ":" + ref], 240)
                 assert call(["git", "-C", repo, "rev-parse", ref], 15).decode().strip() == revision
                 archive = root / (name + ".tar")
