@@ -40,7 +40,14 @@ for path in paths:
         text = stream.read().decode("utf-8", "replace")
     messages[path.name] = [line.strip()[:260] for line in text.splitlines()
                            if re.search(r'FATAL|Error|mismatch|timeout|not match|Simulated time', line, re.I)][-10:]
-print(json.dumps(dict(revision=request["revision"], schedule=name, report=report, messages=messages)))
+checks = []
+for file_name in ("case_tools.py", "full_validation.py"):
+    lines = (case / file_name).read_text().splitlines()
+    for index, line in enumerate(lines):
+        if "Actual kernel output differs from independent AllToAll oracle" in line:
+            checks.append(dict(file=file_name, lines=lines[max(0,index-7):index+2]))
+print(json.dumps(dict(revision=request["revision"], schedule=name, report=report,
+                      messages=messages, relevant_check=checks)))
 """
 ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
        "-o", "IdentitiesOnly=yes", "-i", str(Path.home() / ".ssh/id_ed25519_server"),
