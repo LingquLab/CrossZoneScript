@@ -88,7 +88,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result['numerical_qualified']=code==0 and result.get('run',{}).get('status')=='sst_and_checker_passed' and 'checked' in result
     if result['numerical_qualified']:
         program="import sys,json;sys.path.insert(0,"+repr('/work/'+tools.name)+");import profile;result=profile.summarize("+repr(runtime)+","+str(meta.get('profiling_capacity',8192))+","+str(meta.get('blocks',16))+")"
-        if meta.get('joint_single_invocation'):
+        if meta.get('joint_single_invocation') and meta.get('local_profile_expected',True):
             program+=";result['local_details']=profile.summarize("+repr(runtime)+",8192,16,'local_profiling')"
         program+=";print(json.dumps(result))"
         profile_code=execute(cid,['python3','-c',program],case/'profiling-check.log',120)
@@ -202,6 +202,11 @@ def main(request):
             gates=list((ROOT/'cases').glob('64p-t4-pipeline-a*/phase-result.json'))
             gate_reports=[json.loads(p.read_text()) for p in gates]
             assert any(q.get('qualified') and q.get('operator_qualified') and q.get('candidate_commit')==REVISION for q in gate_reports),'bs4_joint_gate'
+        if action=='dcci-pipeline':
+            code=execute(cid,['python3',runtime+'/dcci_pipeline.py',runtime],ROOT/'pipeline-dcci-prepare.log',350)
+            if code:
+                print(json.dumps({'prepare_exit':code,'log':str(ROOT/'pipeline-dcci-prepare.log')}));return code
+            return run_case(cid,ROOT/'cases/64p-t4-pipeline-dcci-diagnostic-a1',tools,'check_pipeline.py','tilexr_ht_pipeline_sst',1200)
         if action=='pending-layout':
             import runpy
             runpy.run_path(str(tools/'pending_layout_remote.py'),run_name='__main__');return 0
