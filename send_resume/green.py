@@ -13,15 +13,18 @@ SESSION = '7de11bac-47e4-498d-b107-e746122e3b0a'
 
 
 def main(args):
-    assert args in ({'action': 'mte-a1'}, {'action': 'inspect-mte-a1'})
+    assert args in ({'action': 'mte-a1'}, {'action': 'inspect-mte-a1'}, {'action': 'inspect-address-a1'})
     directory = Path(__file__).parent
     if args['action'] == 'mte-a1':
         host = (directory / 'mte_host.py').read_text(encoding='utf-8')
         trial = (directory / 'mte_trial.py').read_text(encoding='utf-8')
         assert host.count("'__TRIAL_SOURCE__'") == 1
         host = host.replace("'__TRIAL_SOURCE__'", repr(trial))
-    else:
+    elif args['action'] == 'inspect-mte-a1':
         host = (directory / 'inspect_host.py').read_text(encoding='utf-8')
+    else:
+        host = (directory / 'address_host.py').read_text(encoding='utf-8')
+        host = host.replace("'__CONTAINER_SOURCE__'", repr((directory / 'address_container.py').read_text(encoding='utf-8')))
     ast.parse(host)
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION
     logs.mkdir(parents=True, exist_ok=True)
