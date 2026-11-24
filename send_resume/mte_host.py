@@ -4,13 +4,16 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import socket
+import struct
 import subprocess
 
 WORK = Path('/var/tmp/tilexr-combine-ht-500e2a93-b84e-4d36-a9aa-8d2cd0321cdf-v11')
 NAME = 'tilexr-combine-ht-500e2a93-v11'
 TRIAL_SOURCE = '__TRIAL_SOURCE__'
 TRIAL_NAME = 'mte-a1'
+REQUIRE_SCALED_DOORBELL = False
 
 
 def call(*argv):
@@ -35,6 +38,20 @@ def main():
     assert hashlib.sha256((WORK / 'tilexr_moonep_combine_ht_kernel.o').read_bytes()).hexdigest() == '2e31f0e06fe776f0a0feb5232f6c9593e3ca453a33e7a5983176dc8b7b7883fd'
     folder = WORK / 'resume-7de1'
     folder.mkdir(exist_ok=True)
+    prior_errors = []
+    if REQUIRE_SCALED_DOORBELL:
+        saved = folder / 'manual-a1/send-only'
+        addresses = []
+        with (saved / 'sim.log').open(errors='replace') as handle:
+            for line in handle:
+                match = re.search(r'FATAL.*?Unknown low level mem to access!\[addr=\s*(\d+)', line)
+                if match:
+                    addresses.append(int(match[1]))
+                    prior_errors.append(line[match.start():match.start()+700].strip())
+        contexts = (saved / 'input_bin/rank0/sq_ctx.bin').read_bytes()
+        doorbells = [struct.unpack_from('<Q', contexts, (peer*40+qp)*80+48)[0]
+                     for peer in range(8) for qp in range(8)]
+        assert any(addr == db*8 for addr in addresses for db in doorbells), 'prior_failure_not_scaled_doorbell'
     assert not (folder / TRIAL_NAME).exists(), 'trial_already_attempted_read_saved_evidence'
     script = folder / (TRIAL_NAME + '.py')
     with script.open('x') as handle:
@@ -44,6 +61,8 @@ def main():
     (folder / (TRIAL_NAME + '.stdout')).write_bytes(proc.stdout)
     (folder / (TRIAL_NAME + '.stderr')).write_bytes(proc.stderr)
     result = json.loads(proc.stdout)
+    if prior_errors:
+        result['prior_manual_errors'] = prior_errors[:2]
     result['trial_exit_code'] = proc.returncode
     result['no_sst_active'] = not active_sst()
     assert len(proc.stdout) < 25000, 'result_too_large'

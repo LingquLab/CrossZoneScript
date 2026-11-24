@@ -15,6 +15,7 @@ BASELINE = '2e31f0e06fe776f0a0feb5232f6c9593e3ca453a33e7a5983176dc8b7b7883fd'
 POLL_BEGIN = 'template <typename CompletionObserver>\n__aicore__ inline uint32_t UDMAPollCQUntilSqTail('
 TRIAL_NAME = 'mte-a1'
 AUTO_SYNC = True
+ADDR_TRANSFORM = True
 
 
 def once(text, before, after):
@@ -78,7 +79,8 @@ def main():
     folder.mkdir(parents=True, exist_ok=False)
     result = dict(ok=False, diagnostic_only=True, baseline_kernel_sha256=BASELINE,
                   baseline_source_revision='16080aad58ced172c6e6682cf7eb87da4847bdad',
-                  variant='MTE_GM_QUEUE_STATE_AND_CQ_MIRROR', auto_sync=AUTO_SYNC, report=str(folder), send_verified=False)
+                  variant='MTE_GM_QUEUE_STATE_AND_CQ_MIRROR', auto_sync=AUTO_SYNC,
+                  address_transform=ADDR_TRANSFORM, report=str(folder), send_verified=False)
     try:
         assert sst.checksum(sst.KERNEL) == BASELINE
         snapshot = json.loads(Path('/work/environment.snapshot.json').read_text())
@@ -89,6 +91,10 @@ def main():
         original_shell = sst.shell_command
         def build_shell(environment, stage, argv):
             actual = [arg for arg in argv if AUTO_SYNC or arg != '--cce-auto-sync']
+            if not ADDR_TRANSFORM:
+                position = actual.index('-cce-aicore-addr-transform')
+                assert actual[position - 1] == '-mllvm'
+                del actual[position - 1:position + 1]
             commands.append(list(map(str, actual)))
             (folder / 'build.actual.json').write_text(json.dumps(commands, indent=2)+'\n')
             return original_shell(environment, stage, actual)
@@ -114,8 +120,9 @@ def main():
         if log.is_file():
             with log.open(errors='replace') as handle:
                 for line in handle:
-                    if re.search(r'FATAL|Unknown low level|[Aa]ssertion|Segmentation fault', line):
-                        result['simulator_errors'].append(line.strip()[:700])
+                    match = re.search(r'FATAL|Unknown low level|[Aa]ssertion|Segmentation fault', line)
+                    if match:
+                        result['simulator_errors'].append(line[max(0,match.start()-60):match.start()+700].strip())
                         if len(result['simulator_errors']) >= 3:
                             break
     except Exception as error:
