@@ -1,0 +1,34 @@
+{
+  "tokens": 64,
+  "object_sha256": "4516d575aaa663572ccc11c96ea21556c6390de4f507fa013b3b3b2d92ff8b72",
+  "requested_pairs": 3,
+  "valid_pairs": 3,
+  "peer_faster": 0,
+  "rotate_faster": 3,
+  "statistics": {
+    "rotate_us": {
+      "min": 230.915,
+      "median": 239.72,
+      "mean": 238.86133333333333,
+      "max": 245.949
+    },
+    "peer_us": {
+      "min": 244.691,
+      "median": 246.326,
+      "mean": 249.69733333333332,
+      "max": 258.075
+    },
+    "peer_minus_rotate_us": {
+      "min": 0.37699999999998113,
+      "median": 13.77600000000001,
+      "mean": 10.835999999999993,
+      "max": 18.35499999999999
+    },
+    "peer_minus_rotate_percent": {
+      "min": 0.15328381087135182,
+      "median": 5.965831583050044,
+      "mean": 4.59198835061855,
+      "max": 7.656849657934253
+    }
+  }
+}

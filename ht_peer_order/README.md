@@ -44,3 +44,14 @@ python3 ht_peer_order/reproduce_fixture.py /path/TileXR ./fixture-t32-20261124 -
 不轮转平均少 7.880 µs。按每对的轮转时间归一化，平均少 4.762%。[逐轮数据](results/bs32/rounds.csv) · [统计和正式回执](results/bs32)
 
 `routes.json.gz` 保存原始 TopK 表、payload lane 计数和路由哈希。BS64 复用前三个 seed，作为批量增大时的补测。
+
+## BS64 补测
+
+同一对象和 SST 配置完成 3 对、6 次运行。两组的 payload、SO、status、guard 和同 seed 导出哈希均通过校验。
+
+| 调度 | 最短（µs） | 中位数（µs） | 平均（µs） | 最长（µs） |
+| --- | ---: | ---: | ---: | ---: |
+| 轮转 | 230.915 | 239.720 | 238.861 | 245.949 |
+| 不轮转 | 244.691 | 246.326 | 249.697 | 258.075 |
+
+三个 seed 的轮转耗时分别少 13.776、0.377、18.355 µs，平均少 10.836 µs。BS32 和 BS64 的快慢方向相反。补测覆盖前三个 seed，统计范围见 [BS64 逐轮数据](results/bs64/rounds.csv) 和 [正式回执](results/bs64/receipts)。
