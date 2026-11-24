@@ -1,12 +1,19 @@
 """Install and run each paired send-only workload on the retained SST platform."""
 import io
+import json
 from pathlib import Path
 import tempfile
+
+from fixture import BASE, LOCAL, MAGIC, ROW_BYTES, TOPK, EXPERTS, WORLD, generate_inputs
 
 REVISION = '8882b28a4cc586f91ddcea171170bf9e304adc70'
 ENTRY = 'tilexr_ep_ht_inter_server_send_kernel'
 STEM = 'ht-peer-order-v1-'
 MODES = ('rotate', 'peer')
+
+
+def write_json(path, value):
+    path.write_text(json.dumps(value, indent=2) + "\n")
 
 
 def write_fixture(generated, golden_directory, case, mode, tokens, seed, data, abis, kernel, digest, modules):

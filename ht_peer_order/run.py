@@ -26,7 +26,8 @@ prepare = (root/'ht_t32_e2e'/'prepare.py').read_text().replace(
 common = (root/'ht_four_stage'/'local_phases.py').read_text().replace('"--timeout", "540"', '"--timeout", "720"').replace(
     'timeout=600)', 'timeout=780)')
 source = '\n'.join((base, prepare, common, (here/'fixture.py').read_text(),
-                    (here/'phases.py').read_text(), f'''
+                    (here/'phases.py').read_text().replace(
+                        'from fixture import BASE, LOCAL, MAGIC, ROW_BYTES, TOPK, EXPERTS, WORLD, generate_inputs', ''), f'''
 try:
     print(json.dumps(execute_benchmark({request!r}), separators=(',', ':')))
 except Exception as error:
