@@ -68,13 +68,17 @@ def reconstruct_die_output(paths, address, size, decoder_library):
 def export_actual(layout, dump_dir, output, decoder_library):
     dump_dir, output = Path(dump_dir), Path(output)
     ranks = layout["ranks"]
+    required = set(layout.get("required_exports", ("returned", "completed", "status", "output")))
+    standard = {"returned", "completed", "status", "output"}
+    if required not in (standard, standard | {"gather", "partial", "barriers"}):
+        raise ValueError("Unsupported checker export contract")
     if len(ranks) not in (16, 32, 64) or {row["rank"] for row in ranks} != set(range(len(ranks))):
         raise ValueError("Expected all logical ranks")
     # Resolve and validate every input before creating checker artifacts.
     decoded, hashes = [], {}
     for row in ranks:
         for name, target in row["exports"].items():
-            if name not in ("returned", "completed", "status", "output"):
+            if name not in required:
                 raise ValueError("Unknown checker export: " + name)
             paths = [
                 dump_dir / f"david_{row['rank']}_die{die}_{name}.bin" for die in (1, 2)
@@ -85,7 +89,7 @@ def export_actual(layout, dump_dir, output, decoder_library):
                 paths, local, target["size"], decoder_library
             )
             decoded.append((row["rank"], name, payload))
-        if set(row["exports"]) != {"returned", "completed", "status", "output"}:
+        if set(row["exports"]) != required:
             raise ValueError(
                 "Returned, completed and owner status exports are required"
             )

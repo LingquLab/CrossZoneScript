@@ -16,7 +16,7 @@ template<class T> void Write(const std::string &name, const T *data, size_t coun
     if (!f) throw std::runtime_error("fixture_write");
 }
 int main(int argc, char **argv) {
-    if (argc != 2) return 2;
+    if (argc != 2 && argc != 3) return 2;
     using namespace TileXRCombineHT;
     std::string p(argv[1]);
     KernelArgs a{};
@@ -31,7 +31,8 @@ int main(int argc, char **argv) {
     Write(p+".backward_ranges",ranges.data(),ranges.size());
     const uint64_t stride=0x2000000000ULL,base=a.config.rank*stride;
     a.workspace=reinterpret_cast<uint8_t *>(base+0x200000000ULL);
-    a.input=reinterpret_cast<uint8_t *>(base+0x404000000ULL);
+    const uint64_t inputOffset=argc==3?std::stoull(argv[2]):0x404000000ULL;
+    a.input=reinterpret_cast<uint8_t *>(base+inputOffset);
     a.forward=reinterpret_cast<uint8_t *>(base+0x400000000ULL);
     a.forward_counts=reinterpret_cast<uint8_t *>(base+0x401000000ULL);
     a.ranges=reinterpret_cast<uint8_t *>(base+0x402000000ULL);
