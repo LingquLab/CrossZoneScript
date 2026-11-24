@@ -19,8 +19,14 @@ options = json.loads(Path(sys.argv[2]).read_text())
 stages = options['stages']
 assert len(stages) == len(set(stages)) and stages
 assert set(stages) <= {'inter_server_send', 'local_return', 'final_reduce'}
+scratch128 = bool(options.get('scratch128'))
+assert not (scratch128 and options.get('packed24'))
 images = {name:(directory/(name+'.o.gz')).read_bytes() for name in stages}
-request = dict(stages=stages, packed24=bool(options.get('packed24')), objects={name:base64.b64encode(image).decode() for name,image in images.items()},
+if scratch128 and 'local_return' in images:
+    images['local_return'] = (directory/'local_return_scratch128.o.gz').read_bytes()
+    assert hashlib.sha256(gzip.decompress(images['local_return'])).hexdigest() == (
+        'f74fa81c07b73ed9fa0b9334a99651ccbaa193f26cd2a6c5825ba042ddc279dd')
+request = dict(stages=stages, packed24=bool(options.get('packed24')), scratch128=scratch128, objects={name:base64.b64encode(image).decode() for name,image in images.items()},
                hashes={name:hashlib.sha256(gzip.decompress(image)).hexdigest() for name,image in images.items()},
                abis=base64.b64encode((directory/'abis.json.gz').read_bytes()).decode(),
                checker=(root/'ht_four_stage'/'check_remote.py').read_text(),

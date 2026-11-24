@@ -155,6 +155,8 @@ def prepare_stage(request, stage, case, temp, loader, native, runtime, abis):
 def run_downstream(request):
     if request.get('packed24'):
         CASE_SUFFIX.update(local_return='-packed24', final_reduce='-packed24')
+    if request.get('scratch128'):
+        CASE_SUFFIX.update(local_return='-scratch128', final_reduce='-scratch128')
     assert stage_checked('attached')
     sys.path.insert(0,str(MOUNT.parent/BUILD/'source/tools/unitest/simulator/experiments/inter_server_send/sst'))
     import native
