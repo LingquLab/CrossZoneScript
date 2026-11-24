@@ -10,9 +10,16 @@ import sys
 parser = argparse.ArgumentParser()
 parser.add_argument("--args-file", type=Path, required=True)
 request = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-assert set(request) == {"baseline", "candidate", "candidate_build", "deadlines"}
+assert set(request) == {"baseline", "candidate", "deadlines"}
 assert all(re.fullmatch("[0-9a-f]{40}", request[k]) for k in ("baseline", "candidate"))
-assert re.fullmatch(r"/opt/urma64p-full\.[A-Za-z0-9]{6}", request["candidate_build"])
+receipt = Path("runs/alltoall-urma64-smoke/2/execution/stdout.log")
+prior = [json.loads(line) for line in receipt.read_text(encoding="utf-8").splitlines()]
+candidate_build, = [row["run_dir"] for row in prior if row.get("stage") == "compile" and
+                    row.get("passed") and row.get("revision") == request["candidate"]]
+assert re.fullmatch(r"/opt/urma64p-full\.[A-Za-z0-9]{6}", candidate_build)
+print(json.dumps(dict(prior_run=[{key: row[key] for key in
+    ("stage", "schedule", "exit", "run_status", "simulated_us", "timing") if key in row}
+    for row in prior if row.get("stage") in ("sst", "cleanup")])), flush=True)
 assert request["deadlines"] and all(type(value) is int and value > 0 for value in request["deadlines"])
 scripts = Path(__file__).resolve().parent
 
@@ -46,7 +53,7 @@ def measure(label, revision, deadline, build_dir=None):
 with ThreadPoolExecutor(max_workers=3) as pool:
     jobs = [pool.submit(measure, "baseline", request["baseline"], request["deadlines"][0])]
     jobs.extend(pool.submit(measure, str(deadline), request["candidate"], deadline,
-                            request["candidate_build"]) for deadline in request["deadlines"])
+                            candidate_build) for deadline in request["deadlines"])
     results = [job.result() for job in jobs]
 for row in results:
     print(json.dumps(row), flush=True)
