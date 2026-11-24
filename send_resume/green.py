@@ -13,7 +13,7 @@ SESSION = '7de11bac-47e4-498d-b107-e746122e3b0a'
 
 
 def main(args):
-    assert args in ({'action': 'mte-a1'}, {'action': 'manual-a1'}, {'action': 'address-transform-a1'}, {'action': 'doorbell-word-a1'}, {'action': 'alltoall-control-a1'}, {'action': 'alltoall-control-a2'}, {'action': 'abi-contract-a1'}, {'action': 'model-alternatives-a1'}, {'action': 'trace-a1'}, {'action': 'trace-read-a1'}, {'action': 'inspect-model-a1'}, {'action': 'inspect-mte-a1'}, {'action': 'inspect-address-a1'}, {'action': 'inspect-lowering-a1'})
+    assert args in ({'action': 'mte-a1'}, {'action': 'manual-a1'}, {'action': 'address-transform-a1'}, {'action': 'doorbell-word-a1'}, {'action': 'alltoall-control-a1'}, {'action': 'alltoall-control-a2'}, {'action': 'abi-contract-a1'}, {'action': 'model-alternatives-a1'}, {'action': 'pv-a1'}, {'action': 'trace-a1'}, {'action': 'trace-read-a1'}, {'action': 'inspect-model-a1'}, {'action': 'inspect-mte-a1'}, {'action': 'inspect-address-a1'}, {'action': 'inspect-lowering-a1'})
     directory = Path(__file__).parent
     if args['action'] in ('mte-a1', 'manual-a1', 'address-transform-a1', 'doorbell-word-a1'):
         host = (directory / 'mte_host.py').read_text(encoding='utf-8')
@@ -33,14 +33,14 @@ def main(args):
         host = (directory / 'inspect_host.py').read_text(encoding='utf-8')
     else:
         host = (directory / 'address_host.py').read_text(encoding='utf-8')
-        entry = {'inspect-lowering-a1': 'lowering_container.py', 'trace-a1': 'trace_container.py', 'trace-read-a1': 'trace_read_container.py', 'inspect-model-a1': 'model_contract.py', 'alltoall-control-a1': 'alltoall_control.py', 'alltoall-control-a2': 'alltoall_control.py', 'abi-contract-a1': 'abi_contract.py', 'model-alternatives-a1': 'model_alternatives.py'}.get(args['action'], 'address_container.py')
+        entry = {'inspect-lowering-a1': 'lowering_container.py', 'trace-a1': 'trace_container.py', 'trace-read-a1': 'trace_read_container.py', 'inspect-model-a1': 'model_contract.py', 'alltoall-control-a1': 'alltoall_control.py', 'alltoall-control-a2': 'alltoall_control.py', 'abi-contract-a1': 'abi_contract.py', 'model-alternatives-a1': 'model_alternatives.py', 'pv-a1': 'pv_trial.py'}.get(args['action'], 'address_container.py')
         content = (directory / entry).read_text(encoding='utf-8')
         if args['action'] == 'alltoall-control-a2':
             content = content.replace("CONTROL_NAME = 'alltoall-control-a1'", "CONTROL_NAME = 'alltoall-control-a2'").replace('FIX_CONTROL_ABI = False', 'FIX_CONTROL_ABI = True')
         host = host.replace("'__CONTAINER_SOURCE__'", repr(content))
         if args['action'] == 'inspect-lowering-a1':
             host = host.replace('timeout=100)', 'timeout=520)')
-        elif args['action'] == 'trace-a1':
+        elif args['action'] in ('trace-a1', 'pv-a1'):
             host = host.replace('timeout=100)', 'timeout=360)')
         elif args['action'] in ('alltoall-control-a1', 'alltoall-control-a2'):
             host = host.replace('timeout=100)', 'timeout=550)')
