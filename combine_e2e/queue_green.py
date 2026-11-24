@@ -21,6 +21,7 @@ command=['docker','run','--rm','--name',name,'--runtime=runc','--network=none',
          '--shm-size=64m','--ulimit','nofile=524288:524288',
          '--label','crosszone.session=ea219fe0-2177-4850-84f0-c0da68a4a5fa',
          '--mount','type=bind,src='+str(root)+',dst=/work',
+         '--mount','type=bind,src='+str(root/'source')+',dst=/work/source,readonly',
          image,'python3','/work/'+tools.name+'/queue_diagnostic.py','/work/'+tools.name]
 try:
  with (root/'queue-diagnostic-container.log').open('wb') as log:
