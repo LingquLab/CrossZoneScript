@@ -138,6 +138,31 @@ elif a['action'] in ('stdev-gm','stdev-trace'):
             index=next(i for i,line in enumerate(lines) if re.search(r'\blsl\b',line))
             result['model_shift_context']=lines[max(0,index-4):index+3]
     result['ok']=bool(result['completions']) and process.returncode==0
+elif a['action']=='stdev-ir':
+    folder=w/'diagnostics/stdev-ir-a1';folder.mkdir(exist_ok=False)
+    original=json.loads((w/'diagnostics/stdev-gm-a1/build.json').read_text())[0]
+    config=json.loads((w/'environment.snapshot.json').read_text())
+    bitcode=folder/'probe.bc';decoded=folder/'decoded.ll'
+    command=original[:]
+    command.insert(1,'-emit-llvm')
+    command[command.index('-o')+1]=str(bitcode)
+    with (folder/'compile.log').open('wb') as log:
+        compiled=subprocess.run(sst.shell_command(config['settings'],'cann',command),stdout=log,stderr=subprocess.STDOUT,timeout=120)
+    result['compile_exit']=compiled.returncode
+    assert compiled.returncode==0 and bitcode.is_file(),'bitcode_not_emitted'
+    assert bitcode.read_bytes()[:4]==b'BC\xc0\xde','not_llvm_bitcode'
+    command=[original[0],'-cc1','-triple','hiipu64-hisilicon-cce','-x','ir','-emit-llvm',str(bitcode),'-o',str(decoded)]
+    with (folder/'decode.log').open('wb') as log:
+        proc=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,timeout=90)
+    assert proc.returncode==0 and decoded.is_file(),'bitcode_decode_failed'
+    lines=decoded.read_text().splitlines()
+    hits=[line.strip() for line in lines if 'call ' in line and re.search(r'st[._]dev|store.*dev',line,re.I)]
+    result.update(report=str(folder),bitcode_sha256=sst.checksum(bitcode),call_count=len(hits),calls=hits[:8])
+    result['declarations']=[line.strip() for line in lines if line.startswith('declare ') and re.search(r'st[._]dev|store.*dev',line,re.I)][:6]
+    result['nearby_address_operations']=[]
+    for index,line in enumerate(lines):
+        if line.strip() in hits:
+            result['nearby_address_operations'].extend([x.strip() for x in lines[max(0,index-3):index] if 'getelementptr' in x or 'ptrtoint' in x or 'shl' in x or 'lshr' in x])
 elif a['action']=='read':
     rel=a.get('report','cases/8p-bs16-a1/send-only')
     assert re.fullmatch(r'[\w/-]+',rel) and '..' not in rel
