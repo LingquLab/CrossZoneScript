@@ -27,7 +27,8 @@ for directory in ("v310_config", "UBusSim_config"):
     for path in sorted((CASE / directory).glob("*.yml")):
         fields(yaml.safe_load(path.read_text()), directory + "/" + path.name)
 out["mapping_field_count"] = len(out["mapping_fields"])
-out["mapping_fields"] = out["mapping_fields"][:100]
+out["mapping_fields"] = [{"path": row["path"][-220:], "value": row["value"][:120]}
+                         for row in out["mapping_fields"][:60]]
 raw = (CASE / "input_bin/rank3/sq_ctx.bin").read_bytes()
 out["fault_queue"] = {"rank": 3, "flat": 82, "doorbell": hex(struct.unpack_from("<Q", raw, 82 * 80 + 48)[0])}
 
@@ -44,16 +45,17 @@ for filename in ("libDavinciSimulatorV310.so", "libUBusSimulator.so"):
         name = words[3]
         if re.search(r"ScalarStDev::(decode|execute|issue\w*)\(|BaLayer::processBaFromBusRdReqBuffer\(|AddrAnalyzer.*(getAddrType|getDdieId|getDstType)|AddrResolver|AddrResolution", name):
             symbols.append((int(words[0], 16), int(words[1], 16), name))
-    result["address_symbols"] = [line.split(maxsplit=3)[-1][:240] for line in p.stdout.splitlines()
-        if re.search(r"Addr.*(Type|Decode|Resol|TA|Ta)|getDstType", line)][:35]
-    for address, size, name in symbols[:9]:
+    result["address_symbols"] = [line.split(maxsplit=3)[-1][:160] for line in p.stdout.splitlines()
+        if re.search(r"Addr.*(Type|Decode|Resol|TA|Ta)|getDstType", line)][:20]
+    for address, size, name in symbols[:6]:
         p = subprocess.run(["objdump", "-d", "-C", "--start-address=" + str(address),
             "--stop-address=" + str(address + size), str(library)], capture_output=True, text=True, timeout=20)
         assert p.returncode == 0, "model_disassembly_unavailable"
         lines = p.stdout.splitlines()
         calls = [line.split("<", 1)[1].rsplit(">", 1)[0][:240] for line in lines if re.search(r"\bbl\b", line) and "<" in line]
         shifts = [line.strip() for line in lines if re.search(r"\blsl\b|\blsr\b|\bubfx\b|\bubfiz\b", line)]
-        result["methods"].append({"name": name, "address": hex(address), "size": size,
-            "calls": list(dict.fromkeys(calls))[:18], "shifts": shifts[:7]})
+        result["methods"].append({"name": name[:180], "address": hex(address), "size": size,
+            "calls": [x[:160] for x in list(dict.fromkeys(calls))[:10]],
+            "shifts": [x[:120] for x in shifts[:4]]})
     out["libraries"].append(result)
 print(json.dumps(out))
