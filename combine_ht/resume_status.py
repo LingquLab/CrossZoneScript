@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+from unittest.mock import patch
 
 CONTAINER = "tilexr-combine-ht-f71d0252-v11"
 REMOTE = r'''
@@ -81,6 +82,31 @@ def main():
         print(json.dumps({"ok": False, "error": "status_transport_failed", "exit_code": p.returncode}))
         return 1
     result = json.loads(p.stdout)
+    # Reproduce only the launcher's read-only preflight; stop before mkdir.
+    import address_probe
+    original_run = subprocess.run
+    steps = []
+    class MutationBoundary(Exception):
+        pass
+    def observe(argv, **kwargs):
+        command = argv[-1]
+        if command.startswith("mkdir "):
+            raise MutationBoundary()
+        assert command.startswith("docker inspect ") or command.startswith("docker top "), "unexpected_preflight_command"
+        value = original_run(argv, **kwargs)
+        steps.append({"phase": "inspect" if command.startswith("docker inspect ") else "top",
+                      "exit_code": value.returncode,
+                      "stderr_excerpt": value.stderr.decode(errors="replace")[:400] if value.returncode else ""})
+        return value
+    try:
+        with patch.object(subprocess, "run", observe):
+            address_probe.main()
+        result["launcher_preflight"] = {"unexpected_return": True, "steps": steps}
+    except MutationBoundary:
+        result["launcher_preflight"] = {"reached_mutation_boundary": True, "steps": steps}
+    except Exception as error:
+        result["launcher_preflight"] = {"error_type": type(error).__name__,
+                                       "detail": str(error)[:400], "steps": steps}
     print(json.dumps(result))
     return 0 if result["ok"] else 1
 
