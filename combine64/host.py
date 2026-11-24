@@ -140,6 +140,22 @@ def local(cid,tools,tokens,phase,attempt="a1"):
     write(case/'fixture-data/manifest.json',meta)
     return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel')
 
+def prepare_asset(cid,tools,tokens):
+    runtime='/work/'+tools.name
+    asset=ROOT/'assets'/('64p-t%d'%tokens);asset.parent.mkdir(exist_ok=True)
+    binary='/work/build-fp32/src/moonep/combine_ht/tilexr_moonep_combine_ht_kernel.o'
+    code=execute(cid,['python3',runtime+'/fixture.py','--source','/work/source','--output','/work/assets/'+asset.name,
+        '--kernel',binary,'--world','64','--tokens',str(tokens)],ROOT/('prepare-%d.log'%tokens),550)
+    if code==0:
+        print(json.dumps(json.loads((asset/'identity.json').read_text()),separators=(',',':')))
+        abis=[]
+        for rank in range(64):
+            p=subprocess.run(['docker','exec',cid,str('/work/assets/'+asset.name+'/abi-probe'),str(rank),str(tokens),'128','6',str(64*tokens*6),str(64*tokens*6),'2026','-','64'],capture_output=True,timeout=10)
+            assert p.returncode==0;abis.append(json.loads(p.stdout))
+        write(asset/'send-abis.json',abis)
+    else:print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-%d.log'%tokens))}))
+    return code
+
 def return_phase(cid,tools,tokens,stage,attempt="a1"):
     runtime='/work/'+tools.name
     assert stage in ('return-independent','return','inter-send-independent','inter-send','final-independent','final-joint')
@@ -186,21 +202,11 @@ def main(request):
         if tokens!=4 and action not in ('instrument','pipeline-build'):
             gate=ROOT/'cases/64p-t4-pipeline-a1/phase-result.json'
             assert gate.is_file() and json.loads(gate.read_text())['qualified'],'bs4_joint_gate'
-        if action in ('prepare','smoke'):
-            asset=ROOT/'assets'/('64p-t%d'%tokens);asset.parent.mkdir(exist_ok=True)
-            binary='/work/build-fp32/src/moonep/combine_ht/tilexr_moonep_combine_ht_kernel.o'
-            code=execute(cid,['python3',runtime+'/fixture.py','--source','/work/source','--output','/work/assets/'+asset.name,
-                '--kernel',binary,'--world','64','--tokens',str(tokens)],ROOT/('prepare-%d.log'%tokens),550)
-            if code==0:
-                print(json.dumps(json.loads((asset/'identity.json').read_text()),separators=(',',':')))
-                abis=[]
-                for rank in range(64):
-                    p=subprocess.run(['docker','exec',cid,str('/work/assets/'+asset.name+'/abi-probe'),str(rank),str(tokens),'128','6',str(64*tokens*6),str(64*tokens*6),'2026','-','64'],capture_output=True,timeout=10)
-                    assert p.returncode==0;abis.append(json.loads(p.stdout))
-                write(asset/'send-abis.json',abis)
-            else:print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-%d.log'%tokens))}))
-            if code==0 and action=='smoke':return local(cid,tools,tokens,'send')
-            return code
+        if action in ('prepare','smoke','matrix-case'):
+            code=prepare_asset(cid,tools,tokens)
+            if code:return code
+            if action=='prepare':return 0
+            if action=='smoke':return local(cid,tools,tokens,'send')
         if action=='qualify-local':
             for phase in ('reduce','fused'):
                 code=local(cid,tools,tokens,phase)
@@ -239,13 +245,13 @@ def main(request):
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code or action=='pipeline-build':return code
-        if action in ('pipeline','qualify-pipeline'):
+        if action in ('pipeline','qualify-pipeline','matrix-case'):
             code=execute(cid,['python3',runtime+'/pipeline_fixture.py','--root','/work','--tools',runtime,'--tokens',str(tokens),
                 '--abis','/work/assets/64p-t%d/send-abis.json'%tokens],ROOT/('prepare-pipeline-%d.log'%tokens),500)
             if code:
                 print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-pipeline-%d.log'%tokens))}));return code
             case=ROOT/'cases'/('64p-t%d-pipeline-a1'%tokens)
-            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',1200)
+            return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',{4:1200,16:1800,64:3600,128:5400}[tokens])
         if action in ('instrument','repair-profile-send'):
             code=execute(cid,['python3',runtime+'/instrument.py','/work'],ROOT/'instrument.log',650)
             if (ROOT/'profile-build/result.json').is_file():

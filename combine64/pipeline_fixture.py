@@ -17,8 +17,10 @@ def local_slot(g):return (g%2)*20+16+g//2
 
 def main(root,directory,abis,tokens=4):
     root,directory=Path(root),Path(directory)
-    local=root/'cases'/('64p-t%d-local-fused-a1'%tokens)
-    assert json.loads((local/'phase-result.json').read_text())['qualified'] is True
+    local=root/'assets'/('64p-t%d'%tokens)
+    asset_identity=json.loads((local/'identity.json').read_text())
+    assert asset_identity['candidate_commit']=='40596e2d9d454b7a7b00b4b34b96d49158e1c3a3'
+    assert (asset_identity['world'],asset_identity['tokens'],asset_identity['hidden'],asset_identity['topk'])==(64,tokens,128,6)
     build=json.loads((root/'pipeline-build-40596e2-a1/build-result.json').read_text())
     assert build['compile_exit']==build['link_exit']==0 and build['abi_bytes']==512
     case=root/'cases'/('64p-t%d-pipeline-a1'%tokens)
@@ -52,7 +54,7 @@ def main(root,directory,abis,tokens=4):
         return_bytes=local_ready+4096+64*512
         base=rank*runtime.GM_BYTES
         name='rank%02d'%rank
-        old=local/'input_bin'/name
+        old=local/'loader/input_bin'/name
         old_args=(old/'kernel_args.bin').read_bytes()
         local_ws=bytearray((old/'workspace.bin').read_bytes())
         layout=struct.unpack_from('<6I4Q',old_args,168)
@@ -188,7 +190,7 @@ def main(root,directory,abis,tokens=4):
     (case/'export-layout.json').write_text(json.dumps(layout,indent=2))
     meta={'world':64,'tokens':tokens,'profiling_capacity':32,'blocks':16,'hidden':128,'topk':6,'experts':256,'entry':'tilexr_ht_pipeline_sst',
           'candidate_commit':'40596e2d9d454b7a7b00b4b34b96d49158e1c3a3','kernel_sha256':sha(case/'kernel/inter_server_send.o'),
-          'wrapper_sha256':build['sha256'],'routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,
+          'wrapper_sha256':build['sha256'],'routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,'joint_input_mode':'initial_expert_outputs_and_routes',
           'local_physical_qps':[local_slot(g) for g in range(8)],'return_physical_qps':[runtime.physical_qp(q) for q in range(32)]}
     (case/'fixture-data/manifest.json').write_text(json.dumps(meta,indent=2))
     print(json.dumps(meta,separators=(',',':')))
