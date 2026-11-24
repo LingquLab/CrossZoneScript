@@ -75,6 +75,40 @@ elif a['action']=='mmio':
     for flat in range(len(raw)//80):
         address=struct.unpack_from('<Q',raw,flat*80+48)[0]
         if address*8==target: result['queue_matches'].append(dict(flat=flat,doorbell=hex(address),fatal=hex(target),factor=8))
+elif a['action']=='stdev-gm':
+    folder=w/'diagnostics/stdev-gm-a1';folder.mkdir(exist_ok=False)
+    config=json.loads((w/'environment.snapshot.json').read_text())
+    binary=folder/'probe.o'
+    with (folder/'build.log').open('wb') as log:
+        sst.build_kernel(config['settings'],log,source=w/'stdev_probe.cpp',binary=binary)
+    initial=folder/'poison.bin';initial.write_bytes(bytes([0xcc])*32768)
+    workload={'workload_config':{}}
+    for rank in range(8):
+        base=rank*sst.rt.GM_BYTES;target=base+0x200000
+        params={'dst':dict(value=target,param_offset='0',param_type='11'),'rank':dict(value=rank,param_offset='8',param_type='5')}
+        outputs={}
+        if rank==0:
+            for index,address in enumerate([target,target*8]):
+                params['load'+str(index)]=dict(value=address,param_offset=str(16+8*index),param_type='11',input_bin=str(initial))
+                outputs['region'+str(index)]=dict(addr=address,size=32768)
+        workload['workload_config']['chip'+str(rank)]=dict(gm_size=sst.rt.GM_BYTES,sys_va_base_addr=base,ub_base_addr=0x80000,stack_base_addr=0x100000,param_base_addr=base+0x80000000,block_dim=1,subblock_dim=1,kernel_file=str(binary),vec_func=sst.ENTRY,kernel_param=params,bin_param=dict(addr=base+0x40000000,size=max(0x26c40,sst.fixtures.align(binary.stat().st_size))),output_param=outputs)
+    with (folder/'model.log').open('w') as log,sst.redirect_stdout(log):
+        model=sst.write_model(folder,config,workload,8)
+    command=sst.shell_command(config['settings'],'sst',[config['settings']['sst_bin'],'-n','32',folder/'test_UBusSim.py'])
+    start=time.monotonic()
+    with (folder/'sim.log').open('wb') as log:
+        process=subprocess.run(command,cwd=folder,stdout=log,stderr=subprocess.STDOUT,timeout=120)
+    result.update(simulator_exit=process.returncode,wall_s=time.monotonic()-start,report=str(folder),probe_sha256=sst.checksum(binary))
+    text=(folder/'sim.log').read_bytes().decode(errors='replace')
+    result['fatals']=[x[:500] for x in text.splitlines() if 'FATAL:' in x][:3]
+    result['completions']=[m.group(0) for m in sst.SIM_TIME.finditer(text)][-2:]
+    result['regions']=[]
+    if process.returncode==0:
+        for index,address in enumerate([0x200000,0x1000000]):
+            data=sst.read_output(folder,0,'region'+str(index),address,32768)
+            changed=[i for i,value in enumerate(data) if value!=0xcc]
+            result['regions'].append(dict(address=hex(address),changed_bytes=len(changed),first_changes=[dict(offset=i,value=data[i]) for i in changed[:24]],samples={str(i):data[i:i+8].hex() for i in [0,512,1024,1536,4096,8192,12288]}))
+    result['ok']=bool(result['completions']) and process.returncode==0
 elif a['action']=='read':
     rel=a.get('report','cases/8p-bs16-a1/send-only')
     assert re.fullmatch(r'[\w/-]+',rel) and '..' not in rel
