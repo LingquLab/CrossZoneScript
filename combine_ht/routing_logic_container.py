@@ -33,6 +33,9 @@ for index, line in enumerate(instructions):
         out["ba_type_gate"].append(instructions[index:index + 8])
 out["ba_comparisons"] = [line for line in instructions if re.search(r"\bcmp\b.*#0x[0-9]+\b|\bcb[n]?z\b", line)][:8]
 out["ba_flag_loads"] = [line for line in instructions if re.search(r"\bldrb\b", line)][:6]
+for label, address in (("ba_type_decision", "150138"), ("ba_mode_decision", "150390")):
+    index = next(i for i, line in enumerate(instructions) if line.startswith(address + ":"))
+    out[label] = instructions[index:index + 8]
 snapshot = json.loads(Path("/work/environment.snapshot.json").read_text())
 roots = {Path(snapshot["resources"]["installed_model.py"]["path"]).parent, Path("/opt/sim/simulator")}
 files = []
@@ -54,4 +57,29 @@ for path in files:
     if len(out["flag_references"]) >= 6:
         break
 out["searched_files"] = len(files)
+out["sdk_device_cache_declarations"] = []
+sdk = Path("/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ascendc/include")
+for path in sorted(sdk.rglob("*.h")):
+    if not re.search(r"scalar|cache|common|instr|system", path.name, re.I):
+        continue
+    for index, line in enumerate(path.read_text(errors="replace").splitlines()):
+        if re.search(r"scalar.*cache|cache.*scalar|cache.?mode|st_dev|asc_store_dev", line, re.I):
+            out["sdk_device_cache_declarations"].append(dict(path=str(path), line=index + 1, text=line.strip()[:260]))
+            if len(out["sdk_device_cache_declarations"]) >= 12:
+                break
+    if len(out["sdk_device_cache_declarations"]) >= 12:
+        break
+out["dispatch_store_references"] = []
+for path in sorted(Path("/opt/sim/simulator/urma_dispatch").rglob("*")):
+    if path.suffix not in (".h", ".cpp", ".cce") or path.stat().st_size > 512 * 1024:
+        continue
+    hits = []
+    lines = path.read_text(errors="replace").splitlines()
+    for index, line in enumerate(lines):
+        if re.search(r"st_dev|store_dev|scalar.*cache|cache.*scalar", line, re.I):
+            hits.append(dict(line=index + 1, text=line.strip()[:260]))
+    if hits:
+        out["dispatch_store_references"].append(dict(path=str(path), hits=hits[:4]))
+    if len(out["dispatch_store_references"]) >= 5:
+        break
 print(json.dumps(out))
