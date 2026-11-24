@@ -8,7 +8,7 @@ def main():
     args=json.loads(p.parse_args().args_file.read_text(encoding='utf-8'))
     assert args['action'] in ('prepare','smoke','qualify-local','local','return','qualify-return','instrument','repair-profile-send','pipeline-build','qualify-pipeline','pipeline','calibrate','matrix-case','independent-bs','trace-pipeline','debug-pipeline','pending-layout','dcci-pipeline','snapshot-pipeline','isolate-pipeline','status','stop')
     directory=Path(__file__).parent
-    names=('fixture.py','isolate_inter_pipeline.py','snapshot_pipeline.py','dcci_pipeline.py','pending_layout_remote.py','debug_pipeline.py','trace_pipeline.py','install_prepared.py','prefill.cpp','exports.py','check_local.py','profile.py','clock_evidence.json','instrument.py','profile_flush.h','clock_probe.cpp','clock_fixture.py','check_clock.py','return_fixture.py',
+    names=('fixture.py','leader_barrier.h','isolate_inter_pipeline.py','snapshot_pipeline.py','dcci_pipeline.py','pending_layout_remote.py','debug_pipeline.py','trace_pipeline.py','install_prepared.py','prefill.cpp','exports.py','check_local.py','profile.py','clock_evidence.json','instrument.py','profile_flush.h','clock_probe.cpp','clock_fixture.py','check_clock.py','return_fixture.py',
            'check_return.py','pipeline_kernel.cpp','pipeline_fixture.py','check_pipeline.py','pipeline_build.sh')
     files={name:(directory/name).read_text(encoding='utf-8') for name in names}
     request=dict(args,files=files)

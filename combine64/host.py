@@ -63,6 +63,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         'dtype':'fp32','phase':meta.get('phase',meta.get('stage','pipeline')),'runner_exit':code,
         'compiler_scalar_dcci':meta.get('compiler_scalar_dcci',False),'pipeline_build_variant':meta.get('pipeline_build_variant'),
         'stage_isolation_noinline':meta.get('stage_isolation_noinline',False),
+        'barrier_algorithm':meta.get('barrier_algorithm'),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -219,11 +220,12 @@ def main(request):
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             return code
         if action=='isolate-pipeline':
-            assert tokens==4 and request.get('attempt')=='a3' and request.get('build_variant')=='isolated-inter'
+            variant=request.get('build_variant')
+            assert tokens==4 and (request.get('attempt'),variant) in (('a3','isolated-inter'),('a4','leader-barrier'))
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
             assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
-            code=execute(cid,['python3',runtime+'/isolate_inter_pipeline.py',runtime],ROOT/'pipeline-isolated-inter-runner.log',350)
-            report=ROOT/'pipeline-isolated-inter-a1/build-result.json'
+            code=execute(cid,['python3',runtime+'/isolate_inter_pipeline.py',runtime,variant],ROOT/('pipeline-'+variant+'-runner.log'),350)
+            report=ROOT/('pipeline-'+variant+'-a1/build-result.json')
             if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             if code:return code
         if action=='pending-layout':

@@ -16,14 +16,14 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def local_slot(g):return (g%2)*20+16+g//2
 
 def main(root,directory,abis,tokens=4,attempt="a1",build_variant="original"):
-    assert attempt in ("a1","a2","a3")
+    assert attempt in ("a1","a2","a3","a4")
     root,directory=Path(root),Path(directory)
     local=root/'assets'/('64p-t%d'%tokens)
     asset_identity=json.loads((local/'identity.json').read_text())
     assert asset_identity['candidate_commit']=='40596e2d9d454b7a7b00b4b34b96d49158e1c3a3'
     assert (asset_identity['world'],asset_identity['tokens'],asset_identity['hidden'],asset_identity['topk'])==(64,tokens,128,6)
-    assert build_variant in ('original','scalar-dcci','isolated-inter')
-    build_root=root/{'original':'pipeline-build-40596e2-a1','scalar-dcci':'pipeline-scalar-dcci-a1','isolated-inter':'pipeline-isolated-inter-a1'}[build_variant]
+    assert build_variant in ('original','scalar-dcci','isolated-inter','leader-barrier')
+    build_root=root/{'original':'pipeline-build-40596e2-a1','scalar-dcci':'pipeline-scalar-dcci-a1','isolated-inter':'pipeline-isolated-inter-a1','leader-barrier':'pipeline-leader-barrier-a1'}[build_variant]
     build=json.loads((build_root/'build-result.json').read_text())
     assert build['compile_exit']==build['link_exit']==0 and build['abi_bytes']==512
     case=root/'cases'/('64p-t%d-pipeline-%s'%(tokens,attempt))
@@ -164,6 +164,7 @@ def main(root,directory,abis,tokens=4,attempt="a1",build_variant="original"):
             for block in range(count):struct.pack_into('<I',golden_status,offset+block*32,0)
         barrier_gold=bytearray(8192)
         for block in range(16):struct.pack_into('<I',barrier_gold,block*512,6)
+        if build_variant=='leader-barrier':struct.pack_into('<I',barrier_gold,8160,6)
         gold_values={'returned':gold[c['returnOffset']:c['signalOffset']],
                      'completed':gold[c['readyOffset']:], 'output':final,'status':golden_status,
                      'gather':(local/'fixture-data'/name/'golden-returned.bin').read_bytes(),
@@ -194,11 +195,11 @@ def main(root,directory,abis,tokens=4,attempt="a1",build_variant="original"):
     (case/'export-layout.json').write_text(json.dumps(layout,indent=2))
     meta={'world':64,'tokens':tokens,'profiling_capacity':32,'blocks':16,'hidden':128,'topk':6,'experts':256,'entry':'tilexr_ht_pipeline_sst',
           'candidate_commit':'40596e2d9d454b7a7b00b4b34b96d49158e1c3a3','kernel_sha256':sha(case/'kernel/inter_server_send.o'),
-          'wrapper_sha256':build['sha256'],'pipeline_build_variant':build_variant,'compiler_scalar_dcci':build_variant=='scalar-dcci','stage_isolation_noinline':build_variant=='isolated-inter','routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,'joint_input_mode':'initial_expert_outputs_and_routes',
+          'wrapper_sha256':build['sha256'],'pipeline_build_variant':build_variant,'compiler_scalar_dcci':build_variant=='scalar-dcci','stage_isolation_noinline':build_variant in ('isolated-inter','leader-barrier'),'barrier_algorithm':'leader_release' if build_variant=='leader-barrier' else 'all_lanes_poll_all','routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,'joint_input_mode':'initial_expert_outputs_and_routes',
           'local_physical_qps':[local_slot(g) for g in range(8)],'return_physical_qps':[runtime.physical_qp(q) for q in range(32)]}
     (case/'fixture-data/manifest.json').write_text(json.dumps(meta,indent=2))
     print(json.dumps(meta,separators=(',',':')))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--build-variant',choices=('original','scalar-dcci','isolated-inter'),default='original');p.add_argument('--attempt',choices=('a1','a2','a3'),default='a1');p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
+    p=argparse.ArgumentParser();p.add_argument('--build-variant',choices=('original','scalar-dcci','isolated-inter','leader-barrier'),default='original');p.add_argument('--attempt',choices=('a1','a2','a3','a4'),default='a1');p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()),a.tokens,a.attempt,a.build_variant)
