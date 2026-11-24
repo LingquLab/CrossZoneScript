@@ -186,9 +186,43 @@ def status(cid,info):
         result['sst_processes']=[l.strip() for l in p.stdout.splitlines() if 'sstsim' in l]
     print(json.dumps(result,separators=(',',':')));return 0
 
+def batch_status(cid,info,tokens):
+    assert tokens in (4,16,32,64,128)
+    result=dict(utc_unix=time.time(),tokens=tokens,container_running=info['State']['Running'],oom_killed=info['State']['OOMKilled'],cases=[])
+    for case in sorted((ROOT/'cases').glob('64p-t%d-*'%tokens)):
+        if not case.is_dir() or case.name.endswith('-preparation'):continue
+        row={'name':case.name}
+        if (case/'phase-result.json').is_file():
+            full=json.loads((case/'phase-result.json').read_text())
+            for key in ('phase','qualified','operator_qualified','numerical_qualified','platform_simulated_us',
+                        'profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors'):
+                if key in full:row[key]=full[key]
+            row['run_status']=full.get('run',{}).get('status')
+            row['guards']=full.get('run',{}).get('guards')
+        elif (case/'run.json').is_file():
+            run=json.loads((case/'run.json').read_text());row['run_status']=run['status']
+            if run.get('sst_started_unix'):row['sst_elapsed_seconds']=time.time()-run['sst_started_unix']
+        else:row['run_status']='preparing_or_no_saved_run'
+        log=case/'sim.log'
+        if log.is_file():
+            row['sim_log_bytes']=log.stat().st_size
+            with log.open('rb') as stream:
+                stream.seek(max(0,log.stat().st_size-2048));tail=stream.read().decode(errors='replace')
+            cycles=re.findall(r'Sim: ([0-9]+)',tail)
+            if cycles:row['last_logged_sim_cycle']=int(cycles[-1])
+        result['cases'].append(row)
+    progress=ROOT/'progress.json'
+    if progress.is_file():result['progress']=json.loads(progress.read_text())
+    if info['State']['Running']:
+        p=subprocess.run(['docker','top',cid,'-eo','pid,etimes,pcpu,comm'],capture_output=True,text=True,timeout=10)
+        assert p.returncode==0
+        result['sst_processes']=[line.strip() for line in p.stdout.splitlines() if 'sstsim' in line]
+    print(json.dumps(result,separators=(',',':')));return 0
+
 def main(request):
-    cid,info=checked_container();action=request['action'];assert info['State']['Running'] or action in ('status','stop')
+    cid,info=checked_container();action=request['action'];assert info['State']['Running'] or action in ('status','batch-status','stop')
     if action=='status':return status(cid,info)
+    if action=='batch-status':return batch_status(cid,info,request['tokens'])
     with (ROOT/'execution.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         if action=='stop':
