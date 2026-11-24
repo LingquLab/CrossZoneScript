@@ -186,7 +186,7 @@ def status(cid,info):
         result['sst_processes']=[l.strip() for l in p.stdout.splitlines() if 'sstsim' in l]
     print(json.dumps(result,separators=(',',':')));return 0
 
-def batch_status(cid,info,tokens):
+def batch_status(cid,info,tokens,evidence=False):
     assert tokens in (4,16,32,64,128)
     result=dict(utc_unix=time.time(),tokens=tokens,container_running=info['State']['Running'],oom_killed=info['State']['OOMKilled'],cases=[])
     for case in sorted((ROOT/'cases').glob('64p-t%d-*'%tokens)):
@@ -199,10 +199,21 @@ def batch_status(cid,info,tokens):
                 if key in full:row[key]=full[key]
             row['run_status']=full.get('run',{}).get('status')
             row['guards']=full.get('run',{}).get('guards')
+            if evidence:row['phase_result']=full
         elif (case/'run.json').is_file():
             run=json.loads((case/'run.json').read_text());row['run_status']=run['status']
             if run.get('sst_started_unix'):row['sst_elapsed_seconds']=time.time()-run['sst_started_unix']
         else:row['run_status']='preparing_or_no_saved_run'
+        if evidence and row['run_status']!='sst_and_checker_passed':
+            for name in ('runner.log','check.log','profiling-check.log'):
+                path=case/name
+                if path.is_file():
+                    with path.open('rb') as stream:
+                        stream.seek(max(0,path.stat().st_size-8000));lines=stream.read().decode(errors='replace').splitlines()
+                    row[name]=[line[:300] for line in lines[-5:]]
+        elif evidence and not row.get('qualified'):
+            path=case/'profiling-check.log'
+            if path.is_file():row['profiling-check.log']=[line[:300] for line in path.read_text(errors='replace').splitlines()[-5:]]
         log=case/'sim.log'
         if log.is_file():
             row['sim_log_bytes']=log.stat().st_size
@@ -222,7 +233,7 @@ def batch_status(cid,info,tokens):
 def main(request):
     cid,info=checked_container();action=request['action'];assert info['State']['Running'] or action in ('status','batch-status','stop')
     if action=='status':return status(cid,info)
-    if action=='batch-status':return batch_status(cid,info,request['tokens'])
+    if action=='batch-status':return batch_status(cid,info,request['tokens'],request.get('evidence',False))
     with (ROOT/'execution.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         if action=='stop':
