@@ -22,7 +22,10 @@ expected = pathlib.Path("/var/tmp/tilexr-combine-ht-f71d0252-ef1e-4b5c-b299-c242
 assert work == expected, "unexpected_container_mount"
 out = {"ok": True, "read_only": True,
        "container": {"id": identity["Id"], "image": identity["Image"],
-                     "running": identity["State"]["Running"]}}
+                     "running": identity["State"]["Running"],
+                     "network_mode": identity["HostConfig"]["NetworkMode"],
+                     "session_label": identity["Config"].get("Labels", {}).get("crosszone.session"),
+                     "work_mount": str(work)}}
 top = run(["docker", "top", c, "-eo", "pid,comm"])
 out["sst_pids"] = [line.split()[0] for line in top.splitlines()[1:]
                    if line.split()[-1] == "sstsim.x"]
@@ -59,6 +62,7 @@ if probe.is_dir():
             selected = [x[:400] for x in lines if any(word in x.lower() for word in
                 ("error:", "fatal:", "assertion", "traceback", "simulation is complete", "unknown low level"))]
             out["address_probe"]["logs"][name] = {"bytes": len(data), "selected": selected[:6]}
+out.pop("saved")
 print(json.dumps(out))
 '''
 

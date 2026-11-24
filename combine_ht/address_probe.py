@@ -25,9 +25,10 @@ def main():
         return p.stdout
 
     identity = json.loads(remote(["docker", "inspect", CONTAINER]))[0]
-    assert identity["Image"] == "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f"
-    assert identity["State"]["Running"] and identity["HostConfig"]["NetworkMode"] == "none"
-    assert identity["Config"]["Labels"]["crosszone.session"] == "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf"
+    assert identity["Image"] == "sha256:c2cb1056c975f1e24805f7d1e21d6cdc60e9789fff1647fac5dae9b9d782af5f", "unexpected_image"
+    assert identity["State"]["Running"], "container_not_running"
+    assert identity["HostConfig"]["NetworkMode"] == "none", "unexpected_network_mode"
+    assert identity["Config"].get("Labels", {}).get("crosszone.session") == "f71d0252-ef1e-4b5c-b299-c2429ebcfbdf", "unexpected_session_label"
     top = remote(["docker", "top", CONTAINER, "-eo", "comm"]).decode().splitlines()[1:]
     assert not any(line.strip() in ("sst", "sstsim.x") for line in top), "sst_already_active"
     directory = WORK + "/diagnostics/stdev-address-a1"
