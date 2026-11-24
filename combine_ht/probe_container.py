@@ -8,11 +8,11 @@ a=json.loads(sys.argv[1])
 result={'ok':True,'diagnostic_only':True,'action':a['action']}
 if a['action']=='crash':
     case=w/'cases/8p-bs16-a1/send-only'
-    out=w/'diagnostics/crash-a1'
+    out=w/'diagnostics/crash-a2'
     out.mkdir(parents=True,exist_ok=False)
     for name in ['v310_config','UBusSim_config']:
         shutil.copytree(case/name,out/name)
-    for name in ['test_UBusSim.py','installed_model.py']:
+    for name in ['test_UBusSim.py','installed_model.py','environment.snapshot.json','workload.yml']:
         shutil.copyfile(case/name,out/name)
     with (out/'build.log').open('wb') as log:
         subprocess.run(['gcc','-shared','-fPIC','-O2','/work/sst_fault.c','-o',str(out/'fault.so')],check=True,stdout=log,stderr=subprocess.STDOUT,timeout=30)
