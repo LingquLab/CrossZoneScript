@@ -32,11 +32,18 @@ def read_addressed(path, address, size):
                 raise ValueError("Truncated addressed-512 dump: " + str(path))
             base = int.from_bytes(record[:8], "little")
             left, right = max(address, base), min(address + size, base + 512)
-            for current in range(left, right):
-                index, value = current - address, record[8 + current - base]
-                if seen[index] and result[index] != value:
-                    raise ValueError("Conflicting dump records: " + str(path))
-                result[index], seen[index] = value, 1
+            if left >= right:
+                continue
+            first, last = left - address, right - address
+            payload = record[8 + left - base : 8 + right - base]
+            prior = seen[first:last]
+            if any(prior):
+                # Duplicate records must agree wherever their ranges overlap.
+                for index, value in enumerate(payload, first):
+                    if seen[index] and result[index] != value:
+                        raise ValueError("Conflicting dump records: " + str(path))
+            result[first:last] = payload
+            seen[first:last] = b"\x01" * len(payload)
     if not all(seen):
         raise ValueError("Missing dump bytes: " + str(path))
     return bytes(result)
