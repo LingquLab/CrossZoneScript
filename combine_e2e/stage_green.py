@@ -13,7 +13,8 @@ def main():
     asset=directory/'data'/('%dp-t%d'%(args['world'],args['tokens']))
     request=dict(args,identity=json.loads((asset/'identity.json').read_text()),
                  archive=base64.b64encode((asset/'fixture.tar.gz').read_bytes()).decode(),
-                 checker=(directory/'check_local.py').read_text(encoding='utf-8'))
+                 checker=(directory/'check_local.py').read_text(encoding='utf-8'),
+                 exports=(directory/'exports.py').read_text(encoding='utf-8'))
     code=(directory/'local_host.py').read_text(encoding='utf-8')
     if args['phase']=='serial':
         code+='\nrequest='+repr(request)+'\nfor phase in ("send","reduce","fused"):\n request["phase"]=phase\n code=main(request)\n if code: raise SystemExit(code)\n'

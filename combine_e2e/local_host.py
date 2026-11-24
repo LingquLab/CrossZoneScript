@@ -33,7 +33,6 @@ def main(request):
     old_manifest=json.loads((TEMPLATE/'case-manifest.json').read_text())
     assert json.loads((TEMPLATE/'run.json').read_text())['status']=='sst_and_checker_passed'
     checker='source/tools/unitest/simulator/experiments/inter_server_send/fixture.py'
-    exporter=ROOT/'source/tools/unitest/simulator/experiments/inter_server_send/sst/exports.py'
     for name,digest in old_manifest['files'].items():
         rel=Path(name)
         assert not rel.is_absolute() and '..' not in rel.parts
@@ -42,7 +41,7 @@ def main(request):
         assert sha(src)==digest
         dst.parent.mkdir(parents=True,exist_ok=True)
         if name==checker: dst.write_text(request['checker'])
-        elif name=='adapter/exports.py': shutil.copyfile(exporter,dst)
+        elif name=='adapter/exports.py': dst.write_text(request['exports'])
         elif name=='adapter/run.py':
             s=src.read_text()
             needle='manifest["entry"] != "tilexr_ep_ht_inter_server_send_kernel"'
@@ -61,7 +60,10 @@ def main(request):
     layout=json.loads((case/'export-layout.json').read_text())
     if phase=='reduce':
         prior=case.with_name('%dp-t%d-local-send-a1'%(world,tokens))
-        assert json.loads((prior/'run.json').read_text())['status']=='sst_and_checker_passed'
+        recovery=prior/'export-recovery.json'
+        recovered=recovery.is_file() and json.loads(recovery.read_text()).get('qualified') is True
+        assert json.loads((prior/'run.json').read_text())['status']=='sst_and_checker_passed' or recovered
+        prior_actual=prior/('actual-recovered' if recovered else 'actual')
     for row in layout['ranks']:
         rank=row['rank']
         folder=case/'input_bin'/('rank%02d'%rank)
@@ -75,7 +77,7 @@ def main(request):
             workspace=bytearray((folder/'workspace.bin').read_bytes())
             for field in ('returned','completed','output'):
                 bounds=row['exports'][field]
-                payload=(prior/'actual'/('rank%02d'%rank)/(field+'.bin')).read_bytes()
+                payload=(prior_actual/('rank%02d'%rank)/(field+'.bin')).read_bytes()
                 assert len(payload)==bounds['size']
                 offset=bounds['addr']-struct.unpack_from('<Q',args,0)[0]
                 workspace[offset:offset+len(payload)]=payload
