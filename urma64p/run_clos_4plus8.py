@@ -1,4 +1,4 @@
-"""Run the compiled 16P Clos 4+8 objects in isolated SST containers."""
+"""Run the compiled 16P Clos objects in isolated SST containers."""
 
 import argparse
 import base64
@@ -20,6 +20,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 build = Path(args["build"])
+variant = args.get("variant", "clos-4plus8")
+die0, define = {"clos-4plus8": (4, "TILEXR_JETTY_PEERS_CLOS_4PLUS8"),
+                "clos-8plus8": (8, "TILEXR_JETTY_PEERS_CLOS_8PLUS8_D2")}[variant]
 origin = Path("/home/h30059441/tilexr_sim_cc9_hapi_work")
 campaign = "/work/coord_runner/full-matrix-fdcf9d52-20261119"
 image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
@@ -27,11 +30,11 @@ objects = json.loads((build / "objects.json").read_text())
 assert objects["passed"] and objects["revision"] == args["revision"]
 assert subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", image],
                                text=True, timeout=15).strip() == image
-work = Path(tempfile.mkdtemp(prefix="urma16p-4plus8.", dir="/opt"))
+work = Path(tempfile.mkdtemp(prefix=f"urma16p-{die0}plus8.", dir="/opt"))
 for name, blob in sources.items():
     (work / name).write_bytes(base64.b64decode(blob, validate=True))
 print(json.dumps(dict(stage="campaign_start", work=str(work), size=args.get("size"),
-                      cases=plan, revision=args["revision"])), flush=True)
+                      cases=plan, variant=variant, revision=args["revision"])), flush=True)
 
 
 def command(argv, log, timeout):
@@ -49,7 +52,7 @@ def diagnostics(log):
 common = ["docker", "run", "--rm", "--network", "none",
           "-v", f"{build}:/candidate:ro", "-v", f"{origin}:/work:ro"]
 compiler = common + ["-v", f"{work}:/output", "--entrypoint", "g++", image,
-           "-std=c++14", "-O2", "-DTILEXR_JETTY_PEERS_CLOS_4PLUS8=1",
+           "-std=c++14", "-O2", f"-D{define}=1",
            "-I/candidate/src/include", "-I/candidate/src/collectives/kernels",
            "/output/prepare_16p_images.cpp", "-o", "/output/prepare_images"]
 compile_log = work / "prepare-build.log"
@@ -60,7 +63,7 @@ if code:
 
 
 def run_case(size, kind, leaf):
-    kernel = f"clos-4plus8/{kind}/tilexr_alltoall_urma_jetty_peers_full_kernel.o"
+    kernel = f"{variant}/{kind}/tilexr_alltoall_urma_jetty_peers_full_kernel.o"
     assert hashlib.sha256((build / kernel).read_bytes()).hexdigest() == objects["objects"][kernel]
     reference = f"{campaign}/reference-16p-{size}-{kind}"
     leaf.mkdir(parents=True)
@@ -70,7 +73,7 @@ def run_case(size, kind, leaf):
             "-v", f"{work}:/output:ro", "-v", f"{leaf}:/case-root", "--entrypoint", "python3", image, "-Bu"]
     prepare_log = leaf / "prepare.log"
     code = command(docker + ["/output/prepare_clos_4plus8.py", reference, container_case,
-                            f"/candidate/{kernel}", args["revision"], kind], prepare_log, 180)
+                            f"/candidate/{kernel}", args["revision"], kind, str(die0)], prepare_log, 180)
     if code:
         return dict(stage="prepare", kind=kind, exit=code, errors=diagnostics(prepare_log))
     prepare_rows = prepare_log.read_text().splitlines()
@@ -124,6 +127,8 @@ def main():
         parser.error("invalid build path")
     if not re.fullmatch("[0-9a-f]{40}", args["revision"]):
         parser.error("invalid source revision")
+    if args.get("variant", "clos-4plus8") not in ("clos-4plus8", "clos-8plus8"):
+        parser.error("invalid Clos variant")
     matrix = args.get("matrix") or {args["size"]: args["modes"]}
     plan = [(size, kind) for size, modes in matrix.items() for kind in modes]
     if not plan or len(plan) != len(set(plan)) or any(

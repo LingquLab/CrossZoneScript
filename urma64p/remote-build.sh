@@ -68,9 +68,13 @@ compile=(-xcce -O2 -DCATLASS_ARCH=3510 --cce-aicore-arch=dav-c310-vec --cce-aico
   -I"$cann/aarch64-linux/pkg_inc" -I"$cann/aarch64-linux/pkg_inc/runtime"
   -Isrc/include -Isrc/collectives/kernels)
 set -x
-if [[ "$1" == "clos-4plus8" ]]; then
-  schedules=(clos-4plus8)
-  compile+=(-DTILEXR_JETTY_PEERS_CLOS_4PLUS8=1)
+if [[ "$1" != "two-group" ]]; then
+  schedules=("$1")
+  if [[ "$1" == "clos-4plus8" ]]; then
+    compile+=(-DTILEXR_JETTY_PEERS_CLOS_4PLUS8=1)
+  else
+    compile+=(-DTILEXR_JETTY_PEERS_CLOS_8PLUS8_D2=1)
+  fi
   mode=-1
 else
   schedules=(syncall clock nosync)
@@ -105,7 +109,7 @@ objects = {
     str(path.relative_to(directory)): hashlib.sha256(path.read_bytes()).hexdigest()
     for path in sorted(directory.glob("*/*/tilexr_alltoall_urma_jetty_peers_full_kernel.o"))
 }
-assert len(objects) == (2 if sys.argv[3] == "clos-4plus8" else 6)
+assert len(objects) == (6 if sys.argv[3] == "two-group" else 2)
 summary = {
     "stage": "compile", "revision": sys.argv[2], "passed": True,
     "run_dir": str(directory), "compiler": (directory / "compiler.txt").read_text().strip(),

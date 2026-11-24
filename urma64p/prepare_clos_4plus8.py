@@ -12,8 +12,6 @@ from pathlib import Path
 import yaml
 
 RANKS = 16
-SENDERS = 19
-WORKERS = 27
 ENTRY = "tilexr_alltoall_urma_jetty_peers_full_kernel"
 
 
@@ -38,17 +36,17 @@ def preflight(root):
                     "--case-dir", str(root)], check=True, cwd=root, timeout=80)
 
 
-def rewrite_checker(path):
+def rewrite_checker(path, senders, workers):
     source = path.read_text()
     replacements = {
-        "23 * 64 * 12": "19 * 64 * 12",
-        "range(23)": "range(19)",
-        "1472": str(SENDERS * 64),
-        "compute_layout(31, 256)": "compute_layout(27, 256)",
-        "parse_view(profile), 31, 256": "parse_view(profile), 27, 256",
-        "range(31)": "range(27)",
-        "lane >= 23": "lane >= 19",
-        "31 streams": "27 streams",
+        "23 * 64 * 12": f"{senders} * 64 * 12",
+        "range(23)": f"range({senders})",
+        "1472": str(senders * 64),
+        "compute_layout(31, 256)": f"compute_layout({workers}, 256)",
+        "parse_view(profile), 31, 256": f"parse_view(profile), {workers}, 256",
+        "range(31)": f"range({workers})",
+        "lane >= 23": f"lane >= {senders}",
+        "31 streams": f"{workers} streams",
     }
     for old, new in replacements.items():
         if old not in source:
@@ -58,14 +56,14 @@ def rewrite_checker(path):
     path.write_text(source)
 
 
-def patch_workload(path, records, candidate):
+def patch_workload(path, records, candidate, workers):
     doc = yaml.safe_load(path.read_text())
     chips = doc["workload_config"]
     assert set(chips) == {f"chip{rank}" for rank in range(RANKS)}
     for rank, info in enumerate(records):
         chip = chips[f"chip{rank}"]
         assert chip["block_dim"] == 31 and Path(chip["kernel_file"]).stem == ENTRY
-        chip["block_dim"] = WORKERS
+        chip["block_dim"] = workers
         chip["kernel_file"] = str(candidate)
         params = chip["kernel_param"].values()
         scalars = {int(str(p["param_offset"]), 0): p
@@ -76,7 +74,10 @@ def patch_workload(path, records, candidate):
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
 
 
-def prepare(reference, case, kernel, revision, kind):
+def prepare(reference, case, kernel, revision, kind, die0):
+    assert die0 in (4, 8)
+    senders = 7 + die0 + 8
+    workers = senders + 8
     manifest = read_json(reference / "manifest.json")
     scenario = read_json(reference / "scenario.json")
     assert scenario["rank_size"] == RANKS and scenario["local_rank_size"] == 8
@@ -123,6 +124,7 @@ def prepare(reference, case, kernel, revision, kind):
         images.append(image)
     assert len(images) == RANKS and all(image == images[0] for image in images)
     image = images[0]
+    assert image["status_bytes"] == senders * 64 * 12
     layout = scenario["layout"]
     assert layout["prefill"]["parts"] == 14 and layout["status_bytes"] == 23 * 64 * 12
     layout.update(status_bytes=image["status_bytes"], workspace_bytes=image["template_offset"])
@@ -133,25 +135,27 @@ def prepare(reference, case, kernel, revision, kind):
     layout["prefill"]["progress"].update(
         **{key: image[key] for key in ("progress_offset", "tokens_offset", "workspace_bytes")})
     candidate_hash = digest(candidate)
-    scenario.update(block_dim=WORKERS, profiling_streams=WORKERS,
+    scenario.update(block_dim=workers, profiling_streams=workers,
                     profiling_bytes=image["profile_bytes"], candidate_revision=revision)
     scenario["kernel"].update(original_path=str(candidate), sha256=candidate_hash)
     scenario["kernel"]["manifest"].update(sha256=candidate_hash, copyout=scenario["copyout_enabled"])
-    scenario["clos_routing"].update(destinations=2, fullmesh_blocks=7, clos_blocks=12,
-                                   source="rank_die_rotation_v2, Clos 4+8")
-    scenario["clos_4plus8"] = dict(die0=4, die1=8, grain=32, wqe_bytes=7168)
+    scenario["clos_routing"].update(destinations=2, fullmesh_blocks=7, clos_blocks=die0 + 8,
+                                   source=f"rank_die_rotation_v2, Clos {die0}+8")
+    scenario[f"clos_{die0}plus8"] = dict(die0=die0, die1=8, grain=32, wqe_bytes=7168)
     for name in ("workload.yml", "v310_config/workload_config.yml"):
-        patch_workload(case / name, images, candidate)
-    rewrite_checker(case / "full_validation.py")
+        patch_workload(case / name, images, candidate, workers)
+    rewrite_checker(case / "full_validation.py", senders, workers)
     write_json(case / "scenario.json", scenario)
     manifest.update(source_commit=revision, files={name: digest(case / name) for name in sorted(paths)})
     write_json(case / "manifest.json", manifest)
     preflight(case)
-    print(json.dumps(dict(stage="prepared", rank_size=RANKS, senders=SENDERS, block_dim=WORKERS,
+    print(json.dumps(dict(stage="prepared", rank_size=RANKS, senders=senders, block_dim=workers,
+                          die0=die0, die1=8, destinations=2, wqe_bytes=7168, grain=32,
                           bytes_per_peer=layout["bytes_per_peer"], repeat=layout["repeat"],
                           parts=1, **image)), flush=True)
 
 
 if __name__ == "__main__":
-    reference, output, kernel_path, revision, kind = sys.argv[1:]
-    prepare(Path(reference), Path(output), Path(kernel_path), revision, kind)
+    reference, output, kernel_path, revision, kind, *geometry = sys.argv[1:]
+    prepare(Path(reference), Path(output), Path(kernel_path), revision, kind,
+            int(geometry[0]) if geometry else 4)

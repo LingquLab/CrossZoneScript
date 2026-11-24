@@ -15,7 +15,7 @@ revision = args["revision"]
 variant = args.get("variant", "two-group")
 if not re.fullmatch(r"[0-9a-f]{40}", revision):
     parser.error("invalid revision")
-if variant not in ("two-group", "clos-4plus8"):
+if variant not in ("two-group", "clos-4plus8", "clos-8plus8"):
     parser.error("invalid Full variant")
 
 entry = Path(__file__).resolve().with_name("remote-build.sh")

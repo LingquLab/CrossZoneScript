@@ -128,7 +128,6 @@ void Generate(const std::string &directory, uint32_t rank, uint64_t eidBase)
 
 int main(int argc, char **argv)
 {
-    static_assert(kBlocks == 19U && kProgressBlocks == 27U, "4+8 launch geometry");
     if (argc != 4) return 2;
     try {
         Generate(argv[1], static_cast<uint32_t>(std::stoul(argv[2])), std::stoull(argv[3], nullptr, 0));

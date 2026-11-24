@@ -1,4 +1,4 @@
-"""Build a pinned Clos 4+8 candidate before running its SST cases."""
+"""Build a pinned 16P Clos candidate before running its SST cases."""
 
 import argparse
 import json
@@ -15,7 +15,7 @@ def main():
     scripts = Path(__file__).resolve().parent
     with tempfile.TemporaryDirectory(prefix="urma16p-4plus8-") as temp:
         path = Path(temp) / "args.json"
-        path.write_text(json.dumps(dict(revision=args["revision"], variant="clos-4plus8")))
+        path.write_text(json.dumps(dict(revision=args["revision"], variant=args.get("variant", "clos-4plus8"))))
         result = subprocess.run([sys.executable, str(scripts / "build.py"), "--args-file", str(path)],
                                 stdout=subprocess.PIPE, text=True, timeout=640)
         build = None
@@ -27,8 +27,7 @@ def main():
         if result.returncode or build is None:
             return result.returncode or 1
         path.write_text(json.dumps(dict(args, build=build)))
-        return subprocess.run([sys.executable, str(scripts / "run_clos_4plus8.py"), "--args-file", str(path)],
-                              timeout=args["timeout"] + 450).returncode
+        return subprocess.run([sys.executable, str(scripts / "run_clos_4plus8.py"), "--args-file", str(path)]).returncode
 
 
 if __name__ == "__main__":
