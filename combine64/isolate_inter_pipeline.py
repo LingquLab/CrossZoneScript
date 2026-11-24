@@ -7,7 +7,7 @@ ROOT=Path('/work')
 
 def main(tools,variant='isolated-inter'):
     tools=Path(tools)
-    assert variant in ('isolated-inter','leader-barrier')
+    assert variant in ('isolated-inter','leader-barrier','four-module-joint')
     prefix='pipeline-'+variant
     target=ROOT/(prefix+'-a1')
     assert not target.exists()
@@ -22,10 +22,16 @@ def main(tools,variant='isolated-inter'):
     modified=source[:first]+'    JointInterStage(args,block);'+source[last:]
     helper='__aicore__ __attribute__((noinline)) void JointInterStage(const PipelineArgs &args,uint32_t block) {\n    using namespace AscendC;\n    using namespace TileXREpHt;\n'+body+'\n}\n\n'
     modified=modified.replace(entry,helper+entry)
-    if variant=='leader-barrier':
+    if variant in ('leader-barrier','four-module-joint'):
         first=modified.index('__aicore__ bool JointBarrier(')
         last=modified.index('__aicore__ void JointCopyPartial(',first)
         modified=modified[:first]+(tools/'leader_barrier.h').read_text()+'\n'+modified[last:]
+    if variant=='four-module-joint':
+        begin='    capture.RecordAt(60, GetSystemCycle());'
+        end='    if(!JointBarrier(args,6)) return;'
+        assert modified.count(begin)==modified.count(end)==1
+        first=modified.index(begin);last=modified.index(end,first)+len(end)
+        modified=modified[:first]+modified[last:]
     generated=ROOT/(prefix+'-source.cpp')
     assert not generated.exists();generated.write_text(modified)
     script=(tools/'pipeline_build.sh').read_text()
@@ -44,7 +50,8 @@ def main(tools,variant='isolated-inter'):
     helper_symbols=[line.strip() for line in symbols.stdout.splitlines() if 'JointInterStage' in line and 'FUNC' in line]
     assert helper_symbols,'inter_stage_was_not_kept_out_of_line'
     report.update(compiler_scalar_dcci=False,pipeline_build_variant=variant,stage_isolation_noinline=True,
-        barrier_algorithm='leader_release' if variant=='leader-barrier' else 'all_lanes_poll_all',
+        barrier_algorithm='all_lanes_poll_all' if variant=='isolated-inter' else 'leader_release',
+        extra_round_fence=variant!='four-module-joint',
         base_wrapper_sha256=hashlib.sha256(source.encode()).hexdigest(),source_sha256=hashlib.sha256(modified.encode()).hexdigest(),
         moved_inter_body_sha256=hashlib.sha256(body.encode()).hexdigest(),helper_symbols=helper_symbols)
     (target/'build-result.json').write_text(json.dumps(report,indent=2)+'\n')
