@@ -1,12 +1,21 @@
 /* Copyright (c) 2026 TileXR Project.
  * Execute the pinned HT stage implementations in one SST kernel invocation.
  * The fixture supplies distinct local/return communicators and private barriers. */
-#include "combine_ht_kernel.h"
+#include "combine_ht_prefill.h"
+#include "combine_ht_queue_state.h"
+#include "kernel_operator.h"
+#include "simt_api/device_functions.h"
+#include <tilexr/comm/udma/device/api.h>
+#include <tilexr/comm/device/sync.h>
+#include <tilexr/profiling/device/direct_writer.h>
 #include "local_return_args.h"
 #include "local_return_schedule.h"
 #include "final_reduce_schedule.h"
 #include <tilexr/ep/final_reduce_types.h>
 
+namespace LocalStage {
+#include "combine_ht_kernel.h"
+}
 namespace ReturnStage {
 #include "/work/source/src/ep/combine_ht/local_return_kernel.cpp"
 }
@@ -93,7 +102,7 @@ extern "C" __global__ __aicore__ void tilexr_ht_pipeline_sst(PipelineArgs args) 
     using namespace AscendC;
     using namespace TileXREpHt;
     const uint32_t block=GetBlockIdx();
-    RunCombineHT(args.local);
+    LocalStage::RunCombineHT(args.local);
     if(!JointBarrier(args,1)) return;
     JointCopyPartial(args);
     if(!JointBarrier(args,2)) return;
