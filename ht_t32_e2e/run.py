@@ -45,6 +45,10 @@ elif args.get("t32_peer_first") is True:
     identity_name = "t32-peer-first-identity.json"
     fixture_name = "t32-peer-first-fixture-images.tar.gz"
     object_name = "t32-peer-first.o.gz"
+elif args.get("local_ht") is True:
+    identity_name = "local-ht/fixture-identity.json"
+    fixture_name = "local-ht/fixture-images.tar.gz"
+    object_name = "local-ht/inter_server_send.o.gz"
 identity = json.loads((root / identity_name).read_text())
 fixture = (root / fixture_name).read_bytes()
 object_package = (root / object_name).read_bytes()
@@ -53,11 +57,12 @@ digest_field = "delta_archive_sha256" if delta else "input_archive_sha256"
 assert hashlib.sha256(fixture).hexdigest() == identity[digest_field]
 assert hashlib.sha256(gzip.decompress(object_package)).hexdigest() == identity["kernel_sha256"]
 entry = identity["entry"]
-assert entry == "tilexr_ep_ht_combine_sst_fp32"
+assert entry == ("tilexr_moonep_combine_ht_kernel" if args.get("local_ht") else "tilexr_ep_ht_combine_sst_fp32")
 build = dict(entry=entry, variant="sst-mte-fused-fp32", candidate_commit=identity["commit"],
              kernel_sha256=identity["kernel_sha256"], compiled_in="blue")
+checker = root / ("local-ht/check.py" if args.get("local_ht") else "check.py")
 request = dict(build=build, identity=identity, archive=base64.b64encode(fixture).decode(),
-               object=base64.b64encode(object_package).decode(), checker=(root/"check.py").read_text(),
+               object=base64.b64encode(object_package).decode(), checker=checker.read_text(),
                exports=(root/"exports.py").read_text(), spread_gateways=delta)
 if delta:
     manifest = (root / "t32-spread-delta-manifest.json").read_bytes()

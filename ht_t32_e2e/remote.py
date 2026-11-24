@@ -6,6 +6,8 @@ def run_e2e(request):
     tokens = request["identity"]["tokens"]
     assert tokens in (4, 16, 32)
     variant = f"t{tokens}-combine-fp32-{digest[:8]}"
+    if build["entry"] == "tilexr_moonep_combine_ht_kernel":
+        variant = f"t{tokens}-local-ht-fp32-{digest[:8]}"
     suffix = "-spread" if request.get("spread_gateways") else ""
     if request.get("spread_gateways"):
         assert tokens == 32 and request["identity"]["runtime_root"].endswith("-spread-data")

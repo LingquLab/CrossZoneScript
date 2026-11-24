@@ -49,7 +49,8 @@ def prepare_bulk(request, case, container_case):
     assert json.loads((template / "run.json").read_text())["status"] == "sst_and_checker_passed"
     binary = gzip.decompress(base64.b64decode(request["object"], validate=True))
     assert hashlib.sha256(binary).hexdigest() == build["kernel_sha256"]
-    assert build["entry"] == identity["entry"] == "tilexr_ep_ht_combine_sst_fp32"
+    assert build["entry"] == identity["entry"]
+    assert build["entry"] in {"tilexr_ep_ht_combine_sst_fp32", "tilexr_moonep_combine_ht_kernel"}
     assert build["compiled_in"] == "blue"
 
     case.mkdir(exist_ok=False)
@@ -107,7 +108,7 @@ def prepare_bulk(request, case, container_case):
             original = source.read_text()
             old_entry = 'manifest["entry"] != "tilexr_ep_ht_inter_server_send_kernel"'
             assert original.count(old_entry) == 1
-            target.write_text(original.replace(old_entry, 'manifest["entry"] != "tilexr_ep_ht_combine_sst_fp32"'))
+            target.write_text(original.replace(old_entry, 'manifest["entry"] != ' + json.dumps(build["entry"])))
         elif name == "v310_config/workload_config.yml":
             shutil.copyfile(workload, target)
         elif name == "kernel/inter_server_send.o":
