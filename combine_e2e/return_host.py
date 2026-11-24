@@ -1,12 +1,38 @@
 # Copyright (c) 2026 TileXR Project.
 """Run one isolated return-path kernel with pinned model and predecessor evidence."""
-import hashlib,json,re,shutil,subprocess,time
+import hashlib,json,re,shutil,struct,subprocess,time
 from pathlib import Path
 
 ROOT=Path('/mnt/share/tilexr-sim-jobs/ea219fe0-2177-4850-84f0-c0da68a4a5fa/run-013cc3e-a1')
 TEMPLATE=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549')
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def write(p,v):p.write_text(json.dumps(v,indent=2)+'\n')
+def diagnose_local_send():
+    results={}
+    for tokens in (4,16):
+        case=ROOT/'cases'/('64p-t%d-local-send-a1'%tokens)
+        row={'expected_payload_wqes':0,'expected_signal_wqes':0}
+        for rank in range(64):
+            p=case/'input_bin'/('rank%02d'%rank)/'prefill.bin'
+            data=p.read_bytes()
+            _,_,groups,chunks=struct.unpack_from('<4I',data)
+            for index in range(8*groups*chunks):
+                payload,count,signal,notify,reserved=struct.unpack_from('<3Q2I',data,512+index*32)
+                row['expected_payload_wqes']+=count
+                row['expected_signal_wqes']+=notify!=0
+        log=case/'sim.log'
+        size=log.stat().st_size
+        row['log_bytes']=size
+        row['counts_cover_full_log']=size<=67108864
+        with log.open('rb') as f:
+            if size>67108864:f.seek(max(0,size-1048576))
+            text=f.read().decode(errors='replace')
+        row['wrcqeresponse_records']=text.count('WrCQEResp')
+        row['tail_lines']=[line[:250] for line in text.splitlines()[-6:]]
+        row['dump_files']=len(list((case/'bin').glob('*.bin')))
+        results[str(tokens)+'token']=row
+    write(ROOT/'local-send-diagnostic.json',results)
+    return results
 def main(request):
     stage=request['stage']
     assert stage in ('return','inter-send','final-independent','final-joint')
@@ -15,6 +41,7 @@ def main(request):
     info=json.loads(subprocess.check_output(['docker','inspect',cid]))[0]
     assert info['Id']==cid and info['State']['Running'] and info['Image']==identity['image']
     assert info['HostConfig']['NetworkMode']=='none'
+    diagnostic=diagnose_local_send() if stage=='final-independent' else None
     version=hashlib.sha256(json.dumps(request['files'],sort_keys=True).encode()).hexdigest()[:12]
     tools=ROOT/('return-tools-'+version)
     tools.mkdir(exist_ok=True)
@@ -31,6 +58,7 @@ def main(request):
         prepared=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,timeout=180)
     if prepared.returncode:
         result={'stage':stage,'prepare_exit':prepared.returncode,'qualified':False,'evidence':str(ROOT/('prepare-'+stage+'.log'))}
+        if diagnostic is not None:result['local_send_diagnostic']=diagnostic
         write(ROOT/('prepare-'+stage+'-result.json'),result)
         print(json.dumps(result,separators=(',',':')))
         return 1
@@ -73,6 +101,7 @@ def main(request):
             'candidate_commit':meta['candidate_commit'],'kernel_sha256':meta['kernel_sha256'],
             'routes_sha256':meta['routes_sha256'],'consumed_actual_sha256':meta['consumed_actual_sha256'],
             'input_mode':meta['input_mode'],'consumed_input_sha256':meta['consumed_input_sha256']}
+    if diagnostic is not None:result['local_send_diagnostic']=diagnostic
     if (case/'run.json').is_file():
         run=json.loads((case/'run.json').read_text())
         result['run']={k:run[k] for k in ('status','returncode','guards') if k in run}
