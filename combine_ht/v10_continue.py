@@ -7,6 +7,7 @@ BASE=Path('/var/tmp/tilexr-combine-ht-'+SESSION+'-v11')
 WORK=Path('/var/tmp/tilexr-combine-ht-'+SESSION+'-v10')
 NAME='tilexr-combine-ht-f71d0252-v10'
 IMAGE='sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+claimed=False
 result={'ok':False,'cases':[],'host_work':str(WORK),'image_id':IMAGE}
 def call(argv,timeout=60):
     p=subprocess.run(list(map(str,argv)),capture_output=True,timeout=timeout)
@@ -26,6 +27,7 @@ try:
     assert revisions['candidate']==A['revision'],'staged_candidate_identity'
     before=json.loads((WORK/'revisions.json').read_text())
     assert before['candidate']!=A['revision'],'candidate_upgrade_already_attempted'
+    claimed=True
     for name in ['candidate','tilexr_moonep_combine_ht_kernel.o','tilexr_moonep_combine_ht_kernel_rel.o','build.json','build.log','prefill.so','revisions.json','run-summary.json']:
         p=WORK/name
         if p.exists():p.rename(WORK/('previous-'+before['candidate']+'-'+name))
@@ -45,6 +47,6 @@ try:
 except (OSError,ValueError,AssertionError,subprocess.SubprocessError) as error:
     result['error_type']=type(error).__name__;result['detail']=str(error)[:350]
 finally:
-    (WORK/'run-summary.json').write_text(json.dumps(result,indent=2))
+    if claimed:(WORK/'run-summary.json').write_text(json.dumps(result,indent=2))
 print(json.dumps(result))
 raise SystemExit(0 if result['ok'] else 1)
