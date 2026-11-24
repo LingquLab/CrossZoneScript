@@ -1,7 +1,0 @@
-{
-  "commit": "b13556eb4f84afc103ba993f4e9151dc104d2b95",
-  "case_name": "ht-t32-reduce-fp32-561e4bcb",
-  "object": "tilexr_ep_ht_final_reduce_sst_kernel.o",
-  "object_sha256": "561e4bcb78c036a2bde27bb19f8e38e18e72b2488c691500151cd6eba90037d5",
-  "archive_sha256": "4f9490f61676246762e01fd84c85cefe6c493f2852eee281e11f2143602053c3"
-}

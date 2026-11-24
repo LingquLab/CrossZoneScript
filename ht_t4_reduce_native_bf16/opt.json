@@ -1,8 +1,0 @@
-{
-  "commit": "eed670527d4a760ece088a37417e56e503689c5b",
-  "tree": "c643d2950fee443e739b3e9b47426414ba454e23",
-  "case_name": "ht-t4-reduce-native-bf16-40e4b6cf",
-  "object": "tilexr_ep_ht_final_reduce_kernel.o",
-  "object_sha256": "40e4b6cf0c48c726a8c6cc4424758bd61356d7ad0575c03201c67218000099ea",
-  "archive_sha256": "397c4fa556e793e6b7405a8414162f207b15161f50a9283653f55d4c2759ef68"
-}

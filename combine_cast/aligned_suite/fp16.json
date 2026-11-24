@@ -1,9 +1,0 @@
-{
-  "revision": "c266c4f980244d7a034879ddabf14fc9d3a6f745",
-  "archive_sha256": "27aaedb38581f03589f117f5bb97d9b1e484e0eaa8dd01175cd901063f610412",
-  "objects": {
-    "cast_aligned_probe.o": "7f5210211c933bfdc512561dc0cfe36f253d1a6b4e93a41153c9ede10635a55e"
-  },
-  "case_dir": "combine-memory-cast-c266-aligned-fp16",
-  "container_name": "tilexr-cpu-b4f4660a-cast-aligned-fp16"
-}

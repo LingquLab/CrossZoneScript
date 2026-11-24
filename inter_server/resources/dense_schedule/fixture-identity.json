@@ -1,9 +1,0 @@
-{
-  "input_archive_sha256": "2751345e034baaaf18259511e480e0dc8aafece5d623852a5354c2599d1336bb",
-  "tokens": 96,
-  "hidden": 256,
-  "chunks": 4,
-  "active_gateways": 16,
-  "payload": 3072,
-  "modeled_full_lane0_batches": 64
-}
