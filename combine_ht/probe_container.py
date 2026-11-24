@@ -75,12 +75,22 @@ elif a['action']=='mmio':
     for flat in range(len(raw)//80):
         address=struct.unpack_from('<Q',raw,flat*80+48)[0]
         if address*8==target: result['queue_matches'].append(dict(flat=flat,doorbell=hex(address),fatal=hex(target),factor=8))
-elif a['action']=='stdev-gm':
-    folder=w/'diagnostics/stdev-gm-a1';folder.mkdir(exist_ok=False)
+elif a['action'] in ('stdev-gm','stdev-trace'):
+    tracing=a['action']=='stdev-trace'
+    folder=w/('diagnostics/stdev-trace-a1' if tracing else 'diagnostics/stdev-gm-a1');folder.mkdir(exist_ok=False)
     config=json.loads((w/'environment.snapshot.json').read_text())
     binary=folder/'probe.o'
-    with (folder/'build.log').open('wb') as log:
-        sst.build_kernel(config['settings'],log,source=w/'stdev_probe.cpp',binary=binary)
+    if tracing:
+        shutil.copyfile(w/'diagnostics/stdev-gm-a1/probe.o',binary)
+        assert sst.checksum(binary)=='6ccd3716098e081a1a9f61e4152c1076489c4ab47cc4f2afbc1ecdaff4fdf21e'
+        configure=sst.configure
+        def trace_config(sources,args):
+            args.instruction_dump_chips=[0]
+            return configure(sources,args)
+        sst.configure=trace_config
+    else:
+        with (folder/'build.log').open('wb') as log:
+            sst.build_kernel(config['settings'],log,source=w/'stdev_probe.cpp',binary=binary)
     initial=folder/'poison.bin';initial.write_bytes(bytes([0xcc])*32768)
     workload={'workload_config':{}}
     for rank in range(8):
@@ -108,6 +118,21 @@ elif a['action']=='stdev-gm':
             data=sst.read_output(folder,0,'region'+str(index),address,32768)
             changed=[i for i,value in enumerate(data) if value!=0xcc]
             result['regions'].append(dict(address=hex(address),changed_bytes=len(changed),first_changes=[dict(offset=i,value=data[i]) for i in changed[:24]],samples={str(i):data[i:i+8].hex() for i in [0,512,1024,1536,4096,8192,12288]}))
+    if tracing:
+        result['instruction_records']=[]
+        for path in sorted(folder.rglob('*sudetail.dump')):
+            previous=[]
+            for line in path.read_text(errors='replace').splitlines():
+                if 'scalarStDev' in line and len(result['instruction_records'])<3:
+                    result['instruction_records'].append(dict(path=str(path),context=previous[-2:]+[line.strip()[:500]]))
+                if any(x in line for x in ['scalarLdImm','scalarStDev','rdGpr','write x','Value:','value=']):
+                    previous.append(line.strip()[:500])
+            if len(result['instruction_records'])>=3:break
+        paths=list((w/'diagnostics/mmio-current').glob('*4b3504.asm'))
+        if paths:
+            lines=[line.strip() for line in paths[0].read_text().splitlines() if re.match(r'\s*[0-9a-f]+:',line)]
+            index=next(i for i,line in enumerate(lines) if re.search(r'\blsl\b',line))
+            result['model_shift_context']=lines[max(0,index-4):index+3]
     result['ok']=bool(result['completions']) and process.returncode==0
 elif a['action']=='read':
     rel=a.get('report','cases/8p-bs16-a1/send-only')
