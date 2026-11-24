@@ -1,5 +1,5 @@
 """Capture an SST crash without modifying candidate source or the failed case."""
-import json,os,re,shutil,subprocess,sys,time
+import json,os,re,shutil,struct,subprocess,sys,time
 from pathlib import Path
 sys.path.insert(0,'/work')
 import sst
@@ -42,6 +42,39 @@ if a['action']=='crash':
     text=(out/'sim.log').read_bytes().decode(errors='replace')
     result['fatal_lines']=[x[:500] for x in text.splitlines() if re.search(r'FATAL:|Unknown low level|Assertion',x)][:4]
     result['ok']=len(result['frames'])==2
+elif a['action']=='mmio':
+    result['headers']=[]
+    roots=[Path('/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/lib/clang/15.0.5/include'),Path('/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ascendc/include')]
+    for root in roots:
+        for path in root.rglob('*.h'):
+            text=path.read_text(errors='replace')
+            for line in text.splitlines():
+                if re.search(r'\bst_dev\b|\basc_store_dev\b',line) and len(result['headers'])<8:
+                    result['headers'].append({'path':str(path),'line':line.strip()[:400]})
+    library=Path('/opt/sim/plugins/libDavinciSimulatorV310.so')
+    symbols=subprocess.run(['nm','-D','-S','-C',str(library)],capture_output=True,text=True,check=True,timeout=25).stdout
+    folder=w/'diagnostics/mmio-current';folder.mkdir(exist_ok=False)
+    result['methods']=[]
+    for line in symbols.splitlines():
+        if '::ScalarStDev::' not in line or not any(x+'(' in line for x in ['decode','execute','issue1Rd']): continue
+        words=line.split(maxsplit=3);start=int(words[0],16);size=int(words[1],16)
+        asm=subprocess.run(['objdump','-d','-C','--start-address='+str(start),'--stop-address='+str(start+size),str(library)],capture_output=True,text=True,check=True,timeout=25).stdout
+        (folder/(words[0]+'.asm')).write_text(asm)
+        instructions=[x.strip() for x in asm.splitlines() if re.search(r'\blsl\b|\blsr\b|\bubfx\b|\bubfiz\b',x)]
+        calls=[x.split('<',1)[1].rsplit('>',1)[0][:200] for x in asm.splitlines() if re.search(r'\bbl\b',x) and '<' in x]
+        result['methods'].append(dict(name=words[3],address=hex(start),bytes=size,shifts=instructions[:3],calls=calls[:10]))
+    case=w/'cases/8p-bs16-29f973b0-a1/send-only'
+    import yaml
+    config=yaml.safe_load((case/'v310_config/davidV100_simulator_config.yml').read_text())
+    result['su']=config['simulator_config']['su']
+    result['gdb']=shutil.which('gdb')
+    # Match the exact fatal to a queue in the actual serialized inputs.
+    raw=(case/'input_bin/rank3/sq_ctx.bin').read_bytes()
+    target=563912026117120
+    result['queue_matches']=[]
+    for flat in range(len(raw)//80):
+        address=struct.unpack_from('<Q',raw,flat*80+48)[0]
+        if address*8==target: result['queue_matches'].append(dict(flat=flat,doorbell=hex(address),fatal=hex(target),factor=8))
 elif a['action']=='read':
     rel=a.get('report','cases/8p-bs16-a1/send-only')
     assert re.fullmatch(r'[\w/-]+',rel) and '..' not in rel
