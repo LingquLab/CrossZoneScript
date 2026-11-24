@@ -49,6 +49,9 @@ elif args.get("local_ht") is True:
     identity_name = "local-ht/fixture-identity.json"
     fixture_name = "local-ht/fixture-images.tar.gz"
     object_name = "local-ht/inter_server_send.o.gz"
+    if args.get("bounded_local_ht") is True:
+        identity_name = "local-ht/bounded-identity.json"
+        object_name = "local-ht/bounded.o.gz"
 identity = json.loads((root / identity_name).read_text())
 fixture = (root / fixture_name).read_bytes()
 object_package = (root / object_name).read_bytes()
@@ -63,7 +66,8 @@ build = dict(entry=entry, variant="sst-mte-fused-fp32", candidate_commit=identit
 checker = root / ("local-ht/check.py" if args.get("local_ht") else "check.py")
 request = dict(build=build, identity=identity, archive=base64.b64encode(fixture).decode(),
                object=base64.b64encode(object_package).decode(), checker=checker.read_text(),
-               exports=(root/"exports.py").read_text(), spread_gateways=delta)
+               exports=(root/"exports.py").read_text(), spread_gateways=delta,
+               bounded_local_ht=args.get("bounded_local_ht") is True)
 if delta:
     manifest = (root / "t32-spread-delta-manifest.json").read_bytes()
     assert hashlib.sha256(manifest).hexdigest() == identity["delta_manifest_sha256"]

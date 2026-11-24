@@ -75,6 +75,10 @@ def run_e2e(request):
             result["executed_sst"] = "pid" in record
         if result.get("run", {}).get("status") in ("timed_out", "interrupted"):
             result.pop("sst_simulated_microseconds", None)
+        if request.get("bounded_local_ht"):
+            diagnostic = summarize_local_ht_diagnostic(case)
+            if diagnostic:
+                result["local_diagnostic"] = diagnostic
         check = case / "check.log"
         if check.is_file():
             summary = check.read_text(errors="replace").strip()
@@ -95,5 +99,33 @@ def run_e2e(request):
         "case", "kernel_sha256", "entry", "preflight", "error_type", "stage_error", "cleanup_error",
         "private_container_removed", "executed_sst", "run", "runner_exit_code", "runner_exception_type",
         "sst_simulated_microseconds", "runner_wall_seconds", "checked", "first_mismatch", "checker_error", "cqe_log_records",
-        "profile"
+        "profile", "local_diagnostic"
     ) if key in result}
+
+
+def summarize_local_ht_diagnostic(case):
+    import struct
+
+    def read(rank, field):
+        paths = list(case.glob(f"actual*/rank{rank:02d}/{field}.bin"))
+        return paths[0].read_bytes() if len(paths) == 1 else None
+
+    statuses, missing_flag_bits, pending_bits = {}, {}, {}
+    for rank in range(64):
+        status = read(rank, "status")
+        completion = read(rank, "completed")
+        if status:
+            for core, value in enumerate(struct.unpack_from("<8I", status)):
+                if value:
+                    statuses[f"{rank}/{core}"] = value
+        if completion:
+            missing = sum(1 << peer for peer in range(8)
+                          if peer != rank % 8 and struct.unpack_from("<Q", completion, peer * 512)[0] == 0)
+            if missing:
+                missing_flag_bits[str(rank)] = missing
+            for core in range(8):
+                value = struct.unpack_from("<I", completion, (8 + core) * 512)[0]
+                if value & 0x80000000:
+                    pending_bits[f"{rank}/{core}"] = value & 255
+    return {name: {"count": len(values), "first": list(values.items())[:8]} for name, values in
+            (("send_statuses", statuses), ("missing_flags", missing_flag_bits), ("reduce_wait", pending_bits))}

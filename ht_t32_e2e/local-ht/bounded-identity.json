@@ -1,0 +1,12 @@
+{
+  "tokens": 4,
+  "hidden": 128,
+  "world": 64,
+  "local_ranks": 8,
+  "chunks": 1,
+  "entry": "tilexr_moonep_combine_ht_kernel",
+  "kernel_sha256": "604c76acddd01340150622ddaecb8777792646a969dd59e20b42f48289781f0f",
+  "runtime_root": "/work/inter-server-native/t4-local-ht-fp32-data",
+  "commit": "ae27155c1911a35c6b69e7ca6787d6ac9a5f22c8",
+  "input_archive_sha256": "17a9ea0f7e8a5de2bb43a419df0ac64754f6fbbc9255f4a2e7e5920627f235dd"
+}
