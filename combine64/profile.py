@@ -32,7 +32,7 @@ def summarize(case,cap,lanes=16,field="profiling"):
             ev=struct.unpack_from('<%dI'%n,raw,o['events']+lane*cap*4)
             assert ev[0]==1 and ev[-1]==2 and all(a<=b for a,b in zip(ts,ts[1:])),('profile_events',rank,lane)
             for begin,end,label in ((10,11,'local_send_reduce'),(20,21,'copy_partial'),(30,31,'local_return'),(40,41,'inter_server_send'),(50,51,'final_reduce'),(60,61,'fence')):
-                if begin in ev and end in ev:
+                if cap==32 and begin in ev and end in ev:
                     duration=ts[ev.index(end)]-ts[ev.index(begin)]
                     intervals.setdefault(label,[]).append(duration)
             records.append(dict(rank=rank,lane=lane,count=n,first=ts[0],last=ts[-1],elapsed_ticks=ts[-1]-ts[0]))

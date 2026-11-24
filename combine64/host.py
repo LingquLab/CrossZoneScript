@@ -80,6 +80,8 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         if profile_code==0:result['profiling']=json.loads((case/'profiling-check.log').read_text())
         else:result['profiling_error']='see_profiling-check.log'
     result['qualified']=result['numerical_qualified'] and 'profiling' in result
+    result['diagnostic_only']=meta.get('diagnostic_only',False)
+    result['operator_qualified']=result['qualified'] and not result['diagnostic_only']
     result['run']={k:v for k,v in result.get('run',{}).items() if k in ('status','returncode','guards','error','started_unix','finished_unix','elapsed_seconds')}
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
     print(json.dumps(result,separators=(',',':')),flush=True)
@@ -188,6 +190,23 @@ def main(request):
             case=ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage));meta=json.loads((case/'fixture-data/manifest.json').read_text())
             return run_case(cid,case,tools,'check_return.py',meta['entry'],1000)
         if action=='local':return local(cid,tools,tokens,request['phase'],request.get('attempt','a1'))
+        if action=='calibrate':
+            reports=[]
+            for ticks in (100000,200000):
+                code=execute(cid,['python3',runtime+'/clock_fixture.py','--root','/work','--tools',runtime,'--wait-ticks',str(ticks)],ROOT/('prepare-clock-%d.log'%ticks),300)
+                if code:
+                    print(json.dumps({'prepare_exit':code,'wait_ticks':ticks}));return code
+                case=ROOT/'cases'/('clock-%d-a1'%ticks)
+                code=run_case(cid,case,tools,'check_clock.py','tilexr_ht_clock_probe',300)
+                if code:return code
+                reports.append(json.loads((case/'phase-result.json').read_text()))
+            delta_us=reports[1]['platform_simulated_us']-reports[0]['platform_simulated_us']
+            delta_ticks=reports[1]['profiling']['max_lane_ticks']-reports[0]['profiling']['max_lane_ticks']
+            frequency=delta_ticks/delta_us*1000000
+            assert delta_us>0 and 100000000<frequency<10000000000,'invalid_timer_calibration'
+            report=dict(diagnostic_only=True,method='two_timer_waits_differenced_against_SST_simulation_time',
+                frequency_hz=frequency,delta_ticks=delta_ticks,delta_sim_us=delta_us,cases=[r['case'] for r in reports])
+            write(ROOT/'clock-calibration.json',report);print(json.dumps(report,separators=(',',':')));return 0
         if action=='pipeline-build':
             code=execute(cid,['bash',runtime+'/pipeline_build.sh',runtime+'/pipeline_kernel.cpp'],ROOT/'pipeline-build.log',350)
             report=ROOT/'pipeline-build-40596e2-a1/build-result.json'

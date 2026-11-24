@@ -200,7 +200,7 @@ def main(root,stage,abis,tokens=16):
           'input_mode':'independent_known_inputs' if independent else 'actual_predecessor_outputs',
           'consumed_actual_sha256':None if independent else provenance.hexdigest(),
           'consumed_input_sha256':provenance.hexdigest(),'blocks':blocks,'profiling_capacity':32,
-          'instrumentation_only':True,'baseline_object_sha256':build[key]['original_sha256']}
+          'instrumentation_only':True,'stage_source_sha256':build[key]['original_sha256']}
     if (root/'adapter.json').is_file():
         adapter=json.loads((root/'adapter.json').read_text())
         meta['simulator_adapter']={k:adapter[k] for k in ('id','baseline_revision','overlay_api_sha256','overlay_inter_sha256')}
