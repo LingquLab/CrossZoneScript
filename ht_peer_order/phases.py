@@ -1,6 +1,7 @@
 """Install and run each paired send-only workload on the retained SST platform."""
 import io
 import json
+import struct
 from pathlib import Path
 import tempfile
 
