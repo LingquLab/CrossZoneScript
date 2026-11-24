@@ -13,12 +13,15 @@ SESSION = '7de11bac-47e4-498d-b107-e746122e3b0a'
 
 
 def main(args):
-    assert args == {'action': 'mte-a1'}
+    assert args in ({'action': 'mte-a1'}, {'action': 'inspect-mte-a1'})
     directory = Path(__file__).parent
-    host = (directory / 'mte_host.py').read_text(encoding='utf-8')
-    trial = (directory / 'mte_trial.py').read_text(encoding='utf-8')
-    assert host.count("'__TRIAL_SOURCE__'") == 1
-    host = host.replace("'__TRIAL_SOURCE__'", repr(trial))
+    if args['action'] == 'mte-a1':
+        host = (directory / 'mte_host.py').read_text(encoding='utf-8')
+        trial = (directory / 'mte_trial.py').read_text(encoding='utf-8')
+        assert host.count("'__TRIAL_SOURCE__'") == 1
+        host = host.replace("'__TRIAL_SOURCE__'", repr(trial))
+    else:
+        host = (directory / 'inspect_host.py').read_text(encoding='utf-8')
     ast.parse(host)
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION
     logs.mkdir(parents=True, exist_ok=True)
@@ -28,8 +31,8 @@ def main(args):
                '-o', 'ConnectTimeout=12', 'root@141.61.94.26',
                'timeout --kill-after=10 620 python3 -']
     proc = subprocess.run(command, input=host.encode(), capture_output=True, timeout=650)
-    (logs / 'mte-a1.stdout').write_bytes(proc.stdout)
-    (logs / 'mte-a1.stderr').write_bytes(proc.stderr)
+    (logs / (args['action'] + '.stdout')).write_bytes(proc.stdout)
+    (logs / (args['action'] + '.stderr')).write_bytes(proc.stderr)
     result = json.loads(proc.stdout)
     assert len(proc.stdout) < 25000, 'export_too_large'
     print(json.dumps(result, ensure_ascii=True))
