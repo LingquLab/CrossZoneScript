@@ -55,7 +55,7 @@ def stage_tools(root, files):
     tools = root / 'tools' / key
     tools.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
-        assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py'}
+        assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py', 'profile_capture.h'}
         path = tools / name
         if path.exists():
             assert path.read_bytes() == content.encode()
@@ -258,6 +258,22 @@ def watch_stage(root, args):
         result.pop('build-summary', None)
         return result
 
+
+def profile_build(root, cid, tools, timeout):
+    log = root / 'profile-build.log'
+    script = str(Path('/work') / tools.relative_to(root) / 'build_profile.py')
+    argv = ['docker', 'exec', cid, 'timeout', '--kill-after=15', str(timeout),
+            'bash', '-c', 'source /opt/sim/cann-env.sh; '
+            'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
+            '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; exec python3 "$1"', 'bash', script]
+    with log.open('xb') as stream:
+        code = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout + 25).returncode
+    summary = root / 'profile-build/build-summary.json'
+    report = json_file(summary) if summary.is_file() else {'all_compiled': False}
+    report.update(stage='profile-build', container_exit=code, log=str(log))
+    print(json.dumps(report, separators=(',', ':')))
+    return 0 if report['all_compiled'] and code == 0 else 1
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args.get('candidate', '86f802f')
@@ -289,6 +305,8 @@ def main(args):
                 assert action == 'batch'
                 require_previous_bs(root, revision, tokens)
             tools, platform_hashes = stage_tools(root, args['files'])
+            if action == 'profile-build':
+                return profile_build(root, cid, tools, timeout)
             config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout,
                           revision=revision, platform_sha256=platform_hashes)
             if action == 'matrix':
