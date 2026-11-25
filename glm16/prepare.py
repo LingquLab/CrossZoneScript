@@ -8,7 +8,8 @@ import urllib.request
 
 REVISION = '4f470ee4c91fc9ea2318501a051e6015995e295d'
 MODEL = 'Eco-Tech/GLM-5.2-w4a4c8-mxfp4'
-ROOT = Path('/mnt/weight/GLM-5.2')
+ROOT = Path(ARGS.get('target', '/mnt/share/GLM-5.2'))
+assert str(ROOT) == '/mnt/share/GLM-5.2'
 STATE = Path('/home/glm16-09b20820')
 STATE.mkdir(exist_ok=True)
 
