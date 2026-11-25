@@ -111,7 +111,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result['operator_qualified']=result['qualified'] and not result['diagnostic_only']
     result['run']={k:v for k,v in result.get('run',{}).items() if k in ('status','returncode','guards','error','started_unix','finished_unix','elapsed_seconds')}
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
-    if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512','sq-align-all512-cq-barrier',
+    if meta.get('tokens') == 128 or result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512','sq-align-all512-cq-barrier',
                                                      'sq-align-all512-cq-barrier-strided',
                                                      'sq-align-all512-cq-barrier-strided-seeded'):
         compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','pipeline_build_variant','barrier_algorithm','compatibility_inter_source_sha256','compatibility_api_header_sha256')}
@@ -120,6 +120,8 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
             compact['compatibility_final_reduce_source_sha256']=result['compatibility_final_reduce_source_sha256']
         compact['profiling_lanes']=result.get('profiling',{}).get('committed_lanes')
         compact['profiling_dropped']=result.get('profiling',{}).get('dropped_records')
+        if meta.get('tokens')==128:
+            compact['profiling_expected_lanes']=result.get('profiling',{}).get('expected_lanes')
         print(json.dumps(compact,separators=(',',':')),flush=True)
     else:print(json.dumps(result,separators=(',',':')),flush=True)
     return 0 if result['qualified'] else 1
@@ -136,7 +138,7 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
         assert sha(ROOT/'source/include/tilexr/comm/udma/device/api.h')==compatibility['baseline_header_sha256']
         assert sha(ROOT/'cq-compiler-barrier-a2/include/tilexr/comm/udma/device/api.h')==compatibility['overlay_header_sha256']
     if kernel_variant=='sq-align512':
-        assert (tokens,phase,attempt) in ((16,'send','a3'),(32,'send','a2'),(4,'send','a3'),(64,'send','a2'))
+        assert (tokens,phase,attempt) in ((16,'send','a3'),(32,'send','a2'),(4,'send','a3'),(64,'send','a2'),(128,'send','a1'))
         compatibility=json.loads((ROOT/'sq-align512-a1/report.json').read_text())
         assert compatibility['exit_codes']==[0,0]
         assert sha(ROOT/'source/src/moonep/combine_ht/kernels/combine_ht_kernel.h')==compatibility['baseline_header_sha256']
@@ -212,7 +214,7 @@ def return_phase(cid,tools,tokens,stage,attempt="a1",kernel_variant='original'):
     assert kernel_variant in ('original','sq-align-all512')
     if kernel_variant=='sq-align-all512':
         assert (tokens,stage,attempt) in ((16,'inter-send-independent','a2'),(32,'inter-send-independent','a2'),
-                                         (64,'inter-send-independent','a2'))
+                                         (64,'inter-send-independent','a2'),(128,'inter-send-independent','a1'))
         report=json.loads((ROOT/'inter-sq-align512-a1/report.json').read_text());assert report['exit_codes']==[0,0]
         binary=ROOT/'inter-sq-align512-a1/inter.o';assert sha(binary)==report['inter_object_sha256']
         raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
@@ -523,10 +525,19 @@ def main(request):
             if report.is_file():
                 data=json.loads(report.read_text());files=data.get('dump_files',[]);data['dump_file_count']=len(files);data['dump_files']=files[:12];print(json.dumps(data,separators=(',',':')),flush=True)
             return code
-        if action=='independent-bs':
+        if action in ('independent-bs','strided-barrier-bs128'):
             first=request.get('start_index',0)
             assert tokens in (16,32,64,128) and isinstance(first,int) and 0<=first<6
             stages=('local-send','local-reduce','return-independent','inter-send-independent','final-independent','pipeline')
+            stop=len(stages)
+            build_request=request
+            kernel_variants={}
+            if action=='strided-barrier-bs128':
+                assert tokens==128 and first in (0,3)
+                variant=verified_strided_build('64p-t32-pipeline-a3',seeded=True)
+                build_request=dict(request,build_variant=variant)
+                kernel_variants={'local-send':'sq-align512','inter-send-independent':'sq-align-all512'}
+                stop=first+3
             if first==0:
                 import importlib.util
                 spec=importlib.util.spec_from_file_location('install_prepared',tools/'install_prepared.py')
@@ -547,14 +558,19 @@ def main(request):
             for stage in stages[:first]:
                 saved=json.loads((ROOT/'cases'/('64p-t%d-%s-a1'%(tokens,stage))/'phase-result.json').read_text())
                 assert saved['candidate_commit']==REVISION and saved['run']['status'] not in ('running','unknown'),'skipped_case_not_terminal'
-                overall=overall and saved.get('operator_qualified',False)
+                if action=='independent-bs':
+                    overall=overall and saved.get('operator_qualified',False)
             results=[]
-            for stage in stages[first:]:
+            for stage in stages[first:stop]:
                 active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
                 assert active.returncode==0 and 'sstsim' not in active.stdout,'another_sst_is_running'
-                if stage.startswith('local-'):code=local(cid,tools,tokens,stage.split('-',1)[1])
-                elif stage=='pipeline':code=pipeline_phase(cid,tools,tokens,request)
-                else:code=return_phase(cid,tools,tokens,stage)
+                kernel_variant=kernel_variants.get(stage,'original')
+                if stage.startswith('local-'):
+                    code=local(cid,tools,tokens,stage.split('-',1)[1],kernel_variant=kernel_variant)
+                elif stage=='pipeline':
+                    code=pipeline_phase(cid,tools,tokens,build_request)
+                else:
+                    code=return_phase(cid,tools,tokens,stage,kernel_variant=kernel_variant)
                 results.append(dict(stage=stage,exit_code=code));overall=overall and code==0
                 if code:
                     _,current=checked_container()
