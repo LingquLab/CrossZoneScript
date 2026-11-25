@@ -315,6 +315,11 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='cq-snapshot':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            return execute(cid,['python3',runtime+'/cq_snapshot.py'],ROOT/'cq-snapshot16-runner.log',1000)
         if action=='pending-layout':
             import runpy
             runpy.run_path(str(tools/'pending_layout_remote.py'),run_name='__main__');return 0
