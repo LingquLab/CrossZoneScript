@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import shutil
+import socket
 import ssl
 import urllib.parse
 import urllib.request
@@ -27,7 +28,8 @@ port = 18744 if args.get('host') == '141.61.94.26' else 18743
 local_url = proxy._replace(netloc=auth + f'127.0.0.1:{port}').geturl()
 node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url, 'https': local_url}) + '\n' + remote
 if args['operation'] == 'proxy_probe':
-    node_source = 'DIRECT_PROXIES = ' + repr(proxies) + '\n' + node_source
+    bridge_ips = sorted({x[4][0] for x in socket.getaddrinfo(proxy.hostname, proxy.port, socket.AF_INET)})
+    node_source = 'BRIDGE_PROXY_IPS = ' + repr(bridge_ips) + '\nDIRECT_PROXIES = ' + repr(proxies) + '\n' + node_source
 if args['operation'] == 'stage':
     files = {name: (Path(__file__).parent / name).read_text() for name in ['benchmark.py', 'serve.py']}
     node_source = 'FILES = ' + repr(files) + '\n' + node_source

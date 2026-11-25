@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -21,6 +22,8 @@ url = 'https://modelscope.cn/models/Eco-Tech/GLM-5.2-w4a4c8-mxfp4/resolve/4f470e
 out = {'proxy_host': proxy.hostname, 'proxy_scheme': proxy.scheme,
        'proxy_auth_in_url': bool(proxy.username), 'python': sys.version.split()[0],
        'python_connect_http10': 'HTTP/1.0' in inspect.getsource(http.client.HTTPConnection._tunnel)}
+out['bridge_proxy_ips'] = BRIDGE_PROXY_IPS
+out['server_proxy_ips'] = sorted({x[4][0] for x in socket.getaddrinfo(proxy.hostname, proxy.port, socket.AF_INET)})
 record = {}
 started = time.monotonic()
 try:
@@ -50,13 +53,16 @@ if out['curl_present']:
             '--insecure', '--proxy-insecure', '--proxy', proxy_url, '--noproxy', '',
             '--connect-timeout', '5', '--max-time', '20', '--max-filesize', '8192',
             '--output', str(target), '--write-out',
-            '{"http_status":%{http_code},"proxy_connect_status":%{http_connect},"bytes":%{size_download},"seconds":%{time_total}}',
+            '{"http_status":"%{http_code}","proxy_connect_status":"%{http_connect}","bytes":"%{size_download}","seconds":"%{time_total}"}',
             url], capture_output=True, text=True, timeout=28)
         try:
             observation = json.loads(p.stdout)
         except ValueError:
             observation = {}
         observation['exit'] = p.returncode
+        match = re.search(r'CONNECT tunnel failed, response (\d+)', p.stderr)
+        if match:
+            observation['tunnel_failure_status'] = int(match.group(1))
         if target.is_file():
             digest = hashlib.sha256(target.read_bytes()).hexdigest()
             observation['matches_config_sha256'] = digest == '185f93ee6d12548e16a847e279dc0c3c90b1524c970b0866b42fb545747d859a'
