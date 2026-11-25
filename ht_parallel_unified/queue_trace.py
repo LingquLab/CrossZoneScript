@@ -126,8 +126,8 @@ def detail_queues(case, cross):
                                  'sq_head_wr_req','doorbell_wr_req'], examples=examples)
 
 
-def expected_cq_slots(rank):
-    """Map expected CQ BBs to the producer's physical queues for BS32."""
+def expected_cq_slots(rank, tokens=32):
+    """Map expected CQ BBs to the producer's physical queues."""
     expected = {}
     rank_server = rank // 8
     for peer in range(64):
@@ -136,9 +136,9 @@ def expected_cq_slots(rank):
         local = peer % 8
         peer_server = peer // 8
         if peer_server == rank_server:
-            expected[peer*40 + PRODUCER_QUEUE[local]] = ('gather', set(range(36)))
+            expected[peer*40 + PRODUCER_QUEUE[local]] = ('gather', set(range(tokens + 4)))
             physical_slot = local % 2 * 20 + local // 2
-            payload = 16 if local == (rank % 8 + 1) % 8 else 0
+            payload = tokens // 2 if local == (rank % 8 + 1) % 8 else 0
             expected[peer*40 + physical_slot] = ('local_return', set(range(payload + 1)))
             continue
         group = (peer_server + 4 - rank_server % 4) % 4
@@ -147,13 +147,13 @@ def expected_cq_slots(rank):
         position += relative
         owner = relative if position >= 48 else (position + 8) % 16
         for lane in (0, 1):
-            payload = (24 if lane == 0 else 8) if peer == rank ^ 8 else 0
+            payload = (tokens * 3 // 4 if lane == 0 else tokens // 4) if peer == rank ^ 8 else 0
             ring = peer * 40 + lane * 20 + owner
             expected[ring] = ('cross_return', set(range(payload + 1)))
     return expected
 
 
-def count_cq_slots(case):
+def count_cq_slots(case, tokens=32):
     stage_names = ('gather', 'local_return', 'cross_return')
     stages = {name: Counter() for name in stage_names}
     total = Counter()
@@ -183,7 +183,7 @@ def count_cq_slots(case):
             if host == rank and 0 <= ring < 64*40:
                 traces[ring].add(offset // 64)
                 total['wr_req_cq_records'] += 1
-        for ring, (name, slots) in expected_cq_slots(rank).items():
+        for ring, (name, slots) in expected_cq_slots(rank, tokens).items():
             found = traces.pop(ring, set())
             missing = slots - found
             summary = stages[name]
