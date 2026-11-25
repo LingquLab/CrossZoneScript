@@ -21,4 +21,9 @@ with tempfile.TemporaryDirectory(prefix='glm16-stage-validate-') as directory:
     p = subprocess.run([sys.executable, str(here / 'dispatch.py'), '--args-file', str(args)],
                        capture_output=True, text=True, timeout=350)
     assert p.returncode == 0, 'CLI_observation_failed'
-    print(json.dumps({'staged': [x['host'] for x in staged], 'cli_check': json.loads(p.stdout)}))
+    cli = json.loads(p.stdout)
+    args.write_text(json.dumps({'operation': 'download_status', 'host': '141.61.94.58'}))
+    p = subprocess.run([sys.executable, str(here / 'dispatch.py'), '--args-file', str(args)],
+                       capture_output=True, text=True, timeout=50)
+    download = json.loads(p.stdout) if p.returncode == 0 else {'query_exit': p.returncode}
+    print(json.dumps({'staged': [x['host'] for x in staged], 'cli_check': cli, 'download': download}))
