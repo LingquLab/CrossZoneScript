@@ -43,7 +43,8 @@ def main():
         assert (candidate, tokens, attempt, args.get('profiling')) == ('86f802f', 64, 3, True)
         assert type(args.get('stop_at_us')) is int and 95 <= args['stop_at_us'] <= 250
         assert type(args.get('wait_for_terminal')) is int and 0 <= args['wait_for_terminal'] <= 6000
-        remote_seconds += args['wait_for_terminal']
+        assert type(args.get('interrupt_stalled', False)) is bool
+        remote_seconds += args['wait_for_terminal'] + 25
     if action == 'profile-build':
         remote_seconds = timeout + 2500
     if action == 'watch':

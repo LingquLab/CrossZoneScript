@@ -281,6 +281,42 @@ def profile_build(root, cid, tools, timeout):
     print(json.dumps(report, separators=(',', ':')))
     return 0 if report['all_compiled'] and code == 0 else 1
 
+
+STOP_STALLED_INTER_SEND = """
+import json
+import os
+from pathlib import Path
+import signal
+import time
+
+case = Path('/work/cases/t64-inter-server-send-a2')
+run = json.loads((case / 'run.json').read_text())
+assert run['stage'] == 'inter-server-send' and run['tokens'] == 64 and run['attempt'] == 2
+assert run['candidate_commit'] == '86f802f9f8a19728364c466b0e9cb7416e038595'
+assert run['status'] == 'running' and run['profiling_enabled']
+assert not (case / 'phase-result.json').exists()
+log = case / 'sim.log'
+first = log.stat()
+assert time.time() - first.st_mtime >= 1800
+process = Path('/proc') / str(run['pid'])
+assert (process / 'cwd').resolve() == case
+parent = int((process / 'stat').read_text().rsplit(')', 1)[1].split()[1])
+runner = Path('/proc') / str(parent)
+_, script, config = (runner / 'cmdline').read_bytes().rstrip(b'\\0').split(b'\\0')
+args = json.loads(config)
+assert script.endswith(b'/sim_case.py')
+assert (args['action'], args['tokens'], args['attempt'], args['revision']) == (
+    'inter-server-send', 64, 2, run['candidate_commit'])
+assert time.time() + 300 < run['started_unix'] + args['timeout'], 'case_near_its_deadline'
+time.sleep(12)
+second = log.stat()
+assert (first.st_mtime_ns, first.st_size) == (second.st_mtime_ns, second.st_size), 'case_log_advanced'
+assert not (case / 'phase-result.json').exists() and (process / 'cwd').resolve() == case
+assert (runner / 'cmdline').read_bytes().endswith(config + b'\\0'), 'owning_runner_changed'
+os.kill(parent, signal.SIGTERM)
+"""
+
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args.get('candidate', '86f802f')
@@ -315,11 +351,20 @@ def main(args):
                 assert json_file(profile_summary)['all_compiled'], 'profile_build_not_passed'
         if action == 'inter-snapshot':
             prior_path = root / 'cases/t64-inter-server-send-a2/phase-result.json'
+            interrupt = args.get('interrupt_stalled', False)
+            if interrupt and not prior_path.is_file():
+                proc = subprocess.run(['docker', 'exec', cid, 'python3', '-c', STOP_STALLED_INTER_SEND],
+                                      capture_output=True, timeout=25)
+                if proc.returncode:
+                    print(json.dumps({'status': 'interruption_skipped',
+                                      'detail': proc.stderr.decode(errors='replace').splitlines()[-1:]}))
+                    return 0
             deadline = time.monotonic() + args['wait_for_terminal']
             while not prior_path.is_file() and time.monotonic() < deadline:
                 time.sleep(10)
             prior = json_file(prior_path)
-            if prior['status'] != 'timed_out':
+            expected_terminal = 'interrupted' if interrupt else 'timed_out'
+            if prior['status'] != expected_terminal:
                 print(json.dumps({'status': 'snapshot_skipped', 'original_status': prior['status']}))
                 return 0
         with (root / 'sst.lock').open('a') as lock:
