@@ -10,6 +10,7 @@ from green_auth import askpass_environment
 from ssh_transport import HOST
 from config import CASE
 
+options=json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2]==['--args-file'] else {}
 source=f'case_name={CASE!r}\n'+r'''
 from collections import Counter
 import json
@@ -51,6 +52,12 @@ if ba.is_file():
     report['ba_schema']=dict(keys=sorted(fields),actions=actions,bytes=ba.stat().st_size,
                              ts_fields=len(re.findall(rb'"ts"\s*:',raw)))
 print(json.dumps(report,separators=(',',':')))
+'''
+if options.get('overlap'):
+    source=(here/'overlap.py').read_text()+f'''
+from pathlib import Path
+case=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / {CASE!r}
+print(json.dumps(summarize_saved_overlap(case),separators=(',',':')))
 '''
 ssh=['ssh','-T','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o',
      'BatchMode=no','-o','NumberOfPasswordPrompts=1','-o','PreferredAuthentications=password',
