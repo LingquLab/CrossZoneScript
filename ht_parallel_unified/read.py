@@ -115,6 +115,9 @@ elif options.get('queues'):
         trace_args = f'case, {tokens}'
     if options.get('cross_so'):
         function = 'cross_so_arrival'
+    if options.get('cross_sq_tail'):
+        assert tokens == 32
+        function = 'cross_sq_tail'
     source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + f'''
 import json
 from pathlib import Path

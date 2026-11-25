@@ -265,3 +265,57 @@ def cross_so_arrival(case):
                              sorted(events.get((paired_gateway,1), ()))])
     return dict(counts=counts, sample_columns=['receiver','gateway','lane0_events','lane1_events'],
                 examples=examples, missing_lane0=missing_lane0[:8], missing_payload_rows=missing_rows)
+
+
+def cross_sq_tail(case):
+    """Extract SQ fetch requests and responses for two representative BS32 queues."""
+    rows = []
+    for rank in (0, 5):
+        peer = rank ^ 8
+        ring, = (ring for ring, (kind, slots) in expected_cq_slots(rank).items()
+                 if ring // 40 == peer and kind == 'cross_return' and len(slots) == 25)
+        sq = rank * GM_BYTES + 0x1900000000 + ring * RING_BYTES
+        addresses = {sq + slot * 64: slot for slot in (18, 24)}
+        path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
+        if not path.is_file():
+            rows.append(dict(rank=rank, peer=peer, present=False))
+            continue
+        with path.open('rb') as trace:
+            data = trace.read(MAX_TRACE_BYTES)
+            truncated = bool(trace.read(1))
+        timestamps = True
+        try:
+            parsed = json.loads(data)
+            items = parsed['traceEvents'] if isinstance(parsed, dict) else parsed
+        except (ValueError, KeyError, TypeError):
+            timestamps = False
+            items = ({'args': json.loads(match[0])} for match in TRACE_ARGS.finditer(data))
+        matched = []
+        counts = Counter()
+        for event in items:
+            args = event.get('args', {})
+            action = args.get('busPayloadType_')
+            if action not in ('RD_REQ', 'RD_REQ_RESP'):
+                continue
+            for field in ('oriAddr_', 'rdAddr_'):
+                value = args.get(field)
+                try:
+                    address = int(value, 0) if isinstance(value, str) else int(value)
+                except (TypeError, ValueError):
+                    continue
+                if address not in addresses:
+                    continue
+                slot = addresses[address]
+                counts[f'{slot}/{action}'] += 1
+                if len(matched) < 12:
+                    length = args.get('size_')
+                    if isinstance(length, str):
+                        try:
+                            length = int(length, 0)
+                        except ValueError:
+                            length = None
+                    matched.append([slot, action, length, event.get('ts'), field])
+                break
+        rows.append(dict(rank=rank, peer=peer, truncated=truncated,
+                         timestamps=timestamps, counts=counts, file_order=matched))
+    return dict(columns=['bb','event','size_field','trace_ts','address_field'], samples=rows)
