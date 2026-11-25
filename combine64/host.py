@@ -128,7 +128,7 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
         assert sha(ROOT/'source/include/tilexr/comm/udma/device/api.h')==compatibility['baseline_header_sha256']
         assert sha(ROOT/'cq-compiler-barrier-a2/include/tilexr/comm/udma/device/api.h')==compatibility['overlay_header_sha256']
     if kernel_variant=='sq-align512':
-        assert (tokens,phase,attempt)==(16,'send','a3')
+        assert (tokens,phase,attempt) in ((16,'send','a3'),(32,'send','a2'),(4,'send','a3'))
         compatibility=json.loads((ROOT/'sq-align512-a1/report.json').read_text())
         assert compatibility['exit_codes']==[0,0]
         assert sha(ROOT/'source/src/moonep/combine_ht/kernels/combine_ht_kernel.h')==compatibility['baseline_header_sha256']
@@ -327,6 +327,19 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='sq-align-regression':
+            gate=json.loads((ROOT/'cases/64p-t16-local-send-a3/phase-result.json').read_text())
+            assert gate['operator_qualified'] and gate['kernel_compatibility_variant']=='sq-align512'
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=local(cid,tools,32,'send','a2','sq-align512')
+            if code:return code
+            code=execute(cid,['python3',runtime+'/sq_align_pipeline_build.py',runtime],ROOT/'sq-align512-pipeline-build.log',450)
+            if code:return code
+            for n,attempt,seconds in ((16,'a2',1200),(32,'a2',1200),(4,'a6',900)):
+                code=pipeline_phase(cid,tools,n,dict(attempt=attempt,build_variant='four-module-sq-align512'),seconds)
+                if code:return code
+            return local(cid,tools,4,'send','a3','sq-align512')
         if action=='sq-align-send16':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
