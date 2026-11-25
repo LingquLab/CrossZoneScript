@@ -29,13 +29,16 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'batch', 'matrix', *STAGES) and tokens in (4, 16, 32, 64, 128)
+    assert action in ('status', 'watch', 'batch', 'matrix', *STAGES) and tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args.get('candidate', '86f802f')
     assert candidate in ('b5383cf', '86f802f')
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
+    if action == 'watch':
+        assert args.get('through_stage') in STAGES
+        remote_seconds = timeout + 45
     if action == 'batch':
         start = STAGES.index(args.get('start_stage', STAGES[0]))
         end = STAGES.index(args.get('end_stage', STAGES[-1]))

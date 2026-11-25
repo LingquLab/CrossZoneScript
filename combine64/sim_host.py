@@ -233,14 +233,40 @@ def run_matrix(root, cid, tools, config, args):
             break
     return matrix
 
+
+def watch_stage(root, args):
+    stage = args['through_stage']
+    deadline = time.monotonic() + args['timeout']
+    wanted = STAGES.index(stage) + 1
+    tokens, attempt = args['tokens'], args['attempt']
+    log = root / f't{tokens}-batch-a{attempt}-host-error.log'
+    while True:
+        result = status(root, args)
+        rows = result.get('batch', [])
+        if rows and any(row.get('status') != 'sst_and_checker_passed' or row.get('container_exit') != 0
+                        for row in rows):
+            result['watch_status'] = 'stage_failed'
+        elif len(rows) >= wanted and rows[wanted - 1]['stage'] == stage:
+            result['watch_status'] = 'stage_passed'
+        elif log.is_file():
+            result['watch_status'] = 'host_setup_failed'
+        elif time.monotonic() >= deadline:
+            result['watch_status'] = 'waiting_at_deadline'
+        else:
+            time.sleep(15)
+            continue
+        result.pop('build-summary', None)
+        return result
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args.get('candidate', '86f802f')
     revision = REVISIONS[candidate]
     root = SESSION_ROOT / f'run-{candidate}-a1'
     case = root / 'cases' / f't{tokens}-{action}-a{attempt}'
-    if action == 'status':
-        print(json.dumps(status(root, args), separators=(',', ':')))
+    if action in ('status', 'watch'):
+        report = status(root, args) if action == 'status' else watch_stage(root, args)
+        print(json.dumps(report, separators=(',', ':')))
         return 0
     try:
         if args.get('require_bs4_gateway'):
