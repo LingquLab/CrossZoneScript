@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-6118a666eec74d5683caddb91a1d5a6f",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 3,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"counts\":{\"hosts\":64,\"truncated_hosts\":0,\"paired_lane0_WR_DATA\":63,\"paired_lane0_WR_REQ\":63,\"paired_lane0_WR_DATA_RESP\":63,\"paired_lane1_WR_DATA\":64,\"paired_lane1_WR_REQ\":64,\"paired_lane1_WR_DATA_RESP\":64,\"cross_rows_wr_data\":1664,\"remote_slots_wr_data\":7167},\"sample_columns\":[\"receiver\",\"gateway\",\"lane0_events\",\"lane1_events\"],\"examples\":[[0,8,[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"],[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"]],[1,9,[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"],[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"]],[2,10,[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"],[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"]]],\"missing_lane0\":[[13,5]],\"missing_payload_rows\":[[0,8,[10,12,13,14,21,22]],[1,9,[10,12,13,14,21,22]],[2,10,[10,12,13,14,21,22]],[3,11,[10,12,13,14,21,22]],[4,12,[10,12,13,14,21,22]],[5,13,[10,12,13,14,21,22]]],\"target_pairs\":[{\"sender\":0,\"receiver\":8,\"rows_wr_data\":26,\"last_chunk_tokens_wr_data\":[24,25,26,27,28,29,30,31],\"missing_payload_tokens\":[10,12,13,14,21,22],\"lane0_so_wr_data\":true},{\"sender\":5,\"receiver\":13,\"rows_wr_data\":26,\"last_chunk_tokens_wr_data\":[24,25,26,27,28,29,30,31],\"missing_payload_tokens\":[10,12,13,14,21,22],\"lane0_so_wr_data\":false}]}",
+  "task_id": "ht-parallel-ep64-t32-cross-so",
+  "type": "RESULT",
+  "worktree_modified": false
+}
