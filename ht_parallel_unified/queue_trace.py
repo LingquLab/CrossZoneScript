@@ -158,11 +158,13 @@ def expected_cq_slots(rank, tokens=32):
     return expected
 
 
-def count_cq_slots(case, tokens=32):
+def count_cq_slots(case, tokens=32, cross_missing=False):
     stage_names = ('gather', 'local_return', 'cross_return')
     stages = {name: Counter() for name in stage_names}
     total = Counter()
     samples = []
+    missing_cross = Counter()
+    cross_samples = []
     for rank in range(64):
         path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
         if not path.is_file():
@@ -172,23 +174,39 @@ def count_cq_slots(case, tokens=32):
             total['truncated_hosts'] += bool(trace.read(1))
         total['hosts'] += 1
         traces = defaultdict(set)
+        expected = expected_cq_slots(rank, tokens)
+        db_rings = {}
+        if cross_missing:
+            for ring, (name, _) in expected.items():
+                if name == 'cross_return':
+                    peer, physical = divmod(ring, 40)
+                    db_rings[0x1C00000000 + physical//20*0x100000000 + (peer*20 + physical%20)*64] = ring
+        bells = Counter()
+        fetches = defaultdict(set)
         for match in TRACE_ARGS.finditer(data):
-            if b'"WR_REQ"' not in match[0]:
+            if b'"WR_REQ"' not in match[0] and not (cross_missing and b'"RD_REQ"' in match[0]):
                 continue
             try:
                 args = json.loads(match[0])
-                if args['busPayloadType_'] != 'WR_REQ':
-                    continue
                 value = args['oriAddr_']
                 address = int(value, 0) if isinstance(value, str) else int(value)
+                action = args['busPayloadType_']
             except (KeyError, ValueError, TypeError):
                 continue
             host, local_address = divmod(address, GM_BYTES)
+            if cross_missing and action == 'RD_REQ' and host == rank:
+                ring, offset = divmod(local_address - 0x1900000000, RING_BYTES)
+                if ring in expected and expected[ring][0] == 'cross_return':
+                    fetches[ring].add(offset // 64)
+            if action != 'WR_REQ':
+                continue
+            if local_address in db_rings:
+                bells[db_rings[local_address]] += 1
             ring, offset = divmod(local_address - CQ_BASE, RING_BYTES)
             if host == rank and 0 <= ring < 64*40:
                 traces[ring].add(offset // 64)
                 total['wr_req_cq_records'] += 1
-        for ring, (name, slots) in expected_cq_slots(rank, tokens).items():
+        for ring, (name, slots) in expected.items():
             found = traces.pop(ring, set())
             missing = slots - found
             summary = stages[name]
@@ -198,8 +216,18 @@ def count_cq_slots(case, tokens=32):
             summary['qps_missing'] += bool(missing)
             if missing and len(samples) < 6:
                 samples.append([rank, ring//40, ring%40, name, sorted(missing), sorted(found)])
+            if cross_missing and name == 'cross_return' and missing:
+                peer, physical = divmod(ring, 40)
+                lane, owner = divmod(physical, 20)
+                missing_cross[(lane, owner, peer == rank ^ 8, bool(bells[ring]), bool(fetches[ring]))] += 1
+                if rank < 2:
+                    cross_samples.append([rank, peer, physical, sorted(missing), bells[ring], sorted(fetches[ring])])
         total['unexpected_qp_slots'] += sum(map(len, traces.values()))
-    return dict(totals=total, stages=stages, first_missing=samples)
+    result = dict(totals=total, stages=stages, first_missing=samples)
+    if cross_missing:
+        result['cross_missing_hist'] = [[*key, count] for key, count in sorted(missing_cross.items())]
+        result['cross_missing_examples'] = cross_samples
+    return result
 
 
 def cross_so_arrival(case):

@@ -117,7 +117,7 @@ elif options.get('queues'):
             trace_args = 'case, 16'
     if options.get('count_cq'):
         function = 'count_cq_slots'
-        trace_args = f'case, {tokens}'
+        trace_args = f'case, {tokens}, {bool(options.get("cross_missing"))}'
     if options.get('cross_so'):
         function = 'cross_so_arrival'
     if options.get('cross_sq_tail'):
