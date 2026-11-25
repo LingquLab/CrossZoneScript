@@ -12,10 +12,12 @@ from ssh_transport import HOST
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
 tokens = sorted({int(value) for value in options.get('tokens', [])})
 assert set(tokens) <= {32, 64, 128}
-source = f"tokens = {tokens!r}\n" + r'''
+diagnostics = bool(options.get('diagnostics'))
+source = f"tokens = {tokens!r}\ndiagnostics = {diagnostics!r}\n" + r'''
 import json
 from pathlib import Path
 import time
+import re
 
 root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native')
 cases = {}
@@ -34,6 +36,22 @@ for case in sorted(root.glob('ht-peer-order-v*-t*')):
             fields.update(cqe=log.read_bytes().count(b'WrCQEResp'),
                           silence_seconds=round(time.time() - log.stat().st_mtime))
         cases[case.name] = fields
+    if diagnostics and cases[case.name]['status'] == 'timed_out':
+        fields = cases[case.name]
+        status = json.loads(run.read_text())
+        fields['timeout_seconds'] = status.get('timeout_seconds')
+        fields['returncode'] = status.get('returncode')
+        fields['trace_files'] = len(list(case.glob('OUTPUT/stat_trace/Host*_ba_layer_trace.json')))
+        if log.is_file():
+            stamps = []
+            for line in log.read_bytes().splitlines():
+                if b'WrCQEResp' not in line:
+                    continue
+                found = re.findall(rb'\bSim:\s*(\d+)', line)
+                if found:
+                    stamps.append(int(found[-1]))
+            fields['max_model_cqe_stamp'] = max(stamps, default=None)
+            fields['last_model_cqe_stamps'] = stamps[-8:]
 print(json.dumps(cases, separators=(',', ':')))
 '''
 ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o',
