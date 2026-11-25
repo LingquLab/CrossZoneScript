@@ -1,0 +1,54 @@
+--- a/src/ep/combine_ht/inter_server_send_worker.h
++++ b/src/ep/combine_ht/inter_server_send_worker.h
+@@ -142,6 +142,11 @@
+         const uint32_t ret = TileXR::UDMAPutNbiOnQp<uint64_t>(
+             args_, wqe_.Get<uint8_t>(), peer, qp, source, CompletionOffset(c_, c_.rank, chunk, lane), 8);
+         touched_[lane] |= PeerBit(peer);
++#ifdef TILEXR_EP_HT_SST_SPLIT_WRITES
++        if (ret == TileXR::TILEXR_UDMA_STATUS_SUCCESS && TileXR::UDMAQuietStatusOnQp(args_, peer, qp)) {
++            return TransportError;
++        }
++#endif
+         return ret == TileXR::TILEXR_UDMA_STATUS_SUCCESS ? uint32_t(Success) : uint32_t(TransportError);
+     }
+     __aicore__ uint32_t Drain()
+@@ -189,7 +194,8 @@
+     __aicore__ uint32_t WaitSqStripe(uint32_t peer, uint32_t qp, __gm__ TileXR::UDMAInfo *info,
+         __gm__ TileXR::UDMAWQCtx *context, uint32_t head)
+     {
+-        if (head == 0 || head % kSqStripeBbs != 0) {
++        if (head == 0 || head % kSqStripeBbs != 0 ||
++            head == TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->tailAddr))) {
+             return Success;
+         }
+         // Do not let SST combine unconsumed WQEs from two physical SQ stripes.
+@@ -204,7 +210,7 @@
+         }
+         auto info = TileXR::GetUDMAInfo(args_);
+         auto context = TileXR::UDMAGetWQCtx(info, peer, qp);
+-        if (!context || !context->headAddr || context->bufAddr % kSlotBytes != 0) {
++        if (!context || !context->headAddr || !context->tailAddr || context->bufAddr % kSlotBytes != 0) {
+             return TransportError;
+         }
+         const uint32_t stripeHead = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr));
+@@ -318,9 +324,6 @@
+         const uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
+         for (uint32_t published = 0; published < count;) {
+             const uint32_t stripeHead = head + published;
+-            if (WaitSqStripe(peer, qp, info, context, stripeHead) != Success) {
+-                return TransportError;
+-            }
+             const uint32_t room = kSqStripeBbs - stripeHead % kSqStripeBbs;
+             const uint32_t remaining = count - published;
+             const uint32_t piece = remaining < room ? remaining : room;
+@@ -328,6 +331,10 @@
+                 scratch[published * TileXR::TILEXR_UDMA_WQE_BB_BYTES], context, stripeHead, piece);
+             published += piece;
+             PublishBatchHead(peer, lane, context, head + published, wqeCount + published);
++            // Use the same per-QP completion count as the SST drain path.
++            if (TileXR::UDMAQuietStatusOnQpUntil(args_, peer, qp, wqeCount + published)) {
++                return TransportError;
++            }
+         }
+ #else
+         // Publish the contiguous UB batch in one MTE3 copy, or two at wrap.

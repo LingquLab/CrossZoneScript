@@ -8,7 +8,7 @@ here=Path(__file__).resolve().parent
 sys.path[:0]=[str(here.parent/'ht_t32_e2e'),str(here.parent/'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
-from config import CASE, T8_CASE, T16_CASE, T32_CASE, T32_LONG_CASE, T32_CROSS_STRIPE_CASE
+from config import CASE, T8_CASE, T16_CASE, T32_CASE, T32_LONG_CASE, T32_CROSS_STRIPE_CASE, T32_CQ_ORDERED_CASE
 
 options=json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2]==['--args-file'] else {}
 tokens = int(options.get('tokens', 4))
@@ -19,7 +19,9 @@ if tokens == 16:
     CASE = T16_CASE
 if tokens == 32:
     CASE = T32_LONG_CASE if options.get('long_wall') else T32_CASE
-    if options.get('cross_stripe'):
+    if options.get('cross_stripe') == 'ordered':
+        CASE = T32_CQ_ORDERED_CASE
+    elif options.get('cross_stripe'):
         CASE = T32_CROSS_STRIPE_CASE
     assert not options.get('dl') and not options.get('overlap')
 source=f'case_name={CASE!r}\n'+r'''
@@ -95,7 +97,8 @@ root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/int
 first, second = (root/name for name in (T32_CASE, {CASE!r}))
 a, b = (json.loads((case/'case-manifest.json').read_text()) for case in (first, second))
 assert a['kernel_sha256'] == KERNEL_SHA256
-assert b['kernel_sha256'] == (CROSS_STRIPE_KERNEL_SHA256 if second.name == T32_CROSS_STRIPE_CASE else KERNEL_SHA256)
+variant_kernels = {{T32_CROSS_STRIPE_CASE: CROSS_STRIPE_KERNEL_SHA256, T32_CQ_ORDERED_CASE: CQ_ORDERED_KERNEL_SHA256}}
+assert b['kernel_sha256'] == variant_kernels.get(second.name, KERNEL_SHA256)
 left, right = ({{name: digest for name, digest in manifest['files'].items() if name.startswith('input_bin/')}}
                for manifest in (a,b))
 left_golden, right_golden = ({{name: digest for name, digest in manifest['fixture_files'].items()

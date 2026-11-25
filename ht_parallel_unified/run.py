@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from config import CROSS_STRIPE_GZIP_SHA256, ENTRY, GZIP_SHA256, NAMES
+from config import CQ_ORDERED_GZIP_SHA256, CROSS_STRIPE_GZIP_SHA256, ENTRY, GZIP_SHA256, NAMES
 
 here=Path(__file__).resolve().parent
 root=here.parent
@@ -25,16 +25,24 @@ options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args
 tokens = int(options.get('tokens', 4))
 assert tokens in (4, 8, 16, 32)
 long_wall = bool(options.get('long_wall'))
-cross_stripe = bool(options.get('cross_stripe'))
+cross_stripe = options.get('cross_stripe', False)
+assert cross_stripe in (False, True, 'ordered')
 assert not (long_wall or cross_stripe) or tokens == 32
 sim_timeout = {4: 1200, 8: 2400, 16: 4800, 32: 4800 if long_wall or cross_stripe else 2400}[tokens]
 case_override = 'T32_LONG_CASE' if long_wall else f'T{tokens}_CASE'
 binary = here/'parallel.o.gz'
 gzip_digest = GZIP_SHA256
-if cross_stripe:
+kernel_override = ''
+if cross_stripe == 'ordered':
+    case_override = 'T32_CQ_ORDERED_CASE'
+    binary = here/'parallel-cq-ordered.o.gz'
+    gzip_digest = CQ_ORDERED_GZIP_SHA256
+    kernel_override = 'KERNEL_SHA256 = CQ_ORDERED_KERNEL_SHA256'
+elif cross_stripe:
     case_override = 'T32_CROSS_STRIPE_CASE'
     binary = here/'parallel-cross-stripe.o.gz'
     gzip_digest = CROSS_STRIPE_GZIP_SHA256
+    kernel_override = 'KERNEL_SHA256 = CROSS_STRIPE_KERNEL_SHA256'
 obj,digest=bytes_and_hash(binary)
 assert digest==gzip_digest
 plans,plans_sha=bytes_and_hash(here/('plans.zip' if tokens == 4 else f'plans-t{tokens}.zip'))
@@ -55,7 +63,7 @@ source='\n'.join((
     base,prepare,phase,
     (here/'config.py').read_text(),
     f'TOKENS = {tokens}\nCASE = {case_override}' if tokens != 4 else '',
-    'KERNEL_SHA256 = CROSS_STRIPE_KERNEL_SHA256' if cross_stripe else '',
+    kernel_override,
     *((here/name).read_text() for name in ('route.py','fixture.py','trace.py','green.py')),
     f'''
 try:
