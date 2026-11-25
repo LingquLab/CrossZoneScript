@@ -245,7 +245,6 @@ def run_matrix(root, cid, tools, config, args):
 def watch_stage(root, args):
     stage = args['through_stage']
     deadline = time.monotonic() + args['timeout']
-    wanted = STAGES.index(stage) + 1
     tokens, attempt = args['tokens'], args['attempt']
     log = root / f't{tokens}-batch-a{attempt}-host-error.log'
     while True:
@@ -254,7 +253,7 @@ def watch_stage(root, args):
         if rows and any(row.get('status') != 'sst_and_checker_passed' or row.get('container_exit') != 0
                         for row in rows):
             result['watch_status'] = 'stage_failed'
-        elif len(rows) >= wanted and rows[wanted - 1]['stage'] == stage:
+        elif any(row['stage'] == stage for row in rows):
             result['watch_status'] = 'stage_passed'
         elif log.is_file():
             result['watch_status'] = 'host_setup_failed'
