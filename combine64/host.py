@@ -336,6 +336,25 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='all-align-snapshot':
+            assert tokens==16
+            case=ROOT/'cases/64p-t16-pipeline-a3'
+            prior=json.loads((case/'phase-result.json').read_text())
+            assert not prior['qualified'] and prior['run']['status']=='timed_out'
+            summary={k:prior.get(k) for k in ('case','run','sst_wall_seconds','wall_seconds','kernel_sha256','kernel_compatibility_variant')}
+            log=case/'sim.log'
+            if log.is_file():
+                with log.open('rb') as f:f.seek(max(0,log.stat().st_size-65536));tail=f.read().decode(errors='replace')
+                ticks=re.findall(r'Sim: ([0-9]+)[(]cycle[)]',tail)
+                if ticks:summary['last_logged_sim_tick']=int(ticks[-1])
+            print(json.dumps(dict(original_case=summary),separators=(',',':')),flush=True)
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/all_sq_align_snapshot.py'],ROOT/'all-align16-snapshot-runner.log',1500)
+            report=ROOT/'cases/64p-t16-pipeline-all-sq-align-snapshot200us-a1/diagnostic.json'
+            if report.is_file():
+                summary=json.loads(report.read_text());summary.pop('pending_samples',None);summary.pop('dump_files',None);print(json.dumps(summary,separators=(',',':')),flush=True)
+            return code
         if action=='inter-align-regression':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
