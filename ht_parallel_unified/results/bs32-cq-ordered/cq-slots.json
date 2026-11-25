@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-f61a5289caf943419f46d257fa01da92",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 3,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"totals\":{\"truncated_hosts\":0,\"hosts\":64,\"wr_req_cq_records\":26816,\"unexpected_qp_slots\":0},\"stages\":{\"gather\":{\"expected\":16128,\"seen\":16128,\"unexpected_slots\":0,\"qps_missing\":0},\"local_return\":{\"expected\":1472,\"seen\":1472,\"unexpected_slots\":0,\"qps_missing\":0},\"cross_return\":{\"expected\":9216,\"seen\":9216,\"unexpected_slots\":0,\"qps_missing\":0}},\"first_missing\":[],\"cross_missing_hist\":[],\"cross_missing_examples\":[]}",
+  "task_id": "ht-unified-t32-ordered-cq",
+  "type": "RESULT",
+  "worktree_modified": false
+}

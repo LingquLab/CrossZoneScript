@@ -67,3 +67,7 @@ SST 兼容对象把跨机 WQE 按各自所在的 512 B SQ 区段分批，推进�
 BS8 可通过 `run.py` 的 `tokens=8` 参数复现。BS32 修正版通过 `tokens=32,cross_stripe=true` 运行，ELF 解压后 SHA-256 为 `99de129d1b048def25f006e84c99b66b116fd14064164da72d1a44b71f9224e9`。
 
 第二版保留 512 B SQ 分段，在每批 payload 和每条 SO 发布后按对应 QP 的实际完成数回收 CQ，再继续发布。调用参数为 `tokens=32,cross_stripe="ordered"`，ELF 解压后 SHA-256 为 `88733694f123a5156aade70429597728d2e003db51dfef19efbda792fedbd8f5`。[逐批回收改动](cq-ordered-sst.patch)
+
+第二版收齐了 26,816 个 CQ 槽，SST 在 258.676 µs 退出。256 个 guard 和 3,584 个 AIV status 通过，上游区域与 golden 逐字节一致。最终输出的 262,144 个值中有 89,216 个错值，均来自奇数 token，均等于当前期望值与前一 token 期望值之和。以 rank 0 的 token 1、通道 0 为例，输出为 1,936，期望 976，差值为 token 0 的 960。[终态](results/bs32-cq-ordered/terminal.json) · [CQ 计数](results/bs32-cq-ordered/cq-slots.json) · [输出比对](results/bs32-cq-ordered/output-diff.json)
+
+第三版沿用逐批回收，SST FP32 路径用当前 token 的第一份 returned partial 覆盖累加缓冲区，再加入该 token 后续的 partial。没有贡献的 token 写入零。调用参数为 `tokens=32,cross_stripe="fp32-init"`，ELF 解压后 SHA-256 为 `c1df0d77c507bd76a7c8c5b277a31e241074c6aac7eaf78102c122f74c2baba2`。CANN 9.1 CPU Debug 已通过 T4/T769 正例及三组缺失完成标记的负例。[FP32 累加改动](fp32-init-sst.patch)

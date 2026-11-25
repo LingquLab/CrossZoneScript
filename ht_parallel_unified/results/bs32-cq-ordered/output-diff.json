@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-bf1d85f13aef42d0a581e7c73279f518",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"checked\":262144,\"even_mismatches\":0,\"odd_mismatches\":89216,\"prior_plus_current\":89216,\"sample\":[[0,1,0,1936.0,976.0,960.0],[0,1,1,1936.5,976.25,960.25],[0,1,2,1937.0,976.5,960.5]]}",
+  "task_id": "ht-unified-t32-ordered-output",
+  "type": "RESULT",
+  "worktree_modified": false
+}

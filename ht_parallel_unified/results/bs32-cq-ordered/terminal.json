@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-8e7d39bfbed641489445f9a6f8ea79d0",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 9,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"exists\":true,\"run.json\":{\"status\":\"failed\",\"returncode\":0,\"timeout_seconds\":4800,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"phase-summary.json\":{\"status\":\"failed\",\"returncode\":0,\"runner_exit_code\":1,\"sim_us\":258.676,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"unified-result.json\":{\"status\":\"failed\",\"returncode\":0,\"runner_exit_code\":1,\"sim_us\":258.676,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"log\":{\"bytes\":2823477,\"cqe_in_prefix\":21066,\"cqe\":27584,\"last_cqe_stamp\":248466000,\"hits\":{\"unsupported\":false,\"fatal\":false,\"kernel\":false}},\"result\":{\"status\":\"failed\",\"returncode\":0,\"runner_exit_code\":1,\"sim_us\":258.676,\"kernel_sha256\":\"88733694f123a5156aade70429597728d2e003db51dfef19efbda792fedbd8f5\",\"guards\":{\"status\":\"guards_verified\",\"count\":256},\"checker_detail\":{\"ranks\":64,\"bytes_checked\":{\"gather\":8388608,\"gather_ready\":1048576,\"partial\":2097152,\"ready\":262144,\"local_ready\":262144,\"returned\":8388608,\"completed\":16777216,\"output\":1048576,\"status\":98304},\"phase_status\":{\"gather\":{\"0\":512},\"reduce\":{\"0\":512},\"local_return\":{\"0\":512},\"cross_return\":{\"0\":1024},\"final\":{\"0\":1024}},\"mismatched_ranks\":{\"output\":64},\"first_mismatches\":{\"output\":{\"rank\":0,\"byte\":514,\"actual\":\"f2440010\",\"expected\":\"74440010\"}}},\"cqe\":27584},\"checker_log\":{\"exists\":true,\"bytes\":806,\"summary\":{\"ranks\":64,\"bytes_checked\":{\"gather\":8388608,\"gather_ready\":1048576,\"partial\":2097152,\"ready\":262144,\"local_ready\":262144,\"returned\":8388608,\"completed\":16777216,\"output\":1048576,\"status\":98304},\"phase_status\":{\"gather\":{\"0\":512},\"reduce\":{\"0\":512},\"local_return\":{\"0\":512},\"cross_return\":{\"0\":1024},\"final\":{\"0\":1024}},\"mismatched_ranks\":{\"output\":64},\"first_mismatches\":{\"output\":{\"rank\":0,\"byte\":514,\"actual\":\"f2440010\",\"expected\":\"74440010\"}}}}}",
+  "task_id": "ht-unified-t32-ordered-status",
+  "type": "RESULT",
+  "worktree_modified": false
+}
