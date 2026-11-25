@@ -1,0 +1,14 @@
+{
+  "detail": "Direct command did not exit successfully; output remains green-local.",
+  "event_id": "green-65c3ce967ef44fc892c613ba9ff5b69c",
+  "execution": {
+    "exit_code": 1,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "protocol": "cross-zone/v3",
+  "reason": "direct_execution_failed",
+  "status": "FAIL",
+  "task_id": "ht-parallel-ep64-t32-fp32-init",
+  "type": "RESULT"
+}

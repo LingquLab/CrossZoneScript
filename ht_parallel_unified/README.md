@@ -71,3 +71,5 @@ BS8 可通过 `run.py` 的 `tokens=8` 参数复现。BS32 修正版通过 `token
 第二版收齐了 26,816 个 CQ 槽，SST 在 258.676 µs 退出。256 个 guard 和 3,584 个 AIV status 通过，上游区域与 golden 逐字节一致。最终输出的 262,144 个值中有 89,216 个错值，均来自奇数 token，均等于当前期望值与前一 token 期望值之和。以 rank 0 的 token 1、通道 0 为例，输出为 1,936，期望 976，差值为 token 0 的 960。[终态](results/bs32-cq-ordered/terminal.json) · [CQ 计数](results/bs32-cq-ordered/cq-slots.json) · [输出比对](results/bs32-cq-ordered/output-diff.json)
 
 第三版沿用逐批回收，SST FP32 路径用当前 token 的第一份 returned partial 覆盖累加缓冲区，再加入该 token 后续的 partial。没有贡献的 token 写入零。调用参数为 `tokens=32,cross_stripe="fp32-init"`，ELF 解压后 SHA-256 为 `c1df0d77c507bd76a7c8c5b277a31e241074c6aac7eaf78102c122f74c2baba2`。CANN 9.1 CPU Debug 已通过 T4/T769 正例及三组缺失完成标记的负例。[FP32 累加改动](fp32-init-sst.patch)
+
+第三版联合 SST 在 **258.152 µs** 完成。64 个 rank 的 262,144 个 FP32 最终值、其他八个区域、3,584 个 AIV status 和 256 个 guard 全部通过。Gather、同机回传和跨机回传分别收齐 16,128、1,472 和 9,216 个 CQ 槽。Bridge 外层返回退出码 1，保留的 `run.json`、`unified-result.json` 和 `check.log` 均确认 SST 与 checker 通过。[终态回执](results/bs32-fp32-init/terminal.json) · [CQ 计数](results/bs32-fp32-init/cq-slots.json) · [输入核对](results/bs32-fp32-init/matched-inputs.json)

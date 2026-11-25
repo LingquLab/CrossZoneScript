@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-6793608a1f9844b3a254e469e4249a8b",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 13,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"exists\":true,\"run.json\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"timeout_seconds\":4800,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"phase-summary.json\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"runner_exit_code\":0,\"sim_us\":258.152,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"unified-result.json\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"runner_exit_code\":0,\"sim_us\":258.152,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"log\":{\"bytes\":2823470,\"cqe_in_prefix\":21065,\"cqe\":27584,\"last_cqe_stamp\":248185000,\"hits\":{\"unsupported\":false,\"fatal\":false,\"kernel\":false}},\"result\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"runner_exit_code\":0,\"sim_us\":258.152,\"kernel_sha256\":\"c1df0d77c507bd76a7c8c5b277a31e241074c6aac7eaf78102c122f74c2baba2\",\"guards\":{\"status\":\"guards_verified\",\"count\":256},\"checked\":{\"ranks\":64,\"bytes_checked\":{\"gather\":8388608,\"gather_ready\":1048576,\"partial\":2097152,\"ready\":262144,\"local_ready\":262144,\"returned\":8388608,\"completed\":16777216,\"output\":1048576,\"status\":98304},\"phase_status\":{\"gather\":{\"0\":512},\"reduce\":{\"0\":512},\"local_return\":{\"0\":512},\"cross_return\":{\"0\":1024},\"final\":{\"0\":1024}},\"mismatched_ranks\":{},\"first_mismatches\":{}},\"cqe\":27584},\"checker_log\":{\"exists\":true,\"bytes\":366,\"summary\":{\"ranks\":64,\"bytes_checked\":{\"gather\":8388608,\"gather_ready\":1048576,\"partial\":2097152,\"ready\":262144,\"local_ready\":262144,\"returned\":8388608,\"completed\":16777216,\"output\":1048576,\"status\":98304},\"phase_status\":{\"gather\":{\"0\":512},\"reduce\":{\"0\":512},\"local_return\":{\"0\":512},\"cross_return\":{\"0\":1024},\"final\":{\"0\":1024}},\"mismatched_ranks\":{},\"first_mismatches\":{}}}}",
+  "task_id": "ht-unified-t32-fp32-status",
+  "type": "RESULT",
+  "worktree_modified": false
+}

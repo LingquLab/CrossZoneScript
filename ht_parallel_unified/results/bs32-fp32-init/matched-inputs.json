@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-71cc9e2138cd45f0a35728e73099cbde",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"input_files\":1920,\"golden_and_layout_files\":577,\"normalized_workloads_equal\":true,\"kernel_sha256\":\"c1df0d77c507bd76a7c8c5b277a31e241074c6aac7eaf78102c122f74c2baba2\"}",
+  "task_id": "ht-unified-t32-fp32-inputs",
+  "type": "RESULT",
+  "worktree_modified": false
+}
