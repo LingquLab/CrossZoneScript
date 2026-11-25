@@ -9,7 +9,10 @@ sys.path[:0] = [str(root/'ht_t32_e2e'), str(root/'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
 
-source = r'''
+options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
+tokens = sorted({int(value) for value in options.get('tokens', [])})
+assert set(tokens) <= {32, 64, 128}
+source = f"tokens = {tokens!r}\n" + r'''
 import json
 from pathlib import Path
 import time
@@ -17,7 +20,7 @@ import time
 root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native')
 cases = {}
 for case in sorted(root.glob('ht-peer-order-v*-t*')):
-    if not case.is_dir():
+    if not case.is_dir() or (tokens and not any(f'-t{size}-' in case.name for size in tokens)):
         continue
     result = case/'benchmark-result.json'
     run = case/'run.json'

@@ -45,9 +45,11 @@ def compare(rounds, expected):
         if rotate.get('status') == OK and peer.get('status') == OK:
             for field in ('route_sha256', 'payload_by_lane', 'expected_cqe', 'guard_count'):
                 assert rotate[field] == peer[field], (seed, field)
-            for field in ('checked', 'exports_sha256'):
-                if field in rotate and field in peer:
+            if all('exports_sha256' in trial for trial in (rotate, peer)):
+                for field in ('checked', 'exports_sha256'):
                     assert rotate[field] == peer[field], (seed, field)
+            else:
+                assert rotate['pair_exports_equal'] is True and peer['pair_exports_equal'] is True, seed
             assert rotate['cqe'] == peer['cqe'] == rotate['expected_cqe']
             delta = peer['sim_us'] - rotate['sim_us']
             row.update(rotate_us=rotate['sim_us'], peer_us=peer['sim_us'],
