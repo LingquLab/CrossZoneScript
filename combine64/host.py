@@ -232,8 +232,10 @@ def pipeline_phase(cid,tools,tokens,request,seconds=None):
     if seconds is None:seconds={4:2400,16:1800,32:2700,64:3600,128:5400}[tokens]
     return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',seconds)
 
-def verified_strided_build(case_name):
+def verified_strided_build(case_name,seeded=False):
     variant='four-module-sq-align-all512-cq-strided'
+    if seeded:
+        variant+='-seeded'
     case=ROOT/'cases'/case_name
     gate=json.loads((case/'phase-result.json').read_text())
     binary=(ROOT/('pipeline-'+variant+'-a1/kernel.o')).read_bytes()
@@ -392,7 +394,7 @@ def main(request):
             return int(any(outcomes))
         if action=='strided-barrier-bs64':
             assert tokens==64
-            variant=verified_strided_build('64p-t32-pipeline-a2')
+            variant=verified_strided_build('64p-t32-pipeline-a3',seeded=True)
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
             assert active.returncode==0 and 'sstsim' not in active.stdout
             outcomes=[
