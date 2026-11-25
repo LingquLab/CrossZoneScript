@@ -7,6 +7,10 @@ from pathlib import Path
 import subprocess
 
 SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
+REVISIONS = {
+    '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
+    'cb63658': 'cb63658b507aa7eba023afefd9e7ef8a27a0dcde',
+}
 REMOTE = r'''
 import json
 from pathlib import Path
@@ -15,9 +19,9 @@ import re
 import subprocess
 import time
 
-root = Path('/mnt/share/tilexr-sim-jobs/de038086-2b21-40e2-bad9-65360186ad97/run-86f802f-a1')
+root = Path('/mnt/share/tilexr-sim-jobs/de038086-2b21-40e2-bad9-65360186ad97') / f'run-{revision[:7]}-a1'
 identity = json.loads((root / 'identity.json').read_text())
-assert identity['revision'] == '86f802f9f8a19728364c466b0e9cb7416e038595'
+assert identity['revision'] == revision
 cid = identity['container_id']
 info = json.loads(subprocess.check_output(['docker', 'inspect', cid], timeout=10))[0]
 assert info['Id'] == cid and info['Config']['Labels']['crosszone.session'] == 'de038086-2b21-40e2-bad9-65360186ad97'
@@ -84,13 +88,16 @@ print(json.dumps(dict(first=first, second=second), separators=(',',':')))
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--args-file', type=Path, required=True)
-    assert json.loads(parser.parse_args().args_file.read_text(encoding='utf-8')) == {}
+    args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
+    assert set(args) <= {'candidate'}
+    candidate = args.get('candidate', '86f802f')
+    script = 'revision = ' + repr(REVISIONS[candidate]) + '\n' + REMOTE
     key = Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'
     cmd = ['ssh', '-T', '-i', str(key), '-p', '22', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
            '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=12',
            'root@141.61.94.26', 'timeout --kill-after=5 55 python3 -']
-    process = subprocess.run(cmd, input=REMOTE.encode(), capture_output=True, timeout=75)
-    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / '86f802f'
+    process = subprocess.run(cmd, input=script.encode(), capture_output=True, timeout=75)
+    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / candidate
     logs.mkdir(parents=True, exist_ok=True)
     (logs / 'probe.stderr').write_bytes(process.stderr)
     if process.returncode != 0:
