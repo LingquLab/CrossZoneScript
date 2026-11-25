@@ -3,6 +3,7 @@ ENTRY = 'tilexr_ep_ht_combine_parallel_kernel'
 CASE = 'ht-parallel-ep64-t4-fp32-1abdfffd'
 TOKENS = 4
 CHUNKS = 4
+T16_CASE = 'ht-parallel-ep64-t16-fp32-1abdfffd'
 T32_CASE = 'ht-parallel-ep64-t32-fp32-1abdfffd'
 T32_LONG_CASE = T32_CASE + '-long-wall'
 HIDDEN = 128

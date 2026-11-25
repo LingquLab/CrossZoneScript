@@ -23,14 +23,14 @@ def bytes_and_hash(path):
 
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
 tokens = int(options.get('tokens', 4))
-assert tokens in (4, 32)
+assert tokens in (4, 16, 32)
 long_wall = bool(options.get('long_wall'))
 assert not long_wall or tokens == 32
-sim_timeout = {4: 1200, 32: 4800 if long_wall else 2400}[tokens]
-case_override = 'T32_LONG_CASE' if long_wall else 'T32_CASE'
+sim_timeout = {4: 1200, 16: 4800, 32: 4800 if long_wall else 2400}[tokens]
+case_override = 'T32_LONG_CASE' if long_wall else f'T{tokens}_CASE'
 obj,digest=bytes_and_hash(here/'parallel.o.gz')
 assert digest==GZIP_SHA256
-plans,plans_sha=bytes_and_hash(here/('plans-t32.zip' if tokens == 32 else 'plans.zip'))
+plans,plans_sha=bytes_and_hash(here/('plans.zip' if tokens == 4 else f'plans-t{tokens}.zip'))
 exports=(support/'exports.py').read_text()
 fields='("returned", "completed", "status", "output")'
 exports=exports.replace(fields,repr(NAMES)).replace(
@@ -47,7 +47,7 @@ phase=(root/'ht_four_stage/local_phases.py').read_text().replace('"--timeout", "
 source='\n'.join((
     base,prepare,phase,
     (here/'config.py').read_text(),
-    f'TOKENS = 32\nCASE = {case_override}' if tokens == 32 else '',
+    f'TOKENS = {tokens}\nCASE = {case_override}' if tokens != 4 else '',
     *((here/name).read_text() for name in ('route.py','fixture.py','trace.py','green.py')),
     f'''
 try:

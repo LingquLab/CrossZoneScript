@@ -26,7 +26,7 @@ int main(int argc, char **argv)
     const uint64_t offset = std::stoull(argv[2]);
     constexpr uint32_t chunks = 4;
     const uint32_t tokens = std::stoul(argv[5]);
-    if (tokens != 4 && tokens != 32) return 2;
+    if (tokens != 4 && tokens != 16 && tokens != 32) return 2;
     TileXRCombineHTConfig config{rank, 64, tokens, 128, 8, 2 * tokens, 8 * tokens, 256, chunks, 8, 8, 3, 0};
     TileXRCombineHTLayout layout{};
     if (TileXRMoonEpCombineHTGetLayout(&config, &layout) || layout.chunks != chunks || layout.groups != 1) return 3;

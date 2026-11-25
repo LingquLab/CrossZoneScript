@@ -17,14 +17,14 @@ HERE=Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('source', type=Path)
 parser.add_argument('patched', type=Path)
-parser.add_argument('--tokens', type=int, choices=(4, 32), default=4)
+parser.add_argument('--tokens', type=int, choices=(4, 16, 32), default=4)
 parser.add_argument('--output', type=Path)
 options = parser.parse_args()
 SOURCE = options.source.resolve()
 PATCHED = options.patched.resolve()
 tokens = options.tokens
 chunks = config.CHUNKS
-output = options.output or HERE / ('plans.zip' if tokens == 4 else 'plans-t32.zip')
+output = options.output or HERE / ('plans.zip' if tokens == 4 else f'plans-t{tokens}.zip')
 SUPPORT=SOURCE/'tools/unitest/simulator/experiments/inter_server_send/sst'
 sys.path[:0]=[str(SUPPORT)]
 import loader
