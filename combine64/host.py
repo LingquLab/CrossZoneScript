@@ -344,6 +344,16 @@ def main(request):
             code=execute(cid,['python3',runtime+'/cq_visible_joint_build.py',runtime],ROOT/'cq-visible-joint16-build.log',450)
             if code:return code
             return pipeline_phase(cid,tools,16,dict(attempt='a4',build_variant='four-module-sq-align-all512-cq'),1200)
+        if action=='joint-cq-trace16':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            log=ROOT/'joint-cq-trace16-runner.log'
+            code=execute(cid,['python3',runtime+'/joint_cq_trace.py'],log,1350)
+            report=ROOT/'cases/64p-t16-pipeline-a4-cq-trace185us-a1/diagnostic.json'
+            if report.is_file():
+                print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
+            return code
         if action=='all-align-snapshot':
             assert tokens==16
             case=ROOT/'cases/64p-t16-pipeline-a3'
