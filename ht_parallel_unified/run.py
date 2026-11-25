@@ -23,10 +23,10 @@ def bytes_and_hash(path):
 
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
 tokens = int(options.get('tokens', 4))
-assert tokens in (4, 16, 32)
+assert tokens in (4, 8, 16, 32)
 long_wall = bool(options.get('long_wall'))
 assert not long_wall or tokens == 32
-sim_timeout = {4: 1200, 16: 4800, 32: 4800 if long_wall else 2400}[tokens]
+sim_timeout = {4: 1200, 8: 2400, 16: 4800, 32: 4800 if long_wall else 2400}[tokens]
 case_override = 'T32_LONG_CASE' if long_wall else f'T{tokens}_CASE'
 obj,digest=bytes_and_hash(here/'parallel.o.gz')
 assert digest==GZIP_SHA256
@@ -40,7 +40,7 @@ request=dict(revision='4d9a6f2f62f0b343998ea9760637cf3993e0539c',object=obj,
              plans=plans,plans_sha256=plans_sha,exports=exports,checker=(here/'check.py').read_text(),
              loader=(root/'ht_shared_ready/loader.py').read_text())
 prepare=(support/'prepare.py').read_text().replace(
-    '"tilexr_moonep_combine_ht_kernel"}',f'"{ENTRY}"}}').replace('chip["block_dim"] == 16','chip["block_dim"] == 56')
+    '"tilexr_moonep_combine_ht_kernel"}',f'"{ENTRY}"}}').replace('chip["block_dim"] == 16','chip["block_dim"] == 56').replace('(4, 16, 32)', '(4, 8, 16, 32)')
 base=(root/'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ',1)[0]
 phase=(root/'ht_four_stage/local_phases.py').read_text().replace('"--timeout", "540"',f'"--timeout", "{sim_timeout}"').replace(
     'timeout=600)', f'timeout={sim_timeout + 75})')

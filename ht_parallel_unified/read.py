@@ -8,11 +8,13 @@ here=Path(__file__).resolve().parent
 sys.path[:0]=[str(here.parent/'ht_t32_e2e'),str(here.parent/'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
-from config import CASE, T16_CASE, T32_CASE, T32_LONG_CASE
+from config import CASE, T8_CASE, T16_CASE, T32_CASE, T32_LONG_CASE
 
 options=json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2]==['--args-file'] else {}
 tokens = int(options.get('tokens', 4))
-assert tokens in (4, 16, 32)
+assert tokens in (4, 8, 16, 32)
+if tokens == 8:
+    CASE = T8_CASE
 if tokens == 16:
     CASE = T16_CASE
 if tokens == 32:
@@ -38,7 +40,7 @@ if path.is_file():
     with path.open('rb') as f:
         first=f.read(2*1024*1024)
     report['log']=dict(bytes=path.stat().st_size,cqe_in_prefix=first.count(b'WrCQEResp'))
-    if case_name.startswith(('ht-parallel-ep64-t16-', 'ht-parallel-ep64-t32-')):
+    if case_name.startswith(('ht-parallel-ep64-t8-', 'ht-parallel-ep64-t16-', 'ht-parallel-ep64-t32-')):
         all_log = path.read_bytes()
         report['log']['cqe'] = all_log.count(b'WrCQEResp')
         stamps = [int(match.group(1)) for line in all_log.splitlines() if b'WrCQEResp' in line
@@ -64,7 +66,7 @@ if ba.is_file():
         actions[value['busPayloadType_']]+=1
     report['ba_schema']=dict(keys=sorted(fields),actions=actions,bytes=ba.stat().st_size,
                              ts_fields=len(re.findall(rb'"ts"\s*:',raw)))
-if case_name.startswith(('ht-parallel-ep64-t16-', 'ht-parallel-ep64-t32-')):
+if case_name.startswith(('ht-parallel-ep64-t8-', 'ht-parallel-ep64-t16-', 'ht-parallel-ep64-t32-')):
     saved = case/'unified-result.json'
     if saved.is_file():
         result = json.loads(saved.read_text())

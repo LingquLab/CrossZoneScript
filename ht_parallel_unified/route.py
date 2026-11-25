@@ -64,7 +64,7 @@ def build_routes(rank, row_values, tokens=4, chunks=4):
 
 
 if __name__ == "__main__":
-    for tokens in (4, 16, 32):
+    for tokens in (4, 8, 16, 32):
         for rank in range(WORLD):
             data = build_routes(rank, lambda server, local, token, h: server * 64 + local * 8 + token + h / 64,
                                 tokens)

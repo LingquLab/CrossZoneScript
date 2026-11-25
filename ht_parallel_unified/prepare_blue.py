@@ -17,7 +17,7 @@ HERE=Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('source', type=Path)
 parser.add_argument('patched', type=Path)
-parser.add_argument('--tokens', type=int, choices=(4, 16, 32), default=4)
+parser.add_argument('--tokens', type=int, choices=(4, 8, 16, 32), default=4)
 parser.add_argument('--output', type=Path)
 options = parser.parse_args()
 SOURCE = options.source.resolve()
