@@ -132,7 +132,7 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
         assert sha(ROOT/'source/include/tilexr/comm/udma/device/api.h')==compatibility['baseline_header_sha256']
         assert sha(ROOT/'cq-compiler-barrier-a2/include/tilexr/comm/udma/device/api.h')==compatibility['overlay_header_sha256']
     if kernel_variant=='sq-align512':
-        assert (tokens,phase,attempt) in ((16,'send','a3'),(32,'send','a2'),(4,'send','a3'))
+        assert (tokens,phase,attempt) in ((16,'send','a3'),(32,'send','a2'),(4,'send','a3'),(64,'send','a2'))
         compatibility=json.loads((ROOT/'sq-align512-a1/report.json').read_text())
         assert compatibility['exit_codes']==[0,0]
         assert sha(ROOT/'source/src/moonep/combine_ht/kernels/combine_ht_kernel.h')==compatibility['baseline_header_sha256']
@@ -178,7 +178,7 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
             compatibility_baseline_header_sha256=compatibility['baseline_header_sha256'],
             compatibility_scope=('40596e2 plus SIM_SEND SQ publication split/drain at 512B boundaries' if kernel_variant=='sq-align512' else '40596e2 plus two compiler memory clobbers around existing DCCI; original source mount unchanged'))
     write(case/'fixture-data/manifest.json',meta)
-    seconds=900 if compatibility is not None else {4:900,16:1800,32:2700,64:3600,128:5400}[tokens]
+    seconds=900 if compatibility is not None and tokens<64 else {4:900,16:1800,32:2700,64:3600,128:5400}[tokens]
     return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel',seconds)
 
 def prepare_asset(cid,tools,tokens):
@@ -207,13 +207,15 @@ def return_phase(cid,tools,tokens,stage,attempt="a1",kernel_variant='original'):
     case=ROOT/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt));meta=json.loads((case/'fixture-data/manifest.json').read_text())
     assert kernel_variant in ('original','sq-align-all512')
     if kernel_variant=='sq-align-all512':
-        assert (tokens,stage,attempt) in ((16,'inter-send-independent','a2'),(32,'inter-send-independent','a2'))
+        assert (tokens,stage,attempt) in ((16,'inter-send-independent','a2'),(32,'inter-send-independent','a2'),
+                                         (64,'inter-send-independent','a2'))
         report=json.loads((ROOT/'inter-sq-align512-a1/report.json').read_text());assert report['exit_codes']==[0,0]
         binary=ROOT/'inter-sq-align512-a1/inter.o';assert sha(binary)==report['inter_object_sha256']
         raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
         meta.update(kernel_sha256=sha(case/'kernel/inter_server_send.o'),kernel_compatibility_variant=kernel_variant,compatibility_inter_source_sha256=report['overlay_inter_sha256'])
         write(case/'fixture-data/manifest.json',meta)
-    return run_case(cid,case,tools,'check_return.py',meta['entry'],900 if kernel_variant=='sq-align-all512' else {4:1000,16:1800,32:2700,64:3600,128:5400}[tokens])
+    seconds=900 if kernel_variant=='sq-align-all512' and tokens<64 else {4:1000,16:1800,32:2700,64:3600,128:5400}[tokens]
+    return run_case(cid,case,tools,'check_return.py',meta['entry'],seconds)
 
 def pipeline_phase(cid,tools,tokens,request,seconds=None):
     runtime='/work/'+tools.name;attempt=request.get('attempt','a1')
@@ -225,6 +227,16 @@ def pipeline_phase(cid,tools,tokens,request,seconds=None):
     case=ROOT/'cases'/('64p-t%d-pipeline-%s'%(tokens,attempt))
     if seconds is None:seconds={4:2400,16:1800,32:2700,64:3600,128:5400}[tokens]
     return run_case(cid,case,tools,'check_pipeline.py','tilexr_ht_pipeline_sst',seconds)
+
+def verified_strided_build(case_name):
+    variant='four-module-sq-align-all512-cq-strided'
+    case=ROOT/'cases'/case_name
+    gate=json.loads((case/'phase-result.json').read_text())
+    binary=(ROOT/('pipeline-'+variant+'-a1/kernel.o')).read_bytes()
+    padded=hashlib.sha256(binary+bytes(10485760-len(binary))).hexdigest()
+    assert gate['operator_qualified'] and gate['pipeline_build_variant']==variant
+    assert gate['kernel_sha256']==padded==sha(case/'kernel/inter_server_send.o')
+    return variant
 
 def status(cid,info):
     result={'root':str(ROOT),'container_id':cid,'running':info['State']['Running'],'oom_killed':info['State']['OOMKilled']}
@@ -356,13 +368,7 @@ def main(request):
             return pipeline_phase(cid,tools,16,dict(attempt='a5',build_variant='four-module-sq-align-all512-cq-strided'),1200)
         if action=='strided-barrier-regression':
             assert tokens==32
-            variant='four-module-sq-align-all512-cq-strided'
-            accepted=ROOT/'cases/64p-t16-pipeline-a5'
-            gate=json.loads((accepted/'phase-result.json').read_text())
-            binary=(ROOT/('pipeline-'+variant+'-a1/kernel.o')).read_bytes()
-            padded=hashlib.sha256(binary+bytes(10485760-len(binary))).hexdigest()
-            assert gate['operator_qualified'] and gate['pipeline_build_variant']==variant
-            assert gate['kernel_sha256']==padded==sha(accepted/'kernel/inter_server_send.o')
+            variant=verified_strided_build('64p-t16-pipeline-a5')
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
             assert active.returncode==0 and 'sstsim' not in active.stdout
             outcomes=[
@@ -370,6 +376,17 @@ def main(request):
                 pipeline_phase(cid,tools,4,dict(attempt='a6',build_variant=variant),1200),
                 return_phase(cid,tools,32,'inter-send-independent','a2','sq-align-all512'),
                 pipeline_phase(cid,tools,32,dict(attempt='a2',build_variant=variant),1500),
+            ]
+            return int(any(outcomes))
+        if action=='strided-barrier-bs64':
+            assert tokens==64
+            variant=verified_strided_build('64p-t32-pipeline-a2')
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            outcomes=[
+                local(cid,tools,64,'send','a2','sq-align512'),
+                return_phase(cid,tools,64,'inter-send-independent','a2','sq-align-all512'),
+                pipeline_phase(cid,tools,64,dict(attempt='a2',build_variant=variant),3600),
             ]
             return int(any(outcomes))
         if action=='joint-cq-trace16':
