@@ -4,6 +4,7 @@ CASE = 'ht-parallel-ep64-t4-fp32-1abdfffd'
 TOKENS = 4
 CHUNKS = 4
 T32_CASE = 'ht-parallel-ep64-t32-fp32-1abdfffd'
+T32_LONG_CASE = T32_CASE + '-long-wall'
 HIDDEN = 128
 ROW = 512
 MAGIC = 2026

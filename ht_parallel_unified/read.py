@@ -8,13 +8,13 @@ here=Path(__file__).resolve().parent
 sys.path[:0]=[str(here.parent/'ht_t32_e2e'),str(here.parent/'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
-from config import CASE, T32_CASE
+from config import CASE, T32_CASE, T32_LONG_CASE
 
 options=json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2]==['--args-file'] else {}
 tokens = int(options.get('tokens', 4))
 assert tokens in (4, 32)
 if tokens == 32:
-    CASE = T32_CASE
+    CASE = T32_LONG_CASE if options.get('long_wall') else T32_CASE
     assert not options.get('dl') and not options.get('overlap')
 source=f'case_name={CASE!r}\n'+r'''
 from collections import Counter
@@ -29,7 +29,7 @@ for filename in ('run.json','phase-summary.json','unified-result.json'):
     path=case/filename
     if path.is_file():
         data=json.loads(path.read_text())
-        report[filename]={key:data[key] for key in ('status','returncode','runner_exit_code','sim_us','guards')
+        report[filename]={key:data[key] for key in ('status','returncode','runner_exit_code','timeout_seconds','sim_us','guards')
                           if key in data}
 path=case/'sim.log'
 if path.is_file():
@@ -66,8 +66,18 @@ if case_name.startswith('ht-parallel-ep64-t32-'):
     saved = case/'unified-result.json'
     if saved.is_file():
         result = json.loads(saved.read_text())
-        report = {key:result[key] for key in ('status','returncode','runner_exit_code','sim_us','kernel_sha256',
+        report['result'] = {key:result[key] for key in ('status','returncode','runner_exit_code','sim_us','kernel_sha256',
                                               'guards','checked','checker_detail','cqe') if key in result}
+        report.pop('ba_schema', None)
+        report.pop('trace_inventory', None)
+        checker = case/'check.log'
+        report['checker_log'] = dict(exists=checker.is_file())
+        if checker.is_file():
+            report['checker_log']['bytes'] = checker.stat().st_size
+            for line in checker.read_text(errors='replace').splitlines():
+                if line.startswith('{"ranks":'):
+                    report['checker_log']['summary'] = json.loads(line)
+                    break
 print(json.dumps(report,separators=(',',':')))
 '''
 if options.get('queues'):
