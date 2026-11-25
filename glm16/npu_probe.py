@@ -12,7 +12,7 @@ LOGS = ROOT / ('device-probe-' + str(time.time_ns()))
 LOGS.mkdir()
 IMAGE = 'sha256:5588559036095d339c1cfb48c16d0227b841355490d8c0cb4e6730759f9c6674'
 NAME = 'glm16-09b20820-device-probe'
-out = {'log_directory': str(LOGS)}
+out = {'log_directory': str(LOGS), 'host_pid_namespace': bool(ARGS.get('host_pid'))}
 gate = subprocess.run(['/usr/local/sbin/npu-smi', 'info'], capture_output=True, text=True, timeout=65)
 table = gate.stdout.split('Process id', 1)[-1]
 idle = (gate.returncode == 0 and 'Process id' in gate.stdout
@@ -65,6 +65,8 @@ cmd = ['docker', 'create', '--name', NAME, '--network', 'none', '--shm-size=4g',
        '-e', 'ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7', '-e', 'ASCEND_GLOBAL_LOG_LEVEL=2',
        '-e', 'ASCEND_PROCESS_LOG_PATH=/experiment/ascend-logs',
        '--mount', f'type=bind,src={LOGS},dst=/experiment']
+if ARGS.get('host_pid'):
+    cmd += ['--pid=host']
 for p in sorted(set(glob.glob('/dev/davinci*') + glob.glob('/dev/hisi*')
                     + glob.glob('/dev/uburma/*') + glob.glob('/dev/ummu*'))):
     if Path(p).is_char_device():
