@@ -11,7 +11,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat'}
+assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
 proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
 proxy_url = proxies.get('https') or proxies.get('http')
@@ -23,14 +23,15 @@ node_timeout = 22000 if args['operation'] == 'download' else 170
 port = 18744 if args.get('host') == '141.61.94.26' else 18743
 local_url = proxy._replace(netloc=auth + f'127.0.0.1:{port}').geturl()
 node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url, 'https': local_url}) + '\n' + remote
+needs_proxy = args['operation'] in {'prepare', 'network', 'download'}
+forward = ['-o', 'ExitOnForwardFailure=yes', '-R', f'127.0.0.1:{port}:127.0.0.1:{port}'] if needs_proxy else []
 jump_source = ('NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(args['operation'])
                + '\nHOST = ' + repr(args.get('host', '141.61.94.58')) + '\nNODE_TIMEOUT = '
-               + repr(node_timeout) + '\nPORT = ' + repr(port) + '\n') + r'''
+               + repr(node_timeout) + '\nFORWARD = ' + repr(forward) + '\n') + r'''
 import json, subprocess
 assert HOST in {'141.61.94.58','141.61.94.26'}
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-                    '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30',
-                    '-R', f'127.0.0.1:{PORT}:127.0.0.1:{PORT}',
+                    '-o', 'ServerAliveInterval=30', *FORWARD,
                     'root@'+HOST, 'python3', '-'], input=NODE_SOURCE,
                    capture_output=True, text=True, timeout=NODE_TIMEOUT)
 if p.returncode:
@@ -44,9 +45,8 @@ else:
         result['jump_probe'] = json.loads(q.stdout) if q.returncode == 0 else {'exit': q.returncode}
     print(json.dumps(result))
 '''
-p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-                    '-o', 'ExitOnForwardFailure=yes', '-R',
-                    f'127.0.0.1:{port}:{proxy.hostname}:{proxy.port}',
+forward = ['-o', 'ExitOnForwardFailure=yes', '-R', f'127.0.0.1:{port}:{proxy.hostname}:{proxy.port}'] if needs_proxy else []
+p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', *forward,
                     '-o', 'ServerAliveInterval=30',
                     '-o', 'IdentitiesOnly=yes', '-i',
                     'C:/Users/l00929943/.ssh/id_ed25519_server',
