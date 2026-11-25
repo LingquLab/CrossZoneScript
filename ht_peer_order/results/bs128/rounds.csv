@@ -1,0 +1,4 @@
+seed,route_sha256,payload_wqes,so_wqes,rotate_status,peer_status,rotate_us,peer_us,peer_minus_rotate_us,peer_minus_rotate_percent
+20261124,d90eedf59a72aa057d4a702a599ec45dbf1708bfa94c212fafe5841bd609c469,31791,7168,sst_and_checker_passed,sst_and_checker_passed,433.535,413.009,-20.52600000000001,-4.734565836668322
+20261125,20e63b3a9064903e831c560bb7f0ffc57fde09a5b7cae50bed25313c6aa09675,31797,7168,sst_and_checker_passed,sst_and_checker_passed,388.698,381.781,-6.916999999999973,-1.7795306381818208
+20261126,d4be692c968ca252d7104bbfe77ce0a274215cb8a8d5476ee8b6b5434d7661e7,31856,7168,sst_and_checker_passed,sst_and_checker_passed,391.575,407.443,15.867999999999995,4.0523526782864066
