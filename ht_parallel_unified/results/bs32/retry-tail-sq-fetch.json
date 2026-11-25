@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-742983ba443f49469064e268e94f7714",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"columns\":[\"bb\",\"event\",\"size_field\",\"trace_ts\",\"address_field\"],\"samples\":[{\"rank\":0,\"peer\":8,\"truncated\":false,\"timestamps\":true,\"counts\":{\"18/RD_REQ\":1,\"18/RD_REQ_RESP\":1,\"24/RD_REQ\":1,\"24/RD_REQ_RESP\":1},\"file_order\":[[18,\"RD_REQ\",384,78.417,\"oriAddr_\"],[18,\"RD_REQ_RESP\",384,78.50852,\"oriAddr_\"],[24,\"RD_REQ\",64,89.12,\"oriAddr_\"],[24,\"RD_REQ_RESP\",64,89.34935,\"oriAddr_\"]]},{\"rank\":5,\"peer\":13,\"truncated\":false,\"timestamps\":true,\"counts\":{\"18/RD_REQ\":1,\"18/RD_REQ_RESP\":1},\"file_order\":[[18,\"RD_REQ\",448,82.38,\"oriAddr_\"],[18,\"RD_REQ_RESP\",448,82.6108,\"oriAddr_\"]]}]}",
+  "task_id": "ht-parallel-ep64-t32-sq-tail",
+  "type": "RESULT",
+  "worktree_modified": false
+}

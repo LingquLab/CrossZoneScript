@@ -208,6 +208,7 @@ def cross_so_arrival(case):
     examples = []
     missing_lane0 = []
     missing_rows = []
+    target_pairs = []
     for rank in range(64):
         path = case/'OUTPUT/stat_trace'/f'Host{rank}_ba_layer_trace.json'
         if not path.is_file():
@@ -257,6 +258,12 @@ def cross_so_arrival(case):
         if 'WR_DATA' not in events.get((paired_gateway,0), ()):
             missing_lane0.append([rank, paired_gateway])
         counts['cross_rows_wr_data'] += len(payload_writes)
+        if rank in (8, 13):
+            target_pairs.append(dict(sender=paired_gateway, receiver=rank,
+                                     rows_wr_data=len(payload_writes),
+                                     last_chunk_tokens_wr_data=sorted(payload_writes & set(range(24,32))),
+                                     missing_payload_tokens=sorted(set(range(32))-payload_writes),
+                                     lane0_so_wr_data='WR_DATA' in events.get((paired_gateway, 0), ())))
         if len(payload_writes) != 32 and len(missing_rows) < 6:
             missing_rows.append([rank, paired_gateway, sorted(set(range(32)) - payload_writes)])
         counts['remote_slots_wr_data'] += sum('WR_DATA' in observed for observed in events.values())
@@ -264,7 +271,8 @@ def cross_so_arrival(case):
             examples.append([rank, paired_gateway, sorted(events.get((paired_gateway,0), ())),
                              sorted(events.get((paired_gateway,1), ()))])
     return dict(counts=counts, sample_columns=['receiver','gateway','lane0_events','lane1_events'],
-                examples=examples, missing_lane0=missing_lane0[:8], missing_payload_rows=missing_rows)
+                examples=examples, missing_lane0=missing_lane0[:8], missing_payload_rows=missing_rows,
+                target_pairs=target_pairs)
 
 
 def cross_sq_tail(case):
