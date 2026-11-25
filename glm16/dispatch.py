@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import shutil
+import urllib.parse
 import urllib.request
 
 parser = argparse.ArgumentParser()
@@ -12,10 +14,17 @@ args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
 assert args['operation'] in {'prepare', 'network'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
 proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
-node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr(proxies) + '\n' + remote
+proxy_url = proxies.get('https') or proxies.get('http')
+assert proxy_url, 'bridge download proxy is required'
+proxy = urllib.parse.urlsplit(proxy_url)
+assert proxy.scheme in {'http', 'https'} and proxy.hostname and proxy.port
+auth = proxy.netloc.rsplit('@', 1)[0] + '@' if '@' in proxy.netloc else ''
+local_url = proxy._replace(netloc=auth + '127.0.0.1:18743').geturl()
+node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url, 'https': local_url}) + '\n' + remote
 jump_source = 'NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(args['operation']) + '\n' + r'''
 import json, subprocess
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+                    '-o', 'ExitOnForwardFailure=yes', '-R', '127.0.0.1:18743:127.0.0.1:18743',
                     'root@141.61.94.58', 'python3', '-'], input=NODE_SOURCE,
                    capture_output=True, text=True, timeout=170)
 if p.returncode:
@@ -30,6 +39,8 @@ else:
     print(json.dumps(result))
 '''
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+                    '-o', 'ExitOnForwardFailure=yes', '-R',
+                    f'127.0.0.1:18743:{proxy.hostname}:{proxy.port}',
                     '-o', 'IdentitiesOnly=yes', '-i',
                     'C:/Users/l00929943/.ssh/id_ed25519_server',
                     'root@141.61.94.30', 'python3', '-'], input=jump_source,
@@ -39,6 +50,7 @@ if p.returncode:
                       'stderr_tail': p.stderr[-1400:]}))
     raise SystemExit(1)
 result = json.loads(p.stdout)
+result['bridge_hapi_cli'] = shutil.which('hapi')
 if args['operation'] == 'network':
     probe = subprocess.run([sys.executable, str(Path(__file__).parent / 'network.py')],
                            capture_output=True, text=True, timeout=90)

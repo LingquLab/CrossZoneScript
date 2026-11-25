@@ -33,7 +33,7 @@ try:
         if item.get('Type') in {'tree', 'directory'}:
             continue
         path = item.get('Path') or item.get('Name')
-        if not path or path.startswith('.'):
+        if not path or path.startswith('.') or path.startswith('optional/'):
             continue
         assert not Path(path).is_absolute() and '..' not in Path(path).parts
         manifest.append({'path': path, 'size': item.get('Size'),
