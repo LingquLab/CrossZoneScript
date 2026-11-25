@@ -107,7 +107,7 @@ print(json.dumps(dict(input_files=len(left), golden_and_layout_files=len(left_go
                       normalized_workloads_equal=True, kernel_sha256=b['kernel_sha256']),separators=(',',':')))
 '''
 elif options.get('queues'):
-    assert tokens == 32 or (tokens == 16 and (options.get('count_cq') or options.get('detail')))
+    assert tokens == 32 or options.get('count_cq') or (tokens == 16 and options.get('detail'))
     assert tokens == 32 or not (options.get('cross') or options.get('cross_so'))
     trace_args = 'case'
     function = 'queue_trace'
