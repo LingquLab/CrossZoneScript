@@ -49,11 +49,14 @@ def prepare(request, case, support):
             for name in ('workload.yml','export-layout.json'):
                 archive.add(generated/name,arcname=name,recursive=False)
         fixture=buffer.getvalue()
-        prepare_bulk(dict(tokens=TOKENS,hidden=HIDDEN,archive=base64.b64encode(fixture).decode(),
+        fixture_request = dict(tokens=TOKENS,hidden=HIDDEN,archive=base64.b64encode(fixture).decode(),
                           identity=dict(identity,input_archive_sha256=hashlib.sha256(fixture).hexdigest()),
                           object=request['object'],checker=request['checker'],exports=request['exports'],
                           build=dict(entry=ENTRY,variant=case.name,candidate_commit=request['revision'],
-                                     kernel_sha256=KERNEL_SHA256,compiled_in='blue')),case,runtime_root)
+                                     kernel_sha256=KERNEL_SHA256,compiled_in='blue'))
+        if request.get('profile'):
+            fixture_request['profile'] = True
+        prepare_bulk(fixture_request, case, runtime_root)
 
 
 def main(request):

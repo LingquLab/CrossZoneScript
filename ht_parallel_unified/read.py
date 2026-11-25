@@ -9,6 +9,7 @@ sys.path[:0]=[str(here.parent/'ht_t32_e2e'),str(here.parent/'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
 from config import CASE, T8_CASE, T16_CASE, T32_CASE, T32_LONG_CASE, T32_CROSS_STRIPE_CASE, T32_CQ_ORDERED_CASE, T32_FP32_INIT_CASE
+from config import T32_PROFILE_CASE
 
 options=json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2]==['--args-file'] else {}
 tokens = int(options.get('tokens', 4))
@@ -19,7 +20,9 @@ if tokens == 16:
     CASE = T16_CASE
 if tokens == 32:
     CASE = T32_LONG_CASE if options.get('long_wall') else T32_CASE
-    if options.get('cross_stripe') == 'fp32-init':
+    if options.get('profile'):
+        CASE = T32_PROFILE_CASE
+    elif options.get('cross_stripe') == 'fp32-init':
         CASE = T32_FP32_INIT_CASE
     elif options.get('cross_stripe') == 'ordered':
         CASE = T32_CQ_ORDERED_CASE

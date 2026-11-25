@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from config import CQ_ORDERED_GZIP_SHA256, CROSS_STRIPE_GZIP_SHA256, ENTRY, FP32_INIT_GZIP_SHA256, GZIP_SHA256, NAMES
+from config import PROFILE_GZIP_SHA256
 
 here=Path(__file__).resolve().parent
 root=here.parent
@@ -25,15 +26,21 @@ options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args
 tokens = int(options.get('tokens', 4))
 assert tokens in (4, 8, 16, 32)
 long_wall = bool(options.get('long_wall'))
+profile = bool(options.get('profile'))
 cross_stripe = options.get('cross_stripe', False)
 assert cross_stripe in (False, True, 'ordered', 'fp32-init')
-assert not (long_wall or cross_stripe) or tokens == 32
-sim_timeout = {4: 1200, 8: 2400, 16: 4800, 32: 4800 if long_wall or cross_stripe else 2400}[tokens]
+assert not (long_wall or cross_stripe or profile) or tokens == 32
+sim_timeout = {4: 1200, 8: 2400, 16: 4800, 32: 6000 if profile else 4800 if long_wall or cross_stripe else 2400}[tokens]
 case_override = 'T32_LONG_CASE' if long_wall else f'T{tokens}_CASE'
 binary = here/'parallel.o.gz'
 gzip_digest = GZIP_SHA256
 kernel_override = ''
-if cross_stripe == 'fp32-init':
+if profile:
+    case_override = 'T32_PROFILE_CASE'
+    binary = here/'parallel-profile.o.gz'
+    gzip_digest = PROFILE_GZIP_SHA256
+    kernel_override = 'KERNEL_SHA256 = PROFILE_KERNEL_SHA256'
+elif cross_stripe == 'fp32-init':
     case_override = 'T32_FP32_INIT_CASE'
     binary = here/'parallel-fp32-init.o.gz'
     gzip_digest = FP32_INIT_GZIP_SHA256
@@ -59,6 +66,8 @@ assert 'if name not in '+repr(NAMES) in exports
 request=dict(revision='4d9a6f2f62f0b343998ea9760637cf3993e0539c',object=obj,
              plans=plans,plans_sha256=plans_sha,exports=exports,checker=(here/'check.py').read_text(),
              loader=(root/'ht_shared_ready/loader.py').read_text())
+if profile:
+    request['profile'] = True
 prepare=(support/'prepare.py').read_text().replace(
     '"tilexr_moonep_combine_ht_kernel"}',f'"{ENTRY}"}}').replace('chip["block_dim"] == 16','chip["block_dim"] == 56').replace('(4, 16, 32)', '(4, 8, 16, 32)')
 base=(root/'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ',1)[0]
@@ -67,6 +76,7 @@ phase=(root/'ht_four_stage/local_phases.py').read_text().replace('"--timeout", "
 source='\n'.join((
     base,prepare,phase,
     (here/'config.py').read_text(),
+    (here/'profile_fixture.py').read_text() if profile else '',
     f'TOKENS = {tokens}\nCASE = {case_override}' if tokens != 4 else '',
     kernel_override,
     *((here/name).read_text() for name in ('route.py','fixture.py','trace.py','green.py')),
