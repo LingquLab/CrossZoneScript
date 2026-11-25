@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-31bfa58e4a0f4b039a7bf9becbcfec25",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 3,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"totals\":{\"truncated_hosts\":0,\"hosts\":64,\"wr_req_cq_records\":10795,\"unexpected_qp_slots\":0},\"stages\":{\"gather\":{\"expected\":5376,\"seen\":5332,\"unexpected_slots\":0,\"qps_missing\":44},\"local_return\":{\"expected\":704,\"seen\":451,\"unexpected_slots\":0,\"qps_missing\":161},\"cross_return\":{\"expected\":7680,\"seen\":5012,\"unexpected_slots\":0,\"qps_missing\":2576}},\"first_missing\":[[0,1,20,\"local_return\",[0,1,2,3,4],[]],[0,2,1,\"local_return\",[0],[]],[0,3,21,\"local_return\",[0],[]],[0,4,2,\"local_return\",[0],[]],[0,5,22,\"local_return\",[0],[]],[0,6,3,\"local_return\",[0],[]]]}",
+  "task_id": "ht-unified-t8-cq",
+  "type": "RESULT",
+  "worktree_modified": false
+}

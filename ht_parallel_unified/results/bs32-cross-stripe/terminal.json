@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-2edfaca0b08e43beb57503cafff7761d",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 12,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"exists\":true,\"run.json\":{\"status\":\"timed_out\",\"returncode\":-9,\"timeout_seconds\":4800},\"phase-summary.json\":{\"status\":\"timed_out\",\"returncode\":-9,\"runner_exit_code\":1},\"unified-result.json\":{\"status\":\"timed_out\",\"returncode\":-9,\"runner_exit_code\":1},\"log\":{\"bytes\":2659253,\"cqe_in_prefix\":21068,\"cqe\":27380,\"last_cqe_stamp\":155659000,\"hits\":{\"unsupported\":false,\"fatal\":false,\"kernel\":false}},\"result\":{\"status\":\"timed_out\",\"returncode\":-9,\"runner_exit_code\":1,\"kernel_sha256\":\"99de129d1b048def25f006e84c99b66b116fd14064164da72d1a44b71f9224e9\",\"cqe\":27380},\"checker_log\":{\"exists\":false}}",
+  "task_id": "ht-unified-t32-stripe-status",
+  "type": "RESULT",
+  "worktree_modified": false
+}

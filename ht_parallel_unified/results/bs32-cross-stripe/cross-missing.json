@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-02698743129c4a49b668980a87f64f8e",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"totals\":{\"truncated_hosts\":0,\"hosts\":64,\"wr_req_cq_records\":26624,\"unexpected_qp_slots\":0},\"stages\":{\"gather\":{\"expected\":16128,\"seen\":16128,\"unexpected_slots\":0,\"qps_missing\":0},\"local_return\":{\"expected\":1472,\"seen\":1472,\"unexpected_slots\":0,\"qps_missing\":0},\"cross_return\":{\"expected\":9216,\"seen\":9024,\"unexpected_slots\":0,\"qps_missing\":192}},\"first_missing\":[[0,8,20,\"cross_return\",[8],[0,1,2,3,4,5,6,7]],[0,16,20,\"cross_return\",[0],[]],[0,24,20,\"cross_return\",[0],[]],[0,56,20,\"cross_return\",[0],[]],[1,9,20,\"cross_return\",[8],[0,1,2,3,4,5,6,7]],[1,17,20,\"cross_return\",[0],[]]],\"cross_missing_hist\":[[0,0,false,true,false,16],[0,0,true,true,true,32],[0,8,true,true,true,8],[1,0,false,true,false,64],[1,0,true,true,true,48],[1,8,false,true,false,8],[1,8,true,true,true,16]],\"cross_missing_examples\":[[0,8,20,[8],6,[0,2,4,6]],[0,16,20,[0],1,[]],[0,24,20,[0],1,[]],[0,56,20,[0],1,[]],[1,9,20,[8],6,[0,2,4,6]],[1,17,20,[0],1,[]],[1,25,20,[0],1,[]],[1,57,20,[0],1,[]]]}",
+  "task_id": "ht-unified-t32-stripe-missing",
+  "type": "RESULT",
+  "worktree_modified": false
+}

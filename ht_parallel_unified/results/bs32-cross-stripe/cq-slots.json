@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-d2f8f8940c7e4c3d83f48b81c17bbd7c",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 4,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"totals\":{\"truncated_hosts\":0,\"hosts\":64,\"wr_req_cq_records\":26624,\"unexpected_qp_slots\":0},\"stages\":{\"gather\":{\"expected\":16128,\"seen\":16128,\"unexpected_slots\":0,\"qps_missing\":0},\"local_return\":{\"expected\":1472,\"seen\":1472,\"unexpected_slots\":0,\"qps_missing\":0},\"cross_return\":{\"expected\":9216,\"seen\":9024,\"unexpected_slots\":0,\"qps_missing\":192}},\"first_missing\":[[0,8,20,\"cross_return\",[8],[0,1,2,3,4,5,6,7]],[0,16,20,\"cross_return\",[0],[]],[0,24,20,\"cross_return\",[0],[]],[0,56,20,\"cross_return\",[0],[]],[1,9,20,\"cross_return\",[8],[0,1,2,3,4,5,6,7]],[1,17,20,\"cross_return\",[0],[]]]}",
+  "task_id": "ht-unified-t32-stripe-cq",
+  "type": "RESULT",
+  "worktree_modified": false
+}

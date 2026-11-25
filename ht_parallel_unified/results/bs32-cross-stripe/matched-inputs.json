@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-cce587e8b1a647f996bd46bbfd26d15b",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"input_files\":1920,\"golden_and_layout_files\":577,\"normalized_workloads_equal\":true,\"kernel_sha256\":\"99de129d1b048def25f006e84c99b66b116fd14064164da72d1a44b71f9224e9\"}",
+  "task_id": "ht-unified-t32-stripe-inputs",
+  "type": "RESULT",
+  "worktree_modified": false
+}

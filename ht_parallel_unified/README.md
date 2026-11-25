@@ -51,3 +51,19 @@ SST 达到墙钟上限，进程退出码为 `-9`。最后一条 `WrCQEResp` 的�
 | 跨机回传 | 8,192 | 550 |
 
 448 条 Gather QP 各记录 8 次 doorbell 写请求，全部缺最后一个 chunk 的 Gather SO CQE。终态 CQ 槽统计与先前快照一致。[BS16 终态和队列回执](results/bs16)
+
+## BS8 原版对照
+
+保留原 ELF，改为每 rank 8 个 token，每个 chunk 含 2 个 token。SST 达到 2,400 秒墙钟上限，checker 未启动。最终 BA trace 覆盖全部 64 个 rank。Gather 匹配 5,332／5,376 个 CQ 槽，同机回传匹配 451／704 个，跨机回传匹配 5,012／7,680 个。更小的 BS 仍会出现 CQ 缺失。[BS8 终态和队列回执](results/bs8)
+
+## BS32 跨机 SQ 修正
+
+原版从 rank 5 发往 rank 13 的 SQ 记录了一次从 BB18 开始、长 448 B 的取回响应，跨过 BB23 之后的 512 B 边界，把 payload 和窗口 SO 放入同一次取回。作为对照，rank 0 发往 rank 8 的 SQ 从 BB18 取回 384 B，然后从 BB24 另取 64 B。两条 QP 都缺跨机 CQ 槽。[跨机 SQ 定位回执](results/bs32/retry-tail-sq-fetch.json)
+
+SST 兼容对象把跨机 WQE 按各自所在的 512 B SQ 区段分批，推进到下一区段前，先回收前一区段的 CQ。随后使用原 BS32 夹具、8 个模拟线程和 4,800 秒墙钟上限复测。绿区逐文件核对了 1,920 个输入和 577 个 golden 与布局文件，并确认归一化 workload 一致。[兼容改动](cross-stripe-sst.patch) · [输入核对回执](results/bs32-cross-stripe/matched-inputs.json)
+
+第一版修正也达到 4,800 秒墙钟上限，checker 未启动。停止推进时，Gather 与同机回传各自收齐 16,128 和 1,472 个 CQ 槽，跨机从原版的 8,831 增至 9,024 个，距预期仍少 192 个。缺失分布在 lane 0 的 56 条 QP 和 lane 1 的 136 条 QP，每条各缺一个 CQ 槽。192 条 QP 均可匹配到 doorbell 写请求，其中 88 条只发窗口 SO 的 QP 无对应 SQ fetch。[终态](results/bs32-cross-stripe/terminal.json) · [队列明细](results/bs32-cross-stripe/cross-missing.json)
+
+BS8 可通过 `run.py` 的 `tokens=8` 参数复现。BS32 修正版通过 `tokens=32,cross_stripe=true` 运行，ELF 解压后 SHA-256 为 `99de129d1b048def25f006e84c99b66b116fd14064164da72d1a44b71f9224e9`。
+
+第二版保留 512 B SQ 分段，在每批 payload 和每条 SO 发布后按对应 QP 的实际完成数回收 CQ，再继续发布。调用参数为 `tokens=32,cross_stripe="ordered"`，ELF 解压后 SHA-256 为 `88733694f123a5156aade70429597728d2e003db51dfef19efbda792fedbd8f5`。[逐批回收改动](cq-ordered-sst.patch)
