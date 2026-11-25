@@ -243,6 +243,12 @@ def main(config):
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], build))
         env = stage_platform(case, config['platform_sha256'])
+        import yaml
+        model_config = case / 'v310_config/davidV100_simulator_config.yml'
+        scalar = yaml.safe_load(model_config.read_text())['simulator_config']['su']
+        component, level = scalar['component'], scalar['params']['lsu_level']
+        assert component == 'V310.ScalarUnitL1' and int(level) == 1, 'SST perf model required'
+        record['model_config'] = dict(component=component, lsu_level=int(level), sha256=digest(model_config))
         record['environment_sha256'] = digest(case / 'sst-environment.json')
         write_json(ROOT / 'progress.json', {'stage': 'sst', 'case': case.name, 'updated_unix': time.time()})
         run_sst(case, env, timeout, record)

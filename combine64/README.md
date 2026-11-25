@@ -36,3 +36,9 @@ directory and checks all 64 ranks before returning success.
 The fixture loads the initial workspace that production Prepare creates. SST
 checks the compute launches and requested numerical outputs. Host stream
 ordering and the post-round reuse fence are outside these launches.
+
+`action=batch` runs an inclusive `start_stage` to `end_stage` interval for one
+batch size. `stage_timeouts` can set a separate SST timeout per stage. The
+runner saves a result after every stage and stops on the first failure.
+`action=status` reads the batch journal. Add `status_for` to read one stage's
+run record. Both actions accept `candidate` as `b5383cf` or `86f802f`.

@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import time
 import traceback
 
 SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
@@ -82,8 +83,103 @@ def stage_tools(root, files):
     assert PLATFORM_FILES <= selected.keys(), 'platform_files_missing'
     assert all(any(name.startswith(prefix + '/') for name in selected)
                for prefix in ('v310_config', 'UBusSim_config'))
-    return tools, platform, selected
+    return tools, selected
 
+
+
+STAGES = (
+    'local-send', 'gateway-reduce', 'local-return', 'inter-server-send',
+    'final-independent', 'joint-producer', 'final-from-producer', 'joint-final',
+)
+REPORT_FIELDS = (
+    'candidate_commit', 'stage', 'tokens', 'attempt', 'status', 'blocks',
+    'routes_sha256', 'source_object_sha256', 'kernel_sha256',
+    'environment_sha256', 'platform_simulated_us', 'sst_wall_seconds',
+    'runner_wall_seconds', 'guards', 'checked_ranks', 'checked_bytes',
+    'predecessor', 'actual_input_sha256', 'model_config', 'error',
+)
+
+
+def run_case(root, cid, tools, config):
+    action, tokens, attempt, timeout = (config[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
+    case = root / 'cases' / f't{tokens}-{action}-a{attempt}'
+    logs = root / 'hapi-logs'
+    logs.mkdir(exist_ok=True)
+    log_path = logs / (case.name + '.log')
+    container_tools = str(Path('/work') / tools.relative_to(root))
+    argv = [
+        'docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + 230),
+        'python3', f'{container_tools}/sim_case.py', json.dumps(config),
+    ]
+    with log_path.open('xb') as log:
+        proc = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + 260)
+    result_path = case / 'phase-result.json'
+    if result_path.is_file():
+        report = json_file(result_path)
+    else:
+        text = log_path.read_text(errors='replace')
+        errors = [line.strip()[:250] for line in text.splitlines() if ERROR_PATTERN.search(line)]
+        report = {'stage': action, 'status': 'preparation_or_runner_failed', 'error': errors[:5]}
+    summary = {key: report[key] for key in REPORT_FIELDS if key in report}
+    summary.update(case=str(case), host_log=str(log_path), container_exit=proc.returncode)
+    return summary
+
+
+def status(root, args):
+    report = {'root': str(root), 'exists': root.is_dir()}
+    for name in ('progress.json', 'build-summary.json'):
+        path = root / name
+        if path.is_file():
+            report[path.stem] = json_file(path)
+    tokens, attempt = args['tokens'], args['attempt']
+    batch = root / 'hapi-logs' / f't{tokens}-batch-a{attempt}.json'
+    if batch.is_file():
+        report['batch'] = json_file(batch)
+    stage = args.get('status_for')
+    if stage in STAGES:
+        case = root / 'cases' / f't{tokens}-{stage}-a{attempt}'
+        for name in ('phase-result.json', 'run.json'):
+            path = case / name
+            if path.is_file():
+                run = json_file(path)
+                report[path.stem] = {key: run[key] for key in REPORT_FIELDS if key in run}
+    return report
+
+
+def run_batch(root, cid, tools, config, args):
+    tokens, attempt = config['tokens'], config['attempt']
+    logs = root / 'hapi-logs'
+    logs.mkdir(exist_ok=True)
+    journal = logs / f't{tokens}-batch-a{attempt}.json'
+    start = STAGES.index(args.get('start_stage', STAGES[0]))
+    end = STAGES.index(args.get('end_stage', STAGES[-1]))
+    assert start <= end, 'invalid_stage_interval'
+    reports = []
+    with journal.open('x') as log:
+        json.dump(reports, log)
+    stage_timeouts = args.get('stage_timeouts', {})
+    for action in STAGES[start:end + 1]:
+        point = dict(config, action=action, timeout=stage_timeouts.get(action, config['timeout']))
+        if action == 'final-from-producer':
+            point['source_case'] = args.get('source_case') or f't{tokens}-joint-producer-a{attempt}'
+        reports.append(run_case(root, cid, tools, point))
+        pending = journal.with_suffix('.tmp')
+        pending.write_text(json.dumps(reports, indent=2) + '\n')
+        pending.replace(journal)
+        if reports[-1]['status'] != 'sst_and_checker_passed' or reports[-1]['container_exit'] != 0:
+            break
+    return reports
+
+
+
+def require_bs4_gateway(deadline):
+    baseline = SESSION_ROOT / 'run-b5383cf-a1' / 'cases/t4-gateway-reduce-a1/phase-result.json'
+    while not baseline.is_file() and time.monotonic() < deadline:
+        time.sleep(2)
+    assert baseline.is_file(), 'baseline_gateway_result_pending'
+    result = json_file(baseline)
+    assert result.get('status') == 'sst_and_checker_passed' and result.get('checked_ranks') == 64, 'baseline_gateway_not_passed'
+    assert (result['candidate_commit'], result['tokens'], result['stage']) == (REVISIONS['b5383cf'], 4, 'gateway-reduce')
 
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
@@ -92,43 +188,29 @@ def main(args):
     root = SESSION_ROOT / f'run-{candidate}-a1'
     case = root / 'cases' / f't{tokens}-{action}-a{attempt}'
     if action == 'status':
-        report = {'root': str(root), 'exists': root.is_dir()}
-        for name in ('progress.json', 'build-summary.json', 'bootstrap-result.json'):
-            path = root / name
-            if path.is_file():
-                report[path.stem] = json_file(path)
-        print(json.dumps(report, separators=(',', ':')))
+        print(json.dumps(status(root, args), separators=(',', ':')))
         return 0
     try:
+        if args.get('require_bs4_gateway'):
+            assert action == 'batch' and tokens == 4 and candidate == '86f802f'
+            require_bs4_gateway(time.monotonic() + 150)
         cid = task_container(root, revision)
-        logs = root / 'hapi-logs'
-        logs.mkdir(exist_ok=True)
-        log_path = logs / (case.name + '.log')
+        assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         with (root / 'sst.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            tools, platform, platform_hashes = stage_tools(root, args['files'])
-            config = {
-                'action': action, 'tokens': tokens, 'attempt': attempt, 'timeout': timeout, 'revision': revision,
-                'platform_sha256': platform_hashes, 'source_case': args.get('source_case'),
-            }
-            container_tools = str(Path('/work') / tools.relative_to(root))
-            argv = [
-                'docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + 230),
-                'python3', f'{container_tools}/sim_case.py', json.dumps(config),
-            ]
-            with log_path.open('xb') as log:
-                proc = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + 260)
-        result_path = case / 'phase-result.json'
-        if result_path.is_file():
-            report = json_file(result_path)
-        else:
-            text = log_path.read_text(errors='replace')
-            errors = [line.strip()[:250] for line in text.splitlines() if ERROR_PATTERN.search(line)]
-            report = {'status': 'preparation_or_runner_failed', 'errors': errors[:5]}
-        report.update(case=str(case), host_log=str(log_path), container_exit=proc.returncode)
-        qualified = report.get('status') == 'sst_and_checker_passed' and proc.returncode == 0
+            tools, platform_hashes = stage_tools(root, args['files'])
+            config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout,
+                          revision=revision, platform_sha256=platform_hashes)
+            if action == 'batch':
+                results = run_batch(root, cid, tools, config, args)
+                report = dict(batch=results, tokens=tokens, revision=revision)
+            else:
+                config['source_case'] = args.get('source_case')
+                results = [run_case(root, cid, tools, config)]
+                report = results[0]
         print(json.dumps(report, separators=(',', ':')))
-        return 0 if qualified else 1
+        last = results[-1]
+        return 0 if last['status'] == 'sst_and_checker_passed' and last['container_exit'] == 0 else 1
     except Exception as error:
         if root.is_dir():
             log = root / f'{case.name}-host-error.log'
