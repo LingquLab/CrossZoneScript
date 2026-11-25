@@ -24,6 +24,15 @@ out = {'proxy_host': proxy.hostname, 'proxy_scheme': proxy.scheme,
        'python_connect_http10': 'HTTP/1.0' in inspect.getsource(http.client.HTTPConnection._tunnel)}
 out['bridge_proxy_ips'] = BRIDGE_PROXY_IPS
 out['server_proxy_ips'] = sorted({x[4][0] for x in socket.getaddrinfo(proxy.hostname, proxy.port, socket.AF_INET)})
+if ARGS.get('use_bridge_dns'):
+    ip = BRIDGE_PROXY_IPS[0]
+    out['proxy_pin_ip'] = ip
+    def pin(value):
+        parsed = urllib.parse.urlsplit(value)
+        auth = parsed.netloc.rsplit('@', 1)[0] + '@' if '@' in parsed.netloc else ''
+        return parsed._replace(netloc=auth + ip + ':' + str(parsed.port)).geturl()
+    DIRECT_PROXIES = {k: pin(v) for k, v in DIRECT_PROXIES.items()}
+    proxy_url = DIRECT_PROXIES.get('https') or DIRECT_PROXIES['http']
 record = {}
 started = time.monotonic()
 try:
@@ -67,4 +76,21 @@ if out['curl_present']:
             digest = hashlib.sha256(target.read_bytes()).hexdigest()
             observation['matches_config_sha256'] = digest == '185f93ee6d12548e16a847e279dc0c3c90b1524c970b0866b42fb545747d859a'
         out['curl'] = observation
+        if ARGS.get('use_bridge_dns') and observation.get('matches_config_sha256'):
+            manifest = json.loads(Path('/home/glm16-09b20820/model-manifest.json').read_text())
+            item = next(x for x in manifest['files'] if x['path'].endswith('.safetensors'))
+            blob_url = ('https://modelscope.cn/models/' + manifest['model'] + '/resolve/'
+                        + manifest['revision'] + '/' + urllib.parse.quote(item['path'], safe='/'))
+            p = subprocess.run(['curl', '--silent', '--show-error', '--location', '--http1.1',
+                '--insecure', '--proxy-insecure', '--proxy', proxy_url, '--noproxy', '',
+                '--connect-timeout', '5', '--max-time', '30', '--range', '0-16777215',
+                '--max-filesize', '16777216', '--output', str(Path(directory) / 'sample.bin'),
+                '--write-out', '{"http_status":"%{http_code}","bytes":"%{size_download}","seconds":"%{time_total}","bytes_per_second":"%{speed_download}"}',
+                blob_url], capture_output=True, text=True, timeout=38)
+            try:
+                sample = json.loads(p.stdout)
+            except ValueError:
+                sample = {}
+            sample['exit'] = p.returncode
+            out['blob_sample'] = sample
 print(json.dumps(out))
