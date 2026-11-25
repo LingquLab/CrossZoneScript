@@ -11,7 +11,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-assert args['operation'] in {'prepare', 'network', 'paths'}
+assert args['operation'] in {'prepare', 'network', 'paths', 'runtime'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
 proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
 proxy_url = proxies.get('https') or proxies.get('http')
@@ -21,11 +21,12 @@ assert proxy.scheme in {'http', 'https'} and proxy.hostname and proxy.port
 auth = proxy.netloc.rsplit('@', 1)[0] + '@' if '@' in proxy.netloc else ''
 local_url = proxy._replace(netloc=auth + '127.0.0.1:18743').geturl()
 node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url, 'https': local_url}) + '\n' + remote
-jump_source = 'NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(args['operation']) + '\n' + r'''
+jump_source = 'NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(args['operation']) + '\nHOST = ' + repr(args.get('host', '141.61.94.58')) + '\n' + r'''
 import json, subprocess
+assert HOST in {'141.61.94.58','141.61.94.26'}
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
                     '-o', 'ExitOnForwardFailure=yes', '-R', '127.0.0.1:18743:127.0.0.1:18743',
-                    'root@141.61.94.58', 'python3', '-'], input=NODE_SOURCE,
+                    'root@'+HOST, 'python3', '-'], input=NODE_SOURCE,
                    capture_output=True, text=True, timeout=170)
 if p.returncode:
     print(json.dumps({'stage': 'node', 'exit': p.returncode,
