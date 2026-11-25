@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-a407244eba0a42988ba828cdd39bbeb2",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"summary_sha256\":\"0ffba5be5b8f386e7d45b52378efddad8f92ccb4fc6979160137e135a965bd8b\",\"unknown_markers\":[],\"columns\":[\"median_us\",\"p95_us\",\"max_us\"],\"stages\":{\"gather_quiet\":[34.871515,36.321212,36.540606],\"gateway_wait_gather\":[14.726061,16.289697,16.932727],\"gateway_reduce_partial\":[51.244242,52.984242,53.819394],\"local_return_wait_ready\":[67.340909,69.848485,70.809091],\"local_return_wait_cq\":[2.755152,23.631515,25.924848],\"cross_return_wait_ready\":[63.990303,65.983636,66.998182],\"cross_return_payload_wait_cq\":[84.159697,98.107273,106.855152],\"cross_return_so_wait_cq\":[30.382727,40.271515,44.734545],\"final_wait_window\":[232.044242,247.093939,260.012121],\"final_reduce_token\":[1.960606,2.083636,2.166061]}}",
+  "task_id": "ht-bs32-unified-profile-stage-stats",
+  "type": "RESULT",
+  "worktree_modified": false
+}

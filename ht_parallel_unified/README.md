@@ -73,3 +73,11 @@ BS8 可通过 `run.py` 的 `tokens=8` 参数复现。BS32 修正版通过 `token
 第三版沿用逐批回收，SST FP32 路径用当前 token 的第一份 returned partial 覆盖累加缓冲区，再加入该 token 后续的 partial。没有贡献的 token 写入零。调用参数为 `tokens=32,cross_stripe="fp32-init"`，ELF 解压后 SHA-256 为 `c1df0d77c507bd76a7c8c5b277a31e241074c6aac7eaf78102c122f74c2baba2`。CANN 9.1 CPU Debug 已通过 T4/T769 正例及三组缺失完成标记的负例。[FP32 累加改动](fp32-init-sst.patch)
 
 第三版联合 SST 在 **258.152 µs** 完成。64 个 rank 的 262,144 个 FP32 最终值、其他八个区域、3,584 个 AIV status 和 256 个 guard 全部通过。Gather、同机回传和跨机回传分别收齐 16,128、1,472 和 9,216 个 CQ 槽。Bridge 外层返回退出码 1，保留的 `run.json`、`unified-result.json` 和 `check.log` 均确认 SST 与 checker 通过。[终态回执](results/bs32-fp32-init/terminal.json) · [CQ 计数](results/bs32-fp32-init/cq-slots.json) · [输入核对](results/bs32-fp32-init/matched-inputs.json)
+
+## BS32 Perfetto 打点
+
+相同夹具的打点版在 **275.620 µs** 完成联合 SST，输出逐位校验和 guard 均通过。Perfetto 导出 3,584 条 AIV 轨道、67,392 个区间和 186,240 个原始打点。区间参数保留起止打点号，打点报告逐项列出对应工作及编译源码位置。 [输入核对](results/bs32-profile/inputs.json) · [终态](results/bs32-profile/terminal.json) · [Perfetto 导出](results/bs32-profile/export.json)
+
+在绿区 `D:\project\tilexr-inter-server-sst\ht-parallel-ep64-t32-fp32-3ba0b2e2-profile` 打开 `perfetto_trace.with-markers.json`。同目录 `stage-report.md` 列出按 AIV 累计的中位数、P95 和最大值，`per-aiv-us.csv` 保留每条轨道的累计值，`profile-summary.json` 保留汇总结果。父区间包含内部等待和计算，直接相加会重复计时。 [等待与计算耗时回执](results/bs32-profile/stage-stats.json) · [打点源码](profile-source.zip)
+
+使用 `run.py` 的 `tokens=32,profile=true` 启动单次 SST，完成后执行 `profile_export.py`。打点版额外采集时间戳并导出 UB 缓冲区，Gateway 的逐 token 打点还会等待对应 MTE3 写回。

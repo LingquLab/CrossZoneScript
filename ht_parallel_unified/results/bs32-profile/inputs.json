@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-174325a9d3804be3b2780efea8afaf6d",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"input_files\":1920,\"golden_and_layout_files\":577,\"normalized_workloads_equal\":true,\"profile_buffer_verified\":true,\"kernel_sha256\":\"3ba0b2e2a7a647f580b3b868e631077a1ea9ab89f588f824e6af2251b1a0b395\"}",
+  "task_id": "ht-bs32-unified-profile-inputs",
+  "type": "RESULT",
+  "worktree_modified": false
+}

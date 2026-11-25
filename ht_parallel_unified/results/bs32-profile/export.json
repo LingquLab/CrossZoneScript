@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-d9cba562c47140b0982c252057389aba",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"sst_sim_us\":275.62,\"streams\":3584,\"expected_streams\":3584,\"raw_markers\":186240,\"slices\":67392,\"role_envelopes\":{\"Gather\":{\"first_us\":1.058182,\"last_us\":55.412121},\"Gateway Reduce\":{\"first_us\":0.004848,\"last_us\":75.29697},\"Local Return\":{\"first_us\":0.0,\"last_us\":113.006667},\"Cross Return\":{\"first_us\":0.015758,\"last_us\":271.755758},\"Final Reduce\":{\"first_us\":1.065455,\"last_us\":266.043636}},\"status\":\"rendered\",\"stages\":{\"gather_total\":{\"aivs\":512,\"median_us\":50.330303,\"p95_us\":52.648485,\"max_us\":53.656364,\"max_rank\":8,\"max_aiv\":1,\"slices\":512},\"gateway_reduce_total\":{\"aivs\":512,\"median_us\":69.803636,\"p95_us\":72.846061,\"max_us\":74.867273,\"max_rank\":26,\"max_aiv\":9,\"slices\":512},\"local_return_total\":{\"aivs\":512,\"median_us\":79.569697,\"p95_us\":106.069697,\"max_us\":113.006667,\"max_rank\":39,\"max_aiv\":16,\"slices\":512},\"cross_return_total\":{\"aivs\":1024,\"median_us\":135.536364,\"p95_us\":235.694545,\"max_us\":269.695758,\"max_rank\":63,\"max_aiv\":24,\"slices\":1024},\"final_reduce_total\":{\"aivs\":1024,\"median_us\":236.831515,\"p95_us\":251.788485,\"max_us\":264.807273,\"max_rank\":55,\"max_aiv\":51,\"slices\":1024}},\"invalid_count\":0,\"invalid_sample\":[],\"sha256\":{\"perfetto_trace.with-markers.json\":\"a7ec7d90adb183ce264c89907f4cab599bbe987b5210366635c6600559294545\",\"profile-summary.json\":\"0ffba5be5b8f386e7d45b52378efddad8f92ccb4fc6979160137e135a965bd8b\",\"per-aiv-us.csv\":\"e45f8ed51d52d33a22101bd4a3eed95113bb9791c8baf9d198d21acf62bd83f2\",\"stage-report.md\":\"d07253ebd87261abcef2bf044feb96ce35afe06ba1675027a35bf0a10377d3e5\"},\"artifact_dir\":\"D:\\\\project\\\\tilexr-inter-server-sst\\\\ht-parallel-ep64-t32-fp32-3ba0b2e2-profile\"}",
+  "task_id": "ht-bs32-unified-profile-export",
+  "type": "RESULT",
+  "worktree_modified": false
+}
