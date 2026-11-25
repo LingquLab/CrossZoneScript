@@ -21,7 +21,6 @@ SUPPORT = SOURCE / 'tools/unitest/simulator/experiments/inter_server_send/sst'
 sys.path.insert(0, str(SUPPORT))
 WORLD, HIDDEN, TOPK, REDUCERS, FINAL_CORES = 64, 128, 6, 8, 8
 STRIPE, MAGIC = 512, 2026
-REVISION = '86f802f9f8a19728364c466b0e9cb7416e038595'
 LOCAL_ENTRY = 'tilexr_moonep_combine_ht_kernel'
 ENTRIES = {
     'local-send': LOCAL_ENTRY,
@@ -67,17 +66,17 @@ def object_for(entry, build):
     return path
 
 
-def ensure_asset(tokens, binary):
+def ensure_asset(tokens, binary, revision):
     asset = ROOT / 'assets' / f't{tokens}'
     if not (asset / 'identity.json').is_file():
         assert not asset.exists(), 'incomplete_fixture_assets'
         asset.parent.mkdir(exist_ok=True)
         try:
-            fixture.prepare(SOURCE, asset, WORLD, tokens, binary, disk_backed=True)
+            fixture.prepare(SOURCE, asset, WORLD, tokens, binary, disk_backed=True, revision=revision)
         except Exception:
             asset.rename(asset.with_name(asset.name + f'-failed-{time.time_ns()}'))
             raise
-    assert read_json(asset / 'identity.json')['candidate_commit'] == REVISION
+    assert read_json(asset / 'identity.json')['candidate_commit'] == revision
     return asset
 
 
@@ -222,24 +221,25 @@ def check_outputs(case, environment, record):
 
 def main(config):
     action, tokens, attempt, timeout = (config[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
-    assert read_json(ROOT / 'identity.json')['revision'] == REVISION
+    revision = config['revision']
+    assert read_json(ROOT / 'identity.json')['revision'] == revision
     build = read_json(ROOT / 'build-summary.json')
     assert build['all_compiled'] and build['sim_send']
     case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
     assert not case.exists(), 'case_already_exists'
-    record = {'candidate_commit': REVISION, 'stage': action, 'tokens': tokens, 'attempt': attempt,
+    record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
               'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
               'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
     started = time.monotonic()
     write_json(ROOT / 'progress.json', {'stage': 'prepare_case', 'case': case.name, 'updated_unix': time.time()})
     try:
-        asset = ensure_asset(tokens, object_for(LOCAL_ENTRY, build))
+        asset = ensure_asset(tokens, object_for(LOCAL_ENTRY, build), revision)
         record['routes_sha256'] = digest(asset / 'routes.json')
         if action in ('local-send', 'gateway-reduce'):
             local_phase(case, asset, action)
         else:
             from return_case import prepare_return_case
-            record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], build), config.get('source_case')))
+            record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], build), config.get('source_case'), revision))
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], build))
         env = stage_platform(case, config['platform_sha256'])

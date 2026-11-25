@@ -10,8 +10,11 @@ import subprocess
 import traceback
 
 SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
-REVISION = '86f802f9f8a19728364c466b0e9cb7416e038595'
-ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}/run-86f802f-a1')
+REVISIONS = {
+    'b5383cf': 'b5383cfd65828a165fae9957d287967136c06260',
+    '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
+}
+SESSION_ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}')
 TEMPLATE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549')
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 PLATFORM_FILES = {'test_UBusSim.py', 'sst-environment.json', 'environment.snapshot.json', 'installed_model.py'}
@@ -30,9 +33,9 @@ def digest(path):
         return value.hexdigest()
 
 
-def task_container():
-    identity = json_file(ROOT / 'identity.json')
-    assert identity['revision'] == REVISION and identity['image'] == IMAGE
+def task_container(root, revision):
+    identity = json_file(root / 'identity.json')
+    assert identity['revision'] == revision and identity['image'] == IMAGE
     cid = identity['container_id']
     info = json.loads(subprocess.check_output(['docker', 'inspect', cid], timeout=20))[0]
     assert info['Id'] == cid and info['Image'] == IMAGE
@@ -40,15 +43,15 @@ def task_container():
     assert info['Config']['Labels']['crosszone.session'] == SESSION
     assert info['State']['Running']
     mounts = {m['Destination']: m for m in info['Mounts']}
-    assert mounts['/work']['Source'] == str(ROOT)
-    assert mounts['/work/source']['Source'] == str(ROOT / 'source')
+    assert mounts['/work']['Source'] == str(root)
+    assert mounts['/work/source']['Source'] == str(root / 'source')
     assert mounts['/work/source']['RW'] is False
     return cid
 
 
-def stage_tools(files):
+def stage_tools(root, files):
     key = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:16]
-    tools = ROOT / 'tools' / key
+    tools = root / 'tools' / key
     tools.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py'}
@@ -57,7 +60,7 @@ def stage_tools(files):
             assert path.read_bytes() == content.encode()
         else:
             path.write_bytes(content.encode())
-    platform = ROOT / 'platform'
+    platform = root / 'platform'
     platform.mkdir(exist_ok=True)
     assert json_file(TEMPLATE / 'run.json')['status'] == 'sst_and_checker_passed'
     pinned = json_file(TEMPLATE / 'case-manifest.json')['files']
@@ -84,28 +87,31 @@ def stage_tools(files):
 
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
-    case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
+    candidate = args.get('candidate', '86f802f')
+    revision = REVISIONS[candidate]
+    root = SESSION_ROOT / f'run-{candidate}-a1'
+    case = root / 'cases' / f't{tokens}-{action}-a{attempt}'
     if action == 'status':
-        report = {'root': str(ROOT), 'exists': ROOT.is_dir()}
+        report = {'root': str(root), 'exists': root.is_dir()}
         for name in ('progress.json', 'build-summary.json', 'bootstrap-result.json'):
-            path = ROOT / name
+            path = root / name
             if path.is_file():
                 report[path.stem] = json_file(path)
         print(json.dumps(report, separators=(',', ':')))
         return 0
     try:
-        cid = task_container()
-        logs = ROOT / 'hapi-logs'
+        cid = task_container(root, revision)
+        logs = root / 'hapi-logs'
         logs.mkdir(exist_ok=True)
         log_path = logs / (case.name + '.log')
-        with (ROOT / 'sst.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            tools, platform, platform_hashes = stage_tools(args['files'])
+        with (root / 'sst.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            tools, platform, platform_hashes = stage_tools(root, args['files'])
             config = {
-                'action': action, 'tokens': tokens, 'attempt': attempt, 'timeout': timeout,
+                'action': action, 'tokens': tokens, 'attempt': attempt, 'timeout': timeout, 'revision': revision,
                 'platform_sha256': platform_hashes, 'source_case': args.get('source_case'),
             }
-            container_tools = str(Path('/work') / tools.relative_to(ROOT))
+            container_tools = str(Path('/work') / tools.relative_to(root))
             argv = [
                 'docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + 230),
                 'python3', f'{container_tools}/sim_case.py', json.dumps(config),
@@ -124,8 +130,8 @@ def main(args):
         print(json.dumps(report, separators=(',', ':')))
         return 0 if qualified else 1
     except Exception as error:
-        if ROOT.is_dir():
-            log = ROOT / f'{case.name}-host-error.log'
+        if root.is_dir():
+            log = root / f'{case.name}-host-error.log'
             log.write_text(traceback.format_exc())
         report = {'status': 'host_setup_failed', 'error_class': type(error).__name__,
                   'detail': str(error)[:240], 'case': str(case)}

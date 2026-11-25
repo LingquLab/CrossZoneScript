@@ -22,9 +22,11 @@ def main():
     attempt = args.get('attempt', 1)
     assert action in ACTIONS and tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
+    candidate = args.get('candidate', '86f802f')
+    assert candidate in ('b5383cf', '86f802f')
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
-    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / '86f802f'
+    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / candidate
     logs.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).parent
     args.update(tokens=tokens, attempt=attempt, timeout=timeout)

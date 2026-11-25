@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from fixture import DiskImages, GUARD
-from sim_case import BLOCKS, ENTRIES, FINAL_CORES, MAGIC, REDUCERS, REVISION, SOURCE, STRIPE, SUPPORT, WORLD
+from sim_case import BLOCKS, ENTRIES, FINAL_CORES, MAGIC, REDUCERS, SOURCE, STRIPE, SUPPORT, WORLD
 
 LOCAL_WS, RETURN_WS = 0x200000000, 0x220000000
 LOCAL_RESOURCES = {
@@ -118,7 +118,7 @@ def position_guards(images, addresses, regions, base):
     return guards
 
 
-def prepare_return_case(case, asset, action, binary, source_case):
+def prepare_return_case(case, asset, action, binary, source_case, revision):
     sys.path.insert(0, str(SUPPORT))
     import loader
     import runtime
@@ -137,7 +137,7 @@ def prepare_return_case(case, asset, action, binary, source_case):
         predecessor = case.parent / source_case
         previous = read_json(predecessor / 'phase-result.json')
         assert previous['status'] == 'sst_and_checker_passed'
-        assert (previous['candidate_commit'], previous['stage'], previous['tokens']) == (REVISION, 'joint-producer', tokens)
+        assert (previous['candidate_commit'], previous['stage'], previous['tokens']) == (revision, 'joint-producer', tokens)
         assert previous['routes_sha256'] == loader.sha256(asset / 'routes.json')
     else:
         assert source_case is None
