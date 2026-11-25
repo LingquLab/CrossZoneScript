@@ -327,3 +327,47 @@ def cross_sq_tail(case):
         rows.append(dict(rank=rank, peer=peer, truncated=truncated,
                          timestamps=timestamps, counts=counts, file_order=matched))
     return dict(columns=['bb','event','size_field','trace_ts','address_field'], samples=rows)
+
+
+def cross_cq_acks(case):
+    summary = []
+    for rank in (0, 5):
+        peer = rank ^ 8
+        expected = expected_cq_slots(rank)
+        rings = tuple(ring for ring in expected if ring // 40 == peer)
+        assert len(rings) == 2
+        spans = {}
+        dates = {}
+        for ring in rings:
+            sq = 0x1900000000 + ring * RING_BYTES
+            cq = CQ_BASE + ring * RING_BYTES
+            ack = 0x1B01000000 + ring * 64
+            doorbell = 0x1C00000000 + (ring % 40 // 20) * 0x100000000 + (peer * 20 + ring % 20) * 64
+            spans[ring] = (sq, cq, ack, doorbell)
+            dates[ring] = []
+        path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
+        with path.open('rb') as trace:
+            data = trace.read(MAX_TRACE_BYTES)
+            truncated = bool(trace.read(1))
+        for match in TRACE_ARGS.finditer(data):
+            args = json.loads(match[0])
+            raw = args['oriAddr_']
+            address = int(raw, 0) if isinstance(raw, str) else int(raw)
+            host, local = divmod(address, GM_BYTES)
+            event = args['busPayloadType_']
+            for ring, (sq, cq, ack, doorbell) in spans.items():
+                if event == 'WR_REQ' and local == doorbell:
+                    dates[ring].append(['sq_doorbell'])
+                elif host != rank:
+                    continue
+                elif event == 'WR_REQ' and local == ack:
+                    dates[ring].append(['cq_ack'])
+                elif event == 'WR_REQ' and cq <= local < cq + 32 * 64:
+                    dates[ring].append(['cq_slot', (local - cq) // 64])
+                elif event == 'RD_REQ' and sq <= local < sq + 32 * 64:
+                    dates[ring].append(['sq_fetch', (local - sq) // 64, args.get('size_')])
+        summary.append(dict(rank=rank, peer=peer, truncated=truncated,
+                            queues={ring % 40: dict(counts=Counter(ev[0] for ev in dates[ring]),
+                                                    last=dates[ring][-12:])
+                                    for ring in rings}))
+    return summary

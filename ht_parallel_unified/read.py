@@ -115,6 +115,8 @@ elif options.get('queues'):
         trace_args = f'case, {tokens}'
     if options.get('cross_so'):
         function = 'cross_so_arrival'
+    if options.get('cross_cq_acks'):
+        function = 'cross_cq_acks'
     if options.get('cross_sq_tail'):
         assert tokens == 32
         function = 'cross_sq_tail'
