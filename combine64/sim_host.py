@@ -181,6 +181,26 @@ def require_bs4_gateway(deadline):
     assert result.get('status') == 'sst_and_checker_passed' and result.get('checked_ranks') == 64, 'baseline_gateway_not_passed'
     assert (result['candidate_commit'], result['tokens'], result['stage']) == (REVISIONS['b5383cf'], 4, 'gateway-reduce')
 
+
+def require_previous_bs(root, revision, tokens):
+    sizes = (4, 16, 32, 64, 128)
+    assert tokens != sizes[0], 'no_preceding_batch_size'
+    previous = sizes[sizes.index(tokens) - 1]
+    journal = root / 'hapi-logs' / f't{previous}-batch-a1.json'
+    assert journal.is_file(), 'preceding_batch_result_missing'
+    rows = json_file(journal)
+    expected = STAGES[2:] if previous == 4 else STAGES
+    assert tuple(row.get('stage') for row in rows) == expected, 'preceding_batch_incomplete'
+    assert all(row.get('candidate_commit') == revision and row.get('tokens') == previous
+               and row.get('status') == 'sst_and_checker_passed' and row.get('checked_ranks') == 64
+               and row.get('container_exit') == 0 for row in rows), 'preceding_batch_not_passed'
+    if previous == 4:
+        baseline = SESSION_ROOT / 'run-b5383cf-a1' / 'cases'
+        for phase in STAGES[:2]:
+            row = json_file(baseline / f't4-{phase}-a1' / 'phase-result.json')
+            assert row['candidate_commit'] == REVISIONS['b5383cf'] and row['tokens'] == 4
+            assert row['stage'] == phase and row['status'] == 'sst_and_checker_passed' and row['checked_ranks'] == 64
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args.get('candidate', '86f802f')
@@ -205,6 +225,9 @@ def main(args):
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         with (root / 'sst.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            if args.get('require_previous_bs'):
+                assert action == 'batch'
+                require_previous_bs(root, revision, tokens)
             tools, platform_hashes = stage_tools(root, args['files'])
             config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout,
                           revision=revision, platform_sha256=platform_hashes)

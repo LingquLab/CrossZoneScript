@@ -37,6 +37,9 @@ def main():
         remote_seconds = 90 + sum(stage_timeouts.get(stage, timeout) + 260 for stage in STAGES[start:end + 1])
     if args.get('require_bs4_gateway'):
         remote_seconds += 150
+    if args.get('require_previous_bs'):
+        assert action == 'batch' and tokens > 4
+        remote_seconds += 3600
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / candidate
     logs.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).parent
@@ -48,6 +51,7 @@ def main():
         'ssh', '-T', '-i', str(Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'),
         '-p', '22', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
         '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=12',
+        '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3',
         'root@141.61.94.26', f'timeout --kill-after=30 {remote_seconds} python3 -',
     ]
     stem = logs / f'{action}-t{tokens}-a{attempt}'
