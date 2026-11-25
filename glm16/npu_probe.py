@@ -12,8 +12,20 @@ LOGS = ROOT / ('device-probe-' + str(time.time_ns()))
 LOGS.mkdir()
 IMAGE = 'sha256:5588559036095d339c1cfb48c16d0227b841355490d8c0cb4e6730759f9c6674'
 NAME = 'glm16-09b20820-device-probe'
+network = ARGS.get('network', 'none')
+assert network in {'none', 'host'}
 out = {'log_directory': str(LOGS), 'host_pid_namespace': bool(ARGS.get('host_pid')),
-       'privileged_container': bool(ARGS.get('privileged'))}
+       'privileged_container': bool(ARGS.get('privileged')), 'network': network}
+previous = ROOT / 'device-probe-latest.json'
+if previous.is_file():
+    folder = Path(json.loads(previous.read_text())['log_directory'])
+    assert folder.parent == ROOT and re.fullmatch(r'device-probe-\d+', folder.name)
+    errors = []
+    for p in sorted((folder / 'ascend-logs').rglob('*.log'))[:8]:
+        with p.open('rb') as stream:
+            lines = stream.read(512 * 1024).decode('utf-8', 'replace').splitlines()
+        errors.extend(x[:700] for x in lines if '[ERROR]' in x)
+    out['previous_runtime_errors'] = errors[:6]
 gate = subprocess.run(['/usr/local/sbin/npu-smi', 'info'], capture_output=True, text=True, timeout=65)
 table = gate.stdout.split('Process id', 1)[-1]
 idle = (gate.returncode == 0 and 'Process id' in gate.stdout
@@ -28,25 +40,28 @@ assert existing.returncode != 0, 'task_probe_container_already_exists'
 code = r'''
 import json,time,subprocess,pathlib,traceback
 out={};started=time.monotonic()
+def boundary(name):
+ out['boundary']=name
+ pathlib.Path('/experiment/progress.json').write_text(json.dumps(out))
 try:
- out['boundary']='import_torch'
+ boundary('import_torch')
  import torch,torch_npu
- out['boundary']='device_count'
+ boundary('device_count')
  out['device_count']=torch.npu.device_count()
  out['torch_version']=torch.__version__
  assert out['device_count']==8
  checks=[]
  for i in range(8):
-  out['boundary']=f'set_device_{i}'
+  boundary(f'set_device_{i}')
   torch.npu.set_device(i)
-  out['boundary']=f'allocate_tensor_{i}'
+  boundary(f'allocate_tensor_{i}')
   value=torch.ones(1,device=f'npu:{i}')
-  out['boundary']=f'read_tensor_{i}'
+  boundary(f'read_tensor_{i}')
   checks.append({'device':i,'value':float(value.item())})
   del value
   torch.npu.empty_cache()
  out['tensor_checks']=checks
- out['boundary']='completed'
+ boundary('completed')
 except Exception as e:
  out['error_class']=type(e).__name__
  out['error_message']=str(e).splitlines()[:8]
@@ -61,7 +76,7 @@ except Exception as e:
 out['elapsed_seconds']=round(time.monotonic()-started,3)
 print('GLM_PROBE_RESULT='+json.dumps(out),flush=True)
 '''
-cmd = ['docker', 'create', '--name', NAME, '--network', 'none', '--shm-size=4g',
+cmd = ['docker', 'create', '--name', NAME, '--network', network, '--shm-size=4g',
        '--pids-limit', '2048', '--cap-add', 'SYS_NICE', '--ulimit', 'memlock=-1:-1',
        '-e', 'ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7', '-e', 'ASCEND_GLOBAL_LOG_LEVEL=2',
        '-e', 'ASCEND_PROCESS_LOG_PATH=/experiment/ascend-logs',
@@ -98,6 +113,9 @@ if created.returncode == 0:
                 out['observation'] = json.loads(line.split('=', 1)[1])
     except subprocess.TimeoutExpired:
         out['probe_timeout_seconds'] = 90
+        progress = LOGS / 'progress.json'
+        if progress.is_file():
+            out['last_progress'] = json.loads(progress.read_text())
     finally:
         cleaned = subprocess.run(['docker', 'rm', '-f', cid], capture_output=True, timeout=20)
         out['owned_container_removed'] = cleaned.returncode == 0
