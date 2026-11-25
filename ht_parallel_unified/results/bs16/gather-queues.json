@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-256695e4db5747d7aa6770517a5261a6",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"summary\":{\"hosts\":64,\"truncated_hosts\":0,\"qps\":448,\"sq_head_write_records\":0,\"doorbell_write_records\":3584,\"sq_fetch_starts\":1903,\"cq_slots\":7346,\"qps_missing_inspected_so_cq\":448,\"missing_cq_at_recorded_sq_fetch_starts\":236},\"most_common_missing_cq_slots\":[[[18,19],211],[[15,16,17,18,19],200],[[14,15,16,17,18,19],22],[[16,17,18,19],15]],\"example_columns\":[\"rank\",\"peer\",\"physical_slot\",\"sq_fetch_start_bb\",\"cq_bb\",\"sq_head_wr_req\",\"doorbell_wr_req\"],\"examples\":[[0,1,36,[0,4,9,17],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],0,8],[0,2,17,[0,4,5,10,15],[0,1,2,3,4,5,6,7,8,9,10,11,12,13],0,8],[0,3,37,[0,4,9,17],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],0,8],[0,4,18,[0,4,5,9,15],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14],0,8],[0,5,38,[0,4,9,17],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],0,8],[0,6,19,[0,4,5,10,15],[0,1,2,3,4,5,6,7,8,9,10,11,12,13],0,8]]}",
+  "task_id": "ht-parallel-ep64-t16-gather-queues",
+  "type": "RESULT",
+  "worktree_modified": false
+}

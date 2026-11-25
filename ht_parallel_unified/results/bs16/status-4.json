@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-31947accc22e4d909d8f5397843a10d8",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 4,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"exists\":true,\"run.json\":{\"status\":\"running\",\"timeout_seconds\":4800},\"log\":{\"bytes\":922536,\"cqe_in_prefix\":7846,\"cqe\":7846,\"last_cqe_stamp\":61644000,\"hits\":{\"unsupported\":false,\"fatal\":false,\"kernel\":false}},\"trace_inventory\":[[\"HostN_ba_layer_trace.json\",64],[\"HostN_dl_layer_trace.json\",64]],\"ba_schema\":{\"keys\":[\"aicoreId_\",\"busPayloadType_\",\"dstChip_\",\"dstDie_\",\"dst_\",\"isaId_\",\"memCnt\",\"oriAddr_\",\"rdAddr_\",\"recvL2SnpFlag_\",\"size_\",\"srcChip_\",\"srcDie_\",\"src_\",\"subcoreId_\",\"ubWrSplitFlag_\",\"wrAddr_\"],\"actions\":{\"RD_REQ\":85,\"RD_REQ_RESP\":84,\"WR_REQ\":63,\"WR_REQ_RESP\":57,\"WR_DATA_RESP\":55,\"WR_DATA\":56},\"bytes\":792913,\"ts_fields\":2013}}",
+  "task_id": "ht-parallel-ep64-t16-status",
+  "type": "RESULT",
+  "worktree_modified": false
+}
