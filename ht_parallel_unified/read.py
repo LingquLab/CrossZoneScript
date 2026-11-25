@@ -53,7 +53,13 @@ if ba.is_file():
                              ts_fields=len(re.findall(rb'"ts"\s*:',raw)))
 print(json.dumps(report,separators=(',',':')))
 '''
-if options.get('overlap'):
+if options.get('dl'):
+    source=(here/'overlap.py').read_text()+(here/'dl_scan.py').read_text()+f'''
+from pathlib import Path
+case=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / {CASE!r}
+print(json.dumps(dl_coverage(case),separators=(',',':')))
+'''
+elif options.get('overlap'):
     source=(here/'overlap.py').read_text()+f'''
 from pathlib import Path
 case=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / {CASE!r}
