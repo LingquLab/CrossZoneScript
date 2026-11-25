@@ -14,8 +14,12 @@ tokens = sorted({int(value) for value in options.get('tokens', [])})
 assert set(tokens) <= {32, 64, 128}
 diagnostics = bool(options.get('diagnostics'))
 aggregate = bool(options.get('aggregate'))
+seed = options.get('seed')
+if seed is not None:
+    seed = int(seed)
+    assert len(tokens) == 1 and 20261124 <= seed <= 20261133
 known = {int(size): {int(seed) for seed in seeds} for size, seeds in options.get('known', {}).items()}
-source = f"tokens = {tokens!r}\ndiagnostics = {diagnostics!r}\naggregate = {aggregate!r}\nknown = {known!r}\n" + r'''
+source = f"tokens = {tokens!r}\ndiagnostics = {diagnostics!r}\naggregate = {aggregate!r}\nknown = {known!r}\nrequested_seed = {seed!r}\n" + r'''
 import json
 from pathlib import Path
 import time
@@ -58,14 +62,26 @@ for case in sorted(root.glob('ht-peer-order-v*-t*')):
                     stamps.append(int(found[-1]))
             fields['max_model_cqe_stamp'] = max(stamps, default=None)
             fields['last_model_cqe_stamps'] = stamps[-8:]
-if aggregate:
+def assert_pair(rotate, peer):
+    for key in ('route_sha256', 'payload_by_lane', 'expected_cqe', 'cqe', 'checked', 'guard_count', 'exports_sha256'):
+        assert rotate[key] == peer[key], key
+
+if requested_seed is not None:
+    size, = tokens
+    pair = passes[size, requested_seed]
+    rotate, peer = pair['rotate'], pair['peer']
+    assert_pair(rotate, peer)
+    hashes = {json.loads((root / trial['case'] / 'run.json').read_text())['kernel_sha256']
+              for trial in (rotate, peer)}
+    kernel_hash, = hashes
+    cases = dict(tokens=size, object_sha256=kernel_hash, results=[rotate, peer], pair_exports_equal=True)
+elif aggregate:
     summary = {size: dict(valid_pairs=0, running=[], timed_out=0, new_pairs={}) for size in tokens}
     for (size, seed), pair in passes.items():
         if set(pair) != {'rotate', 'peer'}:
             continue
         rotate, peer = pair['rotate'], pair['peer']
-        for key in ('route_sha256', 'payload_by_lane', 'cqe', 'checked', 'guard_count', 'exports_sha256'):
-            assert rotate[key] == peer[key], (size, seed, key)
+        assert_pair(rotate, peer)
         summary[size]['valid_pairs'] += 1
         if seed not in known.get(size, set()):
             summary[size]['new_pairs'][seed] = [rotate['sim_us'], peer['sim_us']]
