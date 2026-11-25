@@ -46,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('tilexr', type=Path)
     parser.add_argument('output', type=Path)
-    parser.add_argument('--tokens', type=int, choices=(32, 64), default=32)
+    parser.add_argument('--tokens', type=int, choices=(32, 64, 128), default=32)
     parser.add_argument('--seed', type=int, default=BASE)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as temp:

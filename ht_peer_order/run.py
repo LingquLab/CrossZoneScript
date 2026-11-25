@@ -21,7 +21,7 @@ request.update(compact=bool(options.get('compact')), object=base64.b64encode((he
                exports=(root/'ht_t32_e2e'/'exports.py').read_text())
 base = (root/'inter_server'/'run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
 prepare = (root/'ht_t32_e2e'/'prepare.py').read_text().replace(
-    '(4, 16, 32)', '(32, 64)').replace('"tilexr_moonep_combine_ht_kernel"}',
+    '(4, 16, 32)', '(32, 64, 128)').replace('"tilexr_moonep_combine_ht_kernel"}',
     '"tilexr_moonep_combine_ht_kernel", "tilexr_ep_ht_inter_server_send_kernel"}')
 common = (root/'ht_four_stage'/'local_phases.py').read_text().replace('"--timeout", "540"', '"--timeout", "720"').replace(
     'timeout=600)', 'timeout=780)')

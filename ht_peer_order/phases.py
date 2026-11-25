@@ -120,7 +120,7 @@ def run_case(request, tokens, seed, mode, data, abis, modules):
 
 def execute_benchmark(request):
     tokens, start, stop = (request[key] for key in ('tokens', 'start', 'stop'))
-    assert tokens in (32, 64) and 0 <= start < stop <= 10
+    assert tokens in (32, 64, 128) and 0 <= start < stop <= 10
     support = MOUNT.parent / BUILD / 'source/tools/unitest/simulator/experiments/inter_server_send/sst'
     sys.path.insert(0, str(support))
     import loader

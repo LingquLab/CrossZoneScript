@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory() as temp:
     probe = temp / 'abi'
     subprocess.run(['c++', '-std=c++14', '-O2', '-I'+str(temp/'include'), temp/'probe.cpp', '-o', probe], check=True)
     results = {}
-    for tokens in (32, 64):
+    for tokens in (32, 64, 128):
         rows = tokens * 8
         results[str(tokens)] = [json.loads(subprocess.check_output([probe, str(rank), str(tokens), '256',
             '6', str(rows), str(rows), '2026'])) for rank in range(64)]

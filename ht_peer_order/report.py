@@ -68,7 +68,7 @@ def stats(rows):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('tokens', type=int, choices=(32, 64))
+    parser.add_argument('tokens', type=int, choices=(32, 64, 128))
     parser.add_argument('--pairs', type=int, choices=range(1, 11), default=10)
     parser.add_argument('output', type=Path)
     parser.add_argument('receipts', type=Path, nargs='+')
