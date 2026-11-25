@@ -22,8 +22,10 @@ proxy = urllib.parse.urlsplit(proxy_url)
 assert proxy.scheme in {'http', 'https'} and proxy.hostname and proxy.port
 auth = proxy.netloc.rsplit('@', 1)[0] + '@' if '@' in proxy.netloc else ''
 node_timeout = args.get('download_seconds', 86400) + 600 if args['operation'] == 'download' else 170
-if args['operation'] in {'npu_probe', 'validate_cli'}:
+if args['operation'] == 'npu_probe':
     node_timeout = 260
+if args['operation'] == 'validate_cli':
+    node_timeout = 400
 port = 18744 if args.get('host') == '141.61.94.26' else 18743
 local_url = proxy._replace(netloc=auth + f'127.0.0.1:{port}').geturl()
 node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url, 'https': local_url}) + '\n' + remote
