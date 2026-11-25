@@ -14,6 +14,7 @@ SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
 REVISIONS = {
     'b5383cf': 'b5383cfd65828a165fae9957d287967136c06260',
     '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
+    'cb63658': 'cb63658b507aa7eba023afefd9e7ef8a27a0dcde',
 }
 SESSION_ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}')
 TEMPLATE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549')

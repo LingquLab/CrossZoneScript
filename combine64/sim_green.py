@@ -34,7 +34,7 @@ def main():
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args.get('candidate', '86f802f')
-    assert candidate in ('b5383cf', '86f802f')
+    assert candidate in ('b5383cf', '86f802f', 'cb63658')
     assert type(args.get('profiling', False)) is bool
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
