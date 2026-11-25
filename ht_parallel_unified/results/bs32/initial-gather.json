@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-14eda55fe3cf4e51a7dc378eac6bb1b9",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 2,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"sample_columns\":[\"rank\",\"trace_truncated\",\"gather_cq_by_chunk\",\"gather_so_cq_by_chunk\",\"local_return_cq\",\"cross_return_cq\"],\"samples\":[[0,false,[63,63,63,63],[7,7,7,7],0,12],[1,false,[63,63,63,63],[7,7,7,7],0,12],[7,false,[63,63,63,63],[7,7,7,7],0,10],[8,false,[63,63,63,63],[7,7,7,7],0,11],[23,false,[63,63,63,63],[7,7,7,7],0,10],[31,false,[63,63,63,63],[7,7,7,7],0,11],[47,false,[63,63,63,63],[7,7,7,7],0,11],[63,false,[63,63,63,63],[7,7,7,7],0,11]],\"gather_cq_expected_per_chunk\":63,\"gather_so_cq_expected_per_chunk\":7}",
+  "task_id": "ht-parallel-ep64-t32-queues",
+  "type": "RESULT",
+  "worktree_modified": false
+}

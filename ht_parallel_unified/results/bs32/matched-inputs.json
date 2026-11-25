@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-ea57a7c7157c4170bf6c452970c6a7ec",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"input_files\":1920,\"golden_and_layout_files\":577,\"normalized_workloads_equal\":true,\"kernel_sha256\":\"1abdfffda622579ec3327f092a3a3960ba9959c303b1f6653f1c9691c297ba28\"}",
+  "task_id": "ht-parallel-ep64-t32-compare-inputs",
+  "type": "RESULT",
+  "worktree_modified": false
+}

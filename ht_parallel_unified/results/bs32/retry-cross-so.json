@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-1477965fd7f4486997c0985b8fae444a",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"counts\":{\"hosts\":64,\"truncated_hosts\":0,\"paired_lane0_WR_DATA_RESP\":63,\"paired_lane0_WR_DATA\":63,\"paired_lane0_WR_REQ\":63,\"paired_lane1_WR_DATA_RESP\":64,\"paired_lane1_WR_DATA\":64,\"paired_lane1_WR_REQ\":64,\"remote_slots_wr_data\":7167},\"sample_columns\":[\"receiver\",\"gateway\",\"lane0_events\",\"lane1_events\"],\"examples\":[[0,8,[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"],[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"]],[1,9,[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"],[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"]],[2,10,[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"],[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\"]]]}",
+  "task_id": "ht-parallel-ep64-t32-cross-so",
+  "type": "RESULT",
+  "worktree_modified": false
+}

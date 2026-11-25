@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-d87d6c25b81240409081ecfbad4fa0db",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"summary\":{\"hosts\":64,\"truncated_hosts\":0,\"qps\":64,\"sq_head_write_records\":0,\"doorbell_write_records\":320,\"sq_fetch_starts\":319,\"cq_slots\":1215,\"qps_missing_inspected_so_cq\":64,\"missing_cq_at_recorded_sq_fetch_starts\":64},\"most_common_missing_cq_slots\":[[[19,20,21,22,23,24],63],[[18,19,20,21,22,23,24],1]],\"example_columns\":[\"rank\",\"peer\",\"physical_slot\",\"sq_fetch_start_bb\",\"cq_bb\",\"sq_head_wr_req\",\"doorbell_wr_req\"],\"examples\":[[0,8,0,[0,6,12,18,24],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],0,5],[1,9,0,[0,6,12,18,24],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],0,5],[2,10,0,[0,6,12,18,24],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],0,5],[3,11,0,[0,6,12,18,24],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],0,5],[4,12,0,[0,6,12,18,24],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],0,5],[5,13,0,[0,6,12,18],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],0,5]]}",
+  "task_id": "ht-parallel-ep64-t32-cross-queues",
+  "type": "RESULT",
+  "worktree_modified": false
+}

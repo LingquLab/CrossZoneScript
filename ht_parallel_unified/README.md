@@ -15,3 +15,25 @@ SST 模拟耗时 **109.405 µs**。SST 和 checker 均退出 0。9 个区域合�
 ## Trace 覆盖
 
 跨机 token 0 到达 rank `R` 时，发送端为 `R ^ 8`。64 份 BA trace 匹配到 256 条该到达事务的 request、data 和 response 事件。BA 未匹配到同机 token 0 self-copy、发送端首条 SQ 写、token 1–3 的 local/cross partial 写、ready 写或最终输出写。64 份 DL trace 共有 96,319 条事件，其中 93,759 条带时间戳。DL 包含 `aicoreId_`、`oriAddr_` 和 `wrAddr_` 字段，未匹配到 partial/ready 目标地址的 AIV MTE3 写入。因缺少生产端的写入时刻，本轮无法确认 chunk 0 回传和后续 chunk 生产重叠，也无法确定 final 的计算重叠。[BA 配对结果](results/overlap.json) · [DL 字段与事件统计](results/dl.json)
+
+## BS32 同一 ELF 联测
+
+EP64/H128 FP32，单次入口启动 56 个 AIV。每 rank 处理 32 个 token，按 4 个 8-token chunk 运行，共用一个完成窗口。64 rank 输入使用相同的同机 self-copy、同机邻居和跨机 `rank ^ 8` 路由。夹具预期校验 262,144 个 FP32 最终值、3,584 个 AIV status 和 256 个 guard。
+
+| 运行 | SST 墙钟上限 | SST 终态 | 最终校验 |
+| --- | ---: | --- | --- |
+| 首轮 | 2,400 s | 超时 | checker 未启动 |
+| 复测 | 4,800 s | 超时 | checker 未启动 |
+
+绿区核对了两轮的 ELF、1,920 个输入文件、577 个 golden 和布局文件的 SHA-256，以及归一化目录名后的 workload。两轮均未得到完成的模拟耗时。复测摘要中的 `sim_us: 0.0` 随超时状态出现，不能用作性能数据。
+
+| 阶段 | 模型预期 CQ 槽 | BA 观察到的 CQ 写入槽 |
+| --- | ---: | ---: |
+| Gather | 16,128 | 16,128 |
+| 同机回传 | 1,472 | 1,472 |
+| 跨机回传 | 9,216 | 8,831 |
+| 合计 | 26,816 | 26,431 |
+
+首轮和复测终态的 CQ 槽缺口一致。64 个 rank 发往 `rank ^ 8` 的 lane 0 全部缺最后的窗口 SO CQE。63 条 QP 缺 BB19–24，rank 5 发往 rank 13 的 QP 缺 BB18–24。64 条 QP 合计记录 320 次 doorbell 写请求和 319 个 SQ fetch 起点。BA 未捕获这些 QP 的本地 SQ head 写入。接收侧匹配到 7,167／7,168 个跨机 SO 槽的 `WR_DATA`。复测终态日志有 27,199 条 `WrCQEResp` 字样，实际 CQ 槽仍缺 385 条。[首轮与复测回执](results/bs32)
+
+BS32 计划由 `prepare_blue.py --tokens 32` 配合原 TileXR 与兼容源生成。绿区首轮和复测分别用 `run.py` 的 `tokens=32` 和 `tokens=32,long_wall=true`，目录名分别为 `ht-parallel-ep64-t32-fp32-1abdfffd` 与同名加 `-long-wall`。

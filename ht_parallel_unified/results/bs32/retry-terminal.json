@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-15278dc3c0b64d889eae1a6dab8d8c41",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 9,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"exists\":true,\"run.json\":{\"status\":\"timed_out\",\"returncode\":0,\"timeout_seconds\":4800},\"phase-summary.json\":{\"status\":\"timed_out\",\"returncode\":0,\"runner_exit_code\":1,\"sim_us\":0.0},\"unified-result.json\":{\"status\":\"timed_out\",\"returncode\":0,\"runner_exit_code\":1,\"sim_us\":0.0},\"log\":{\"bytes\":2780211,\"cqe_in_prefix\":21065,\"cqe\":27199,\"last_cqe_stamp\":114070000,\"hits\":{\"unsupported\":false,\"fatal\":false,\"kernel\":false}},\"result\":{\"status\":\"timed_out\",\"returncode\":0,\"runner_exit_code\":1,\"sim_us\":0.0,\"kernel_sha256\":\"1abdfffda622579ec3327f092a3a3960ba9959c303b1f6653f1c9691c297ba28\",\"cqe\":27199},\"checker_log\":{\"exists\":false}}",
+  "task_id": "ht-parallel-ep64-t32-long-status",
+  "type": "RESULT",
+  "worktree_modified": false
+}
