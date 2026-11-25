@@ -110,7 +110,8 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result['operator_qualified']=result['qualified'] and not result['diagnostic_only']
     result['run']={k:v for k,v in result.get('run',{}).items() if k in ('status','returncode','guards','error','started_unix','finished_unix','elapsed_seconds')}
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
-    if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512','sq-align-all512-cq-barrier'):
+    if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512','sq-align-all512-cq-barrier',
+                                                     'sq-align-all512-cq-barrier-strided'):
         compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','compatibility_inter_source_sha256','compatibility_api_header_sha256')}
         compact['profiling_lanes']=result.get('profiling',{}).get('committed_lanes')
         compact['profiling_dropped']=result.get('profiling',{}).get('dropped_records')
@@ -344,6 +345,14 @@ def main(request):
             code=execute(cid,['python3',runtime+'/cq_visible_joint_build.py',runtime],ROOT/'cq-visible-joint16-build.log',450)
             if code:return code
             return pipeline_phase(cid,tools,16,dict(attempt='a4',build_variant='four-module-sq-align-all512-cq'),1200)
+        if action=='strided-barrier-joint16':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/cq_visible_joint_build.py',runtime,'--strided'],
+                         ROOT/'strided-barrier-joint16-build.log',450)
+            if code:return code
+            return pipeline_phase(cid,tools,16,dict(attempt='a5',build_variant='four-module-sq-align-all512-cq-strided'),1200)
         if action=='joint-cq-trace16':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
