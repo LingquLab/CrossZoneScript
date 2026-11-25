@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
@@ -36,6 +37,10 @@ if p.returncode:
                       'stderr_tail': p.stderr[-1400:]}))
     raise SystemExit(1)
 result = json.loads(p.stdout)
+if args['operation'] == 'network':
+    probe = subprocess.run([sys.executable, str(Path(__file__).parent / 'network.py')],
+                           capture_output=True, text=True, timeout=90)
+    result['bridge_probe'] = json.loads(probe.stdout) if probe.returncode == 0 else {'exit': probe.returncode}
 encoded = json.dumps(result)
 assert len(encoded.encode()) < 62000
 print(encoded)
