@@ -193,7 +193,14 @@ def main(args):
     try:
         if args.get('require_bs4_gateway'):
             assert action == 'batch' and tokens == 4 and candidate == '86f802f'
-            require_bs4_gateway(time.monotonic() + 150)
+            deadline = time.monotonic() + 150
+            require_bs4_gateway(deadline)
+            bootstrap = root / 'bootstrap-result.json'
+            while not bootstrap.is_file() and time.monotonic() < deadline:
+                time.sleep(2)
+            assert bootstrap.is_file(), 'candidate_build_result_pending'
+            result = json_file(bootstrap)
+            assert result['revision'] == revision and result['build_exit'] == 0, 'candidate_build_not_passed'
         cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         with (root / 'sst.lock').open('a') as lock:
