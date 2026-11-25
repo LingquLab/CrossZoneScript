@@ -1,0 +1,63 @@
+"""Return compact unified-run status and a bounded inventory of trace fields."""
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+here=Path(__file__).resolve().parent
+sys.path[:0]=[str(here.parent/'ht_t32_e2e'),str(here.parent/'alltoall')]
+from green_auth import askpass_environment
+from ssh_transport import HOST
+from config import CASE
+
+source=f'case_name={CASE!r}\n'+r'''
+from collections import Counter
+import json
+from pathlib import Path
+import re
+
+root=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native')
+case=root/case_name
+report=dict(exists=case.is_dir())
+for filename in ('run.json','phase-summary.json','unified-result.json'):
+    path=case/filename
+    if path.is_file():
+        data=json.loads(path.read_text())
+        report[filename]={key:data[key] for key in ('status','returncode','runner_exit_code','sim_us','guards')
+                          if key in data}
+path=case/'sim.log'
+if path.is_file():
+    with path.open('rb') as f:
+        first=f.read(2*1024*1024)
+        report['log']=dict(bytes=path.stat().st_size,cqe_in_prefix=first.count(b'WrCQEResp'))
+        report['log']['hits']={key:bool(re.search(pattern,first,re.I))
+                               for key,pattern in (('unsupported',rb'(?:unsupported|not support)'),
+                               ('fatal',rb'\bfatal\b'),('kernel',rb'parallel_kernel'))}
+paths=list(case.glob('OUTPUT/**/*trace*'))
+kinds=Counter(re.sub(r'\d+','N',p.name) for p in paths if p.is_file())
+report['trace_inventory']=kinds.most_common(16)
+ba=case/'OUTPUT/stat_trace/Host0_ba_layer_trace.json'
+if ba.is_file():
+    with ba.open('rb') as f:
+        raw=f.read(1024*1024)
+    matches=list(re.finditer(rb'\{[^{}]*"busPayloadType_"[^{}]*\}',raw))
+    fields=set()
+    actions=Counter()
+    for m in matches[:400]:
+        try: value=json.loads(m.group())
+        except ValueError: continue
+        fields.update(value)
+        actions[value['busPayloadType_']]+=1
+    report['ba_schema']=dict(keys=sorted(fields),actions=actions,bytes=ba.stat().st_size,
+                             ts_fields=len(re.findall(rb'"ts"\s*:',raw)))
+print(json.dumps(report,separators=(',',':')))
+'''
+ssh=['ssh','-T','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o',
+     'BatchMode=no','-o','NumberOfPasswordPrompts=1','-o','PreferredAuthentications=password',
+     '-o','PubkeyAuthentication=no',HOST,'python3','-']
+with askpass_environment() as env:
+    proc=subprocess.run(ssh,input=source.encode(),env=env,capture_output=True,timeout=85)
+if proc.returncode:
+    print(json.dumps(dict(ssh_exit=proc.returncode,stderr_bytes=len(proc.stderr))))
+else:
+    print(json.dumps(json.loads(proc.stdout),separators=(',',':')))
