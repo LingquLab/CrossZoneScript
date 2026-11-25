@@ -67,10 +67,12 @@ def main():
             for i in range(16):
                 first,second=struct.unpack_from('<II',raw,i*64)
                 entries.append(dict(index=i,owner=(first>>2)&1,status=first>>24,substatus=(first>>16)&255,entry_index=second&65535))
-            rows.append(dict(rank=rank,gateway=g,cq_local=local,**counts,entries=entries))
+            copies=[exports.read_addressed(CASE/'bin'/('david_%d_die%d_cq%d.bin'%(rank,die,g)),local,1024) for die in (1,2)]
+            owners=[[((struct.unpack_from('<I',copy,i*64)[0]>>2)&1) for i in range(16)] for copy in copies]
+            rows.append(dict(rank=rank,gateway=g,cq_local=local,**counts,entries=entries,raw_die_owner_bits=owners))
     write(CASE/'all-queues.json',rows)
     pending=[row for row in rows if row['sqhead']!=row['sqtail']]
-    record.update(snapshot_available=True,active_queues=len(rows),pending_count=len(pending),pending=pending[:24],
+    record.update(snapshot_available=True,active_queues=len(rows),pending_count=len(pending),pending=pending[:16],
         completed_over8_samples=[row for row in rows if row['sqhead']>8 and row['sqhead']==row['sqtail']][:3],
         interpretation='Forced-stop diagnostic, not an operator validation or normal latency')
     write(CASE/'diagnostic.json',record)
