@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-1388a0dabb9046e68cf05456a243887d",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 3,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"totals\":{\"truncated_hosts\":0,\"hosts\":64,\"wr_req_cq_records\":7896,\"unexpected_qp_slots\":0},\"stages\":{\"gather\":{\"expected\":8960,\"seen\":7346,\"unexpected_slots\":0,\"qps_missing\":448},\"local_return\":{\"expected\":960,\"seen\":0,\"unexpected_slots\":0,\"qps_missing\":448},\"cross_return\":{\"expected\":8192,\"seen\":550,\"unexpected_slots\":0,\"qps_missing\":7168}},\"first_missing\":[[0,1,36,\"gather\",[18,19],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]],[0,1,20,\"local_return\",[0,1,2,3,4,5,6,7,8],[]],[0,2,17,\"gather\",[14,15,16,17,18,19],[0,1,2,3,4,5,6,7,8,9,10,11,12,13]],[0,2,1,\"local_return\",[0],[]],[0,3,37,\"gather\",[18,19],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]],[0,3,21,\"local_return\",[0],[]]]}",
+  "task_id": "ht-parallel-ep64-t16-cq",
+  "type": "RESULT",
+  "worktree_modified": false
+}

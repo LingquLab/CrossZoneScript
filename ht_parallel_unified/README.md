@@ -37,3 +37,17 @@ EP64/H128 FP32，单次入口启动 56 个 AIV。每 rank 处理 32 个 token，
 首轮和复测终态的 CQ 槽缺口一致。64 个 rank 发往 `rank ^ 8` 的 lane 0 全部缺最后的窗口 SO CQE。63 条 QP 缺 BB19–24，rank 5 发往 rank 13 的 QP 缺 BB18–24。64 条 QP 合计记录 320 次 doorbell 写请求和 319 个 SQ fetch 起点。BA 未捕获这些 QP 的本地 SQ head 写入。接收侧匹配到 7,167／7,168 个跨机 SO 槽的 `WR_DATA`。复测终态日志有 27,199 条 `WrCQEResp` 字样，实际 CQ 槽仍缺 385 条。[首轮与复测回执](results/bs32)
 
 BS32 计划由 `prepare_blue.py --tokens 32` 配合原 TileXR 与兼容源生成。绿区首轮和复测分别用 `run.py` 的 `tokens=32` 和 `tokens=32,long_wall=true`，目录名分别为 `ht-parallel-ep64-t32-fp32-1abdfffd` 与同名加 `-long-wall`。
+
+## BS16 同一 ELF 联测
+
+将每 rank 的 token 数降至 16，保留 4 个实际 chunk，每个 chunk 含 4 个 token。EP64/H128 FP32、56 个 AIV 以及同机和跨机路由沿用 BS32 的设置。使用原 ELF，墙钟上限 4,800 秒。
+
+SST 达到墙钟上限，进程退出码为 `-9`。最后一条 `WrCQEResp` 的模拟时刻为 61.644 µs，日志共记录 7,846 条。checker 未启动。预期校验的 131,072 个 FP32 输出、3,584 个 AIV status 和 256 个 guard 均未获得终态校验。
+
+| 阶段 | 预期 CQ 槽 | 终态 BA trace 匹配到的 CQ 槽 |
+| --- | ---: | ---: |
+| Gather | 8,960 | 7,346 |
+| 同机回传 | 960 | 0 |
+| 跨机回传 | 8,192 | 550 |
+
+448 条 Gather QP 各记录 8 次 doorbell 写请求，全部缺最后一个 chunk 的 Gather SO CQE。终态 CQ 槽统计与先前快照一致。[BS16 终态和队列回执](results/bs16)
