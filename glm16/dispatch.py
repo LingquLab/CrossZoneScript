@@ -5,13 +5,14 @@ from pathlib import Path
 import subprocess
 import sys
 import shutil
+import ssl
 import urllib.parse
 import urllib.request
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight', 'stop_download', 'npu_probe', 'stage', 'probe_logs', 'download_status'}
+assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight', 'stop_download', 'npu_probe', 'stage', 'probe_logs', 'download_status', 'route_probe'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
 proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
 proxy_url = proxies.get('https') or proxies.get('http')
@@ -28,6 +29,17 @@ node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url,
 if args['operation'] == 'stage':
     files = {name: (Path(__file__).parent / name).read_text() for name in ['benchmark.py', 'serve.py']}
     node_source = 'FILES = ' + repr(files) + '\n' + node_source
+if args['operation'] == 'route_probe':
+    manifest = json.loads((Path.cwd() / 'glm16-download-manifest.json').read_text())
+    item = next(x for x in manifest['listing']['Data']['Files']
+                if x.get('Path', '').endswith('.safetensors') and not x['Path'].startswith('optional/'))
+    url = ('https://modelscope.cn/models/' + manifest['model'] + '/resolve/'
+           + manifest['revision'] + '/' + urllib.parse.quote(item['Path'], safe='/'))
+    request = urllib.request.Request(url, headers={'Range': 'bytes=0-1023'})
+    with urllib.request.urlopen(request, context=ssl._create_unverified_context(), timeout=25) as response:
+        signed_url = response.geturl()
+        response.read(1024)
+    node_source = 'SIGNED_URL = ' + repr(signed_url) + '\nDIRECT_PROXIES = ' + repr(proxies) + '\n' + node_source
 needs_proxy = args['operation'] in {'prepare', 'network', 'download'}
 forward = ['-o', 'ExitOnForwardFailure=yes', '-R', f'127.0.0.1:{port}:127.0.0.1:{port}'] if needs_proxy else []
 jump_source = ('NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(args['operation'])
