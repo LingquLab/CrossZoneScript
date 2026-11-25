@@ -227,6 +227,34 @@ def wait_for_bs16(root, revision, timeout):
     raise TimeoutError('bs16_completion_not_observed')
 
 
+def wait_for_bs64(root, revision, timeout):
+    def verify(rows, stages, expected_revision, attempt):
+        assert tuple(row['stage'] for row in rows) == stages
+        assert all((row['candidate_commit'], row['tokens'], row['attempt']) == (expected_revision, 64, attempt)
+                   and row['status'] == 'sst_and_checker_passed' and row['checked_ranks'] == 64
+                   and row['profiling_enabled'] and row['profiling_dropped_records'] == 0
+                   and row['routes_sha256'] == '5cf3a46d45e57912b6156c431069867bacc803c803307b288a043a33c3bc7c49'
+                   for row in rows), 'bs64_stage_not_passed'
+
+    previous = root.parent / 'run-86f802f-a1/hapi-logs/t64-batch-a2.json'
+    verify(json_file(previous)[:3], STAGES[:3], REVISIONS['86f802f'], 2)
+    send = root / 'cases/t64-inter-server-send-a4/phase-result.json'
+    verify([json_file(send)], STAGES[3:4], revision, 4)
+
+    journal = root / 'hapi-logs/t64-batch-a4.json'
+    setup_error = root / 't64-batch-a4-host-error.log'
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        assert not setup_error.exists(), 'bs64_setup_failed'
+        if journal.is_file():
+            rows = json_file(journal)
+            verify(rows, STAGES[4:4 + len(rows)], revision, 4)
+            if len(rows) == len(STAGES) - 4:
+                return
+        time.sleep(15)
+    raise TimeoutError('bs64_completion_not_observed')
+
+
 def run_matrix(root, cid, tools, config, args):
     matrix = []
     for size in (32, 64, 128):
@@ -377,6 +405,8 @@ def main(args):
             if prior['status'] != expected_terminal:
                 print(json.dumps({'status': 'snapshot_skipped', 'original_status': prior['status']}))
                 return 0
+        if 'wait_for_bs64' in args:
+            wait_for_bs64(root, revision, args['wait_for_bs64'])
         with (root / 'sst.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if args.get('require_previous_bs'):

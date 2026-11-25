@@ -73,6 +73,11 @@ def main():
     if args.get('require_previous_bs'):
         assert action == 'batch' and tokens > 4
         remote_seconds += 3600
+    if 'wait_for_bs64' in args:
+        assert (action, candidate, tokens, args.get('profiling')) == ('batch', 'cb63658', 128, True)
+        assert start == 0 and end == len(STAGES) - 1
+        assert type(args['wait_for_bs64']) is int and 30 <= args['wait_for_bs64'] <= 16500
+        remote_seconds += args['wait_for_bs64']
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / candidate
     logs.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).parent
