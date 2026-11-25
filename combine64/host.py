@@ -354,6 +354,18 @@ def main(request):
             if report.is_file():
                 print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
             return code
+        if action=='joint-cq-followup16':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            log=ROOT/'joint-cq-followup16-runner.log'
+            code=execute(cid,['python3',runtime+'/all_sq_align_snapshot.py','--cq-followup'],log,1450)
+            report=ROOT/'cases/64p-t16-pipeline-a4-snapshot240us-a1/diagnostic.json'
+            if report.is_file():
+                summary=json.loads(report.read_text())
+                summary.pop('pending_samples',None)
+                print(json.dumps(summary,separators=(',',':')),flush=True)
+            return code
         if action=='all-align-snapshot':
             assert tokens==16
             case=ROOT/'cases/64p-t16-pipeline-a3'
