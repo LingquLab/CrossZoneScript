@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import socket
 import subprocess
 
 ROOT = Path('/home/glm16-09b20820')
@@ -35,6 +36,12 @@ def create(kind, run_id):
     assert exists.returncode != 0, 'owned_name_already_exists_inspect_before_retry'
     current = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', IMAGE], timeout=12).decode().strip()
     assert current == IMAGE
+    ports = []
+    if SPEC['node_rank'] == 0:
+        ports = [8016, 29651] if kind == 'model' else ([29652] if kind == 'smoke' else [])
+    for port in ports:
+        with socket.socket() as probe:
+            probe.bind((SPEC['environment']['VLLM_HOST_IP'], port))
     args = ['docker', 'create', '--name', name, '--network', 'host', '--pid', 'host',
         '--privileged', '--shm-size=32g', '--ulimit', 'memlock=-1:-1', '--ulimit', 'stack=67108864:67108864',
         '--mount', f'type=bind,src={ROOT},dst=/experiment',
