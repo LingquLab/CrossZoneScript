@@ -1,0 +1,87 @@
+--- a/src/ep/combine_ht/inter_server_send_worker.h
++++ b/src/ep/combine_ht/inter_server_send_worker.h
+@@ -135,0 +136,5 @@
++#ifdef TILEXR_EP_HT_SST_SPLIT_WRITES
++        if (WaitSqStripe(peer, qp) != Success) {
++            return TransportError;
++        }
++#endif
+@@ -180,0 +186,29 @@
++#ifdef TILEXR_EP_HT_SST_SPLIT_WRITES
++    static constexpr uint32_t kSqStripeBbs = kSlotBytes / TileXR::TILEXR_UDMA_WQE_BB_BYTES;
++
++    __aicore__ uint32_t WaitSqStripe(uint32_t peer, uint32_t qp, __gm__ TileXR::UDMAInfo *info,
++        __gm__ TileXR::UDMAWQCtx *context, uint32_t head)
++    {
++        if (head == 0 || head % kSqStripeBbs != 0) {
++            return Success;
++        }
++        // Do not let SST combine unconsumed WQEs from two physical SQ stripes.
++        TileXR::UDMARingDoorbell(head, context);
++        return TileXR::UDMAPollCQUntilSqTail(info, peer, qp, head) ? uint32_t(TransportError) : uint32_t(Success);
++    }
++
++    __aicore__ uint32_t WaitSqStripe(uint32_t peer, uint32_t qp)
++    {
++        if (!TileXR::UDMAQueueOperationValid(args_, peer, qp)) {
++            return TransportError;
++        }
++        auto info = TileXR::GetUDMAInfo(args_);
++        auto context = TileXR::UDMAGetWQCtx(info, peer, qp);
++        if (!context || !context->headAddr || context->bufAddr % kSlotBytes != 0) {
++            return TransportError;
++        }
++        const uint32_t stripeHead = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr));
++        return WaitSqStripe(peer, qp, info, context, stripeHead);
++    }
++#endif
++
+@@ -182,0 +217,5 @@
++#ifdef TILEXR_EP_HT_SST_SPLIT_WRITES
++        if (WaitSqStripe(d.peer, qp) != Success) {
++            return TransportError;
++        }
++#endif
+@@ -274,0 +314,19 @@
++#ifdef TILEXR_EP_HT_SST_SPLIT_WRITES
++        if (context->bufAddr % kSlotBytes != 0) {
++            return TransportError;
++        }
++        const uint32_t wqeCount = TileXR::UDMASstLoadState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr));
++        for (uint32_t published = 0; published < count;) {
++            const uint32_t stripeHead = head + published;
++            if (WaitSqStripe(peer, qp, info, context, stripeHead) != Success) {
++                return TransportError;
++            }
++            const uint32_t room = kSqStripeBbs - stripeHead % kSqStripeBbs;
++            const uint32_t remaining = count - published;
++            const uint32_t piece = remaining < room ? remaining : room;
++            TileXR::UDMAPublishWqe(
++                scratch[published * TileXR::TILEXR_UDMA_WQE_BB_BYTES], context, stripeHead, piece);
++            published += piece;
++            PublishBatchHead(peer, lane, context, head + published, wqeCount + published);
++        }
++#else
+@@ -276 +333,0 @@
+-        // No SQ/head state changes until all descriptors have been validated.
+@@ -279,4 +336,2 @@
+-        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), head + count);
+-        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), wqeCount + count);
+-        touched_[lane] |= PeerBit(peer);
+-        TileXR::UDMARingDoorbell(head + count, context);
++        PublishBatchHead(peer, lane, context, head + count, wqeCount + count);
++#endif
+@@ -285,0 +341,9 @@
++    __aicore__ inline void PublishBatchHead(uint32_t peer, uint32_t lane, __gm__ TileXR::UDMAWQCtx *context,
++        uint32_t publishedHead, uint32_t publishedWqes)
++    {
++        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->headAddr), publishedHead);
++        TileXR::UDMASstStoreState(reinterpret_cast<__gm__ uint32_t *>(context->wqeCntAddr), publishedWqes);
++        touched_[lane] |= PeerBit(peer);
++        TileXR::UDMARingDoorbell(publishedHead, context);
++    }
++
+@@ -365 +429,2 @@
+-__aicore__ inline void Run(GM_ADDR commArgs, GM_ADDR workspace, GM_ADDR forward, GM_ADDR counts, GM_ADDR ranges, GM_ADDR status, TileXREpHt::SendConfig config, uint32_t owner)
++__aicore__ inline void Run(GM_ADDR commArgs, GM_ADDR workspace, GM_ADDR forward, GM_ADDR counts, GM_ADDR ranges,
++    GM_ADDR status, TileXREpHt::SendConfig config, uint32_t owner)
