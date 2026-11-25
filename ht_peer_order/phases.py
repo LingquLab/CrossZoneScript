@@ -133,13 +133,15 @@ def execute_benchmark(request):
         seed = BASE + ordinal
         data = generate_inputs(tokens, seed, abis, (native, runtime))
         modes = MODES if ordinal % 2 == 0 else MODES[::-1]
+        if request.get('mode') in MODES:
+            modes = (request['mode'],)
         pair = [run_case(request, tokens, seed, mode, data, abis, (loader, native, runtime))
                 for mode in modes]
-        passed = all(row.get('status') == 'sst_and_checker_passed' for row in pair)
+        passed = len(pair) == 2 and all(row.get('status') == 'sst_and_checker_passed' for row in pair)
         if passed:
             for field in ('checked', 'exports_sha256', 'cqe'):
                 assert pair[0][field] == pair[1][field], (seed, field)
-        if request.get('compact'):
+        if len(pair) == 2 and request.get('compact'):
             for row in pair:
                 row.pop('exports_sha256', None)
                 row.pop('checked', None)

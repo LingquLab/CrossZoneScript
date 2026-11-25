@@ -15,11 +15,15 @@ assert sys.argv[1:2] == ['--args-file']
 options = json.loads(Path(sys.argv[2]).read_text())
 request = {key: int(options[key]) for key in ('tokens', 'start', 'stop')}
 long_timeout = bool(options.get('long_timeout'))
-sim_timeout = 1200 if long_timeout else 720
+sim_timeout = 1800 if long_timeout else 720
 phases = (here/'phases.py').read_text()
 if long_timeout:
     assert request['tokens'] == 128
     phases = phases.replace("STEM = 'ht-peer-order-v1-'", "STEM = 'ht-peer-order-v2-'")
+mode = options.get('mode')
+if mode is not None:
+    assert mode in ('rotate', 'peer') and long_timeout
+    request['mode'] = mode
 request.update(compact=bool(options.get('compact')), object=base64.b64encode((here/'kernel.o.gz').read_bytes()).decode(),
                abis=base64.b64encode((here/'abis.json.gz').read_bytes()).decode(),
                object_sha256=(here/'kernel.sha256').read_text().strip(),
@@ -47,7 +51,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 with askpass_environment() as environment:
     proc = subprocess.run(ssh, input=source.encode(), env=environment, capture_output=True,
-                          timeout=(2 * sim_timeout + 260) * (request['stop'] - request['start']))
+                          timeout=((1 if mode else 2) * sim_timeout + 260) * (request['stop'] - request['start']))
 if proc.returncode:
     print(json.dumps(dict(ssh_exit=proc.returncode, stderr_bytes=len(proc.stderr))))
 else:
