@@ -12,7 +12,7 @@ root = Path('/home/glm16-09b20820')
 root.mkdir(exist_ok=True)
 written = {}
 for name, data in FILES.items():
-    assert name in {'benchmark.py', 'serve.py'}
+    assert name in {'benchmark.py', 'serve.py', 'validate_spec.py', 'hccl_smoke.py', 'container_runtime.py'}
     (root / name).write_text(data)
     written[name] = hashlib.sha256(data.encode()).hexdigest()
 environment = {'ASCEND_RT_VISIBLE_DEVICES': '0,1,2,3,4,5,6,7',
@@ -40,6 +40,7 @@ argv = ['vllm', 'serve', '/model', '--served-model-name', 'glm-5.2',
     '--enable-auto-tool-choice', '--tool-call-parser', 'glm47', '--reasoning-parser', 'glm47']
 argv += ['--api-server-count', '1'] if rank == 0 else ['--headless']
 spec = {'host': host, 'node_rank': rank, 'environment': environment, 'argv': argv,
+        'script_sha256': written,
         'image': 'sha256:5588559036095d339c1cfb48c16d0227b841355490d8c0cb4e6730759f9c6674',
         'model': '/mnt/share/GLM-5.2', 'experiment': str(root),
         'name': f'glm16-09b20820-node{rank}', 'benchmark': {'input': 8192, 'output': 128,

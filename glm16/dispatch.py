@@ -13,7 +13,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight', 'stop_download', 'npu_probe', 'stage', 'probe_logs', 'download_status', 'route_probe', 'proxy_probe'}
+assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight', 'stop_download', 'npu_probe', 'stage', 'probe_logs', 'download_status', 'route_probe', 'proxy_probe', 'validate_cli'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
 proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
 proxy_url = proxies.get('https') or proxies.get('http')
@@ -22,7 +22,7 @@ proxy = urllib.parse.urlsplit(proxy_url)
 assert proxy.scheme in {'http', 'https'} and proxy.hostname and proxy.port
 auth = proxy.netloc.rsplit('@', 1)[0] + '@' if '@' in proxy.netloc else ''
 node_timeout = args.get('download_seconds', 86400) + 600 if args['operation'] == 'download' else 170
-if args['operation'] == 'npu_probe':
+if args['operation'] in {'npu_probe', 'validate_cli'}:
     node_timeout = 260
 port = 18744 if args.get('host') == '141.61.94.26' else 18743
 local_url = proxy._replace(netloc=auth + f'127.0.0.1:{port}').geturl()
@@ -31,7 +31,8 @@ if args['operation'] == 'proxy_probe':
     bridge_ips = sorted({x[4][0] for x in socket.getaddrinfo(proxy.hostname, proxy.port, socket.AF_INET)})
     node_source = 'BRIDGE_PROXY_IPS = ' + repr(bridge_ips) + '\nDIRECT_PROXIES = ' + repr(proxies) + '\n' + node_source
 if args['operation'] == 'stage':
-    files = {name: (Path(__file__).parent / name).read_text() for name in ['benchmark.py', 'serve.py']}
+    files = {name: (Path(__file__).parent / name).read_text() for name in
+             ['benchmark.py', 'serve.py', 'validate_spec.py', 'hccl_smoke.py', 'container_runtime.py']}
     node_source = 'FILES = ' + repr(files) + '\n' + node_source
 if args['operation'] == 'route_probe':
     manifest = json.loads((Path.cwd() / 'glm16-download-manifest.json').read_text())
