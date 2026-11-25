@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from config import CQ_ORDERED_GZIP_SHA256, CROSS_STRIPE_GZIP_SHA256, ENTRY, GZIP_SHA256, NAMES
+from config import CQ_ORDERED_GZIP_SHA256, CROSS_STRIPE_GZIP_SHA256, ENTRY, FP32_INIT_GZIP_SHA256, GZIP_SHA256, NAMES
 
 here=Path(__file__).resolve().parent
 root=here.parent
@@ -26,14 +26,19 @@ tokens = int(options.get('tokens', 4))
 assert tokens in (4, 8, 16, 32)
 long_wall = bool(options.get('long_wall'))
 cross_stripe = options.get('cross_stripe', False)
-assert cross_stripe in (False, True, 'ordered')
+assert cross_stripe in (False, True, 'ordered', 'fp32-init')
 assert not (long_wall or cross_stripe) or tokens == 32
 sim_timeout = {4: 1200, 8: 2400, 16: 4800, 32: 4800 if long_wall or cross_stripe else 2400}[tokens]
 case_override = 'T32_LONG_CASE' if long_wall else f'T{tokens}_CASE'
 binary = here/'parallel.o.gz'
 gzip_digest = GZIP_SHA256
 kernel_override = ''
-if cross_stripe == 'ordered':
+if cross_stripe == 'fp32-init':
+    case_override = 'T32_FP32_INIT_CASE'
+    binary = here/'parallel-fp32-init.o.gz'
+    gzip_digest = FP32_INIT_GZIP_SHA256
+    kernel_override = 'KERNEL_SHA256 = FP32_INIT_KERNEL_SHA256'
+elif cross_stripe == 'ordered':
     case_override = 'T32_CQ_ORDERED_CASE'
     binary = here/'parallel-cq-ordered.o.gz'
     gzip_digest = CQ_ORDERED_GZIP_SHA256

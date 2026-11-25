@@ -1,0 +1,29 @@
+--- a/src/ep/combine_ht/final_reduce_worker.h
++++ b/src/ep/combine_ht/final_reduce_worker.h
+@@ -236 +235,0 @@
+-    // The standalone model uses the baseline FP32 compute and copy schedule.
+@@ -242,6 +241,3 @@
+-        Duplicate(output, 0.0F, hidden);
+-        PipeBarrier<PIPE_V>();
+-        for (uint32_t server = 0; server < kServerCount; ++server) {
+-            if ((mask & (uint64_t {1} << server)) == 0) {
+-                continue;
+-            }
++        bool first = true;
++        for (; mask; mask &= mask - 1) {
++            const uint32_t server = __builtin_ctzll(mask);
+@@ -251,0 +248,7 @@
++            if (first) {
++                // Start the SST accumulator with this token's first returned row.
++                DataCopy(output, returned, hidden);
++                Sync<HardEvent::MTE2_V>();
++                first = false;
++                continue;
++            }
+@@ -255,0 +259,6 @@
++        }
++        if (first) {
++            for (uint32_t h = 0; h < hidden; ++h) {
++                output.SetValue(h, 0.0F);
++            }
++            Sync<HardEvent::S_MTE3>();
