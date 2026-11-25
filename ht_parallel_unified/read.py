@@ -133,17 +133,29 @@ a, b = (json.loads((case/'case-manifest.json').read_text()) for case in (first, 
 assert a['kernel_sha256'] == KERNEL_SHA256
 variant_kernels = {{T32_CROSS_STRIPE_CASE: CROSS_STRIPE_KERNEL_SHA256,
                     T32_CQ_ORDERED_CASE: CQ_ORDERED_KERNEL_SHA256,
-                    T32_FP32_INIT_CASE: FP32_INIT_KERNEL_SHA256}}
+                    T32_FP32_INIT_CASE: FP32_INIT_KERNEL_SHA256,
+                    T32_PROFILE_CASE: PROFILE_KERNEL_SHA256}}
 assert b['kernel_sha256'] == variant_kernels.get(second.name, KERNEL_SHA256)
-left, right = ({{name: digest for name, digest in manifest['files'].items() if name.startswith('input_bin/')}}
+left, right = ({{name: digest for name, digest in manifest['files'].items()
+                 if name.startswith('input_bin/') and not name.endswith('/profile.bin')}}
                for manifest in (a,b))
 left_golden, right_golden = ({{name: digest for name, digest in manifest['fixture_files'].items()
                              if name != 'manifest.json'}} for manifest in (a,b))
 assert left == right and left_golden == right_golden
-wa, wb = ((case/'workload.yml').read_text().replace(case.name, T32_CASE) for case in (first,second))
-assert json.loads(wa) == json.loads(wb)
+wa, wb = (json.loads((case/'workload.yml').read_text().replace(case.name, T32_CASE)) for case in (first,second))
+profile = second.name == T32_PROFILE_CASE
+if profile:
+    for chip in wb['workload_config'].values():
+        region = chip['output_param'].pop('profile')
+        parameter = chip['kernel_param'].pop('load_profile')
+        assert region['size'] == 56*8192 and region['addr'] == parameter['value'] and parameter['param_offset'] == '464'
+        for name, parameter in chip['kernel_param'].items():
+            if name.startswith('load_'):
+                parameter['param_offset'] = str(int(parameter['param_offset']) - 8)
+assert wa == wb
 print(json.dumps(dict(input_files=len(left), golden_and_layout_files=len(left_golden),
-                      normalized_workloads_equal=True, kernel_sha256=b['kernel_sha256']),separators=(',',':')))
+                      normalized_workloads_equal=True, profile_buffer_verified=profile,
+                      kernel_sha256=b['kernel_sha256']),separators=(',',':')))
 '''
 elif options.get('queues'):
     assert tokens == 32 or options.get('count_cq') or (tokens == 16 and options.get('detail'))
