@@ -315,6 +315,16 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='cq-sq-snapshot':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/cq_snapshot.py','--include-sq'],ROOT/'cq-sq-snapshot16-runner.log',1000)
+            if code:return code
+            code=execute(cid,['python3',runtime+'/cq_snapshot_decode.py','--include-sq'],ROOT/'cq-sq-snapshot16-decode.log',160)
+            report=ROOT/'cases/64p-t16-send-cq-sq-snapshot40us-a1/cq-sparse-report.json'
+            if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
+            return code
         if action=='cq-snapshot-decode':
             assert tokens==16
             code=execute(cid,['python3',runtime+'/cq_snapshot_decode.py'],ROOT/'cq-snapshot16-decode.log',120)

@@ -1,5 +1,5 @@
 """Bounded unchanged-bs16-send reproduction with queue and CQ exports only."""
-import json,os,shutil,signal,struct,subprocess,time
+import json,os,shutil,signal,struct,subprocess,time,sys
 from pathlib import Path
 import exports
 
@@ -13,6 +13,9 @@ def cq_address(rank,gateway):
     peer=rank//8*8+gateway;physical=gateway%2*20+gateway//2
     return 0x1a00000000+(peer*40+physical)*16384*64
 def main():
+    global CASE
+    include_sq='--include-sq' in sys.argv
+    if include_sq:CASE=ROOT/'cases/64p-t16-send-cq-sq-snapshot40us-a1'
     manifest=json.loads((BASE/'case-manifest.json').read_text())
     assert manifest['candidate_commit']=='40596e2d9d454b7a7b00b4b34b96d49158e1c3a3'
     assert manifest['kernel_sha256']=='d81736cc8426400a51126b01868a01ee7d9b1fb127003185eebb7d7f4c175481'
@@ -28,7 +31,9 @@ def main():
     for rank in range(64):
         out=workload['workload_config']['chip%d'%rank]['output_param']
         out['qstate']=dict(addr=rank*STRIDE+0x1b00000000,size=5*PLANE)
-        for g in range(8):out['cq%d'%g]=dict(addr=rank*STRIDE+cq_address(rank,g),size=1024)
+        for g in range(8):
+            out['cq%d'%g]=dict(addr=rank*STRIDE+cq_address(rank,g),size=1024)
+            if include_sq:out['sq%d'%g]=dict(addr=rank*STRIDE+cq_address(rank,g)-0x100000000,size=1024)
     write(CASE/'workload.yml',workload);shutil.copyfile(CASE/'workload.yml',CASE/'v310_config/workload_config.yml')
     env=json.loads((CASE/'sst-environment.json').read_text())
     for key in ('sst_bin','env_script','decoder_library'):assert exports.digest(env[key])==env[key+'_sha256']
@@ -50,6 +55,8 @@ def main():
             code=child.returncode
     record.update(sst_exit=code,sst_wall_seconds=time.monotonic()-start,finished_unix=time.time())
     write(CASE/'diagnostic.json',record)
+    if include_sq and code==0 and not record.get('wall_timeout'):
+        print(json.dumps(record,separators=(',',':')),flush=True);return 0
     if code or record.get('wall_timeout'):
         print(json.dumps(record,separators=(',',':')),flush=True);return 1
     rows=[]
