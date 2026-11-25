@@ -68,6 +68,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         'kernel_compatibility_variant':meta.get('kernel_compatibility_variant','original'),
         'compatibility_header_sha256':meta.get('compatibility_header_sha256'),
         'compatibility_baseline_header_sha256':meta.get('compatibility_baseline_header_sha256'),
+        'compatibility_inter_source_sha256':meta.get('compatibility_inter_source_sha256'),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -108,8 +109,8 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result['operator_qualified']=result['qualified'] and not result['diagnostic_only']
     result['run']={k:v for k,v in result.get('run',{}).items() if k in ('status','returncode','guards','error','started_unix','finished_unix','elapsed_seconds')}
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
-    if result.get('kernel_compatibility_variant')=='sq-align512':
-        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant')}
+    if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512'):
+        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','compatibility_inter_source_sha256')}
         compact['profiling_lanes']=result.get('profiling',{}).get('committed_lanes')
         compact['profiling_dropped']=result.get('profiling',{}).get('dropped_records')
         print(json.dumps(compact,separators=(',',':')),flush=True)
@@ -193,7 +194,7 @@ def prepare_asset(cid,tools,tokens):
     else:print(json.dumps({'prepare_exit':code,'log':str(ROOT/('prepare-%d.log'%tokens))}))
     return code
 
-def return_phase(cid,tools,tokens,stage,attempt="a1"):
+def return_phase(cid,tools,tokens,stage,attempt="a1",kernel_variant='original'):
     runtime='/work/'+tools.name
     assert stage in ('return-independent','return','inter-send-independent','inter-send','final-independent','final-joint')
     code=execute(cid,['python3',runtime+'/return_fixture.py','--root','/work','--stage',stage,'--tokens',str(tokens),
@@ -201,7 +202,15 @@ def return_phase(cid,tools,tokens,stage,attempt="a1"):
     if code:
         print(json.dumps({'prepare_exit':code,'stage':stage,'log':str(ROOT/('prepare-%d-%s.log'%(tokens,stage)))}));return code
     case=ROOT/'cases'/('64p-t%d-%s-%s'%(tokens,stage,attempt));meta=json.loads((case/'fixture-data/manifest.json').read_text())
-    return run_case(cid,case,tools,'check_return.py',meta['entry'],{4:1000,16:1800,32:2700,64:3600,128:5400}[tokens])
+    assert kernel_variant in ('original','sq-align-all512')
+    if kernel_variant=='sq-align-all512':
+        assert (tokens,stage,attempt) in ((16,'inter-send-independent','a2'),(32,'inter-send-independent','a2'))
+        report=json.loads((ROOT/'inter-sq-align512-a1/report.json').read_text());assert report['exit_codes']==[0,0]
+        binary=ROOT/'inter-sq-align512-a1/inter.o';assert sha(binary)==report['inter_object_sha256']
+        raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
+        meta.update(kernel_sha256=sha(case/'kernel/inter_server_send.o'),kernel_compatibility_variant=kernel_variant,compatibility_inter_source_sha256=report['overlay_inter_sha256'])
+        write(case/'fixture-data/manifest.json',meta)
+    return run_case(cid,case,tools,'check_return.py',meta['entry'],900 if kernel_variant=='sq-align-all512' else {4:1000,16:1800,32:2700,64:3600,128:5400}[tokens])
 
 def pipeline_phase(cid,tools,tokens,request,seconds=None):
     runtime='/work/'+tools.name;attempt=request.get('attempt','a1')
@@ -327,6 +336,18 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='inter-align-regression':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/inter_sq_align_build.py',runtime],ROOT/'inter-align512-build.log',800)
+            if code:return code
+            for n,attempt,seconds in ((16,'a3',1200),(32,'a2',1500)):
+                code=return_phase(cid,tools,n,'inter-send-independent','a2','sq-align-all512')
+                if code:return code
+                code=pipeline_phase(cid,tools,n,dict(attempt=attempt,build_variant='four-module-sq-align-all512'),seconds)
+                if code:return code
+            return 0
         if action=='sq-align-snapshot':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
