@@ -201,6 +201,8 @@ def cross_so_arrival(case):
     offsets = json.loads((case/'fixture-data/trace-offsets.json').read_text())
     counts = Counter()
     examples = []
+    missing_lane0 = []
+    missing_rows = []
     for rank in range(64):
         path = case/'OUTPUT/stat_trace'/f'Host{rank}_ba_layer_trace.json'
         if not path.is_file():
@@ -216,6 +218,10 @@ def cross_so_arrival(case):
             for lane in range(2):
                 addr = workspace + completion + ((gateway*4+3)*2+lane)*512
                 targets[addr] = (gateway, lane)
+        returned = offsets[rank]['return_offset']
+        payload_targets = {workspace + returned + (token*8 + paired_gateway//8)*512: token
+                           for token in range(32)}
+        payload_writes = set()
         with path.open('rb') as trace:
             data = trace.read(MAX_TRACE_BYTES)
             counts['truncated_hosts'] += bool(trace.read(1))
@@ -238,12 +244,19 @@ def cross_so_arrival(case):
                     continue
                 if addr in targets:
                     events[targets[addr]].add(event)
+                if event == 'WR_DATA' and addr in payload_targets:
+                    payload_writes.add(payload_targets[addr])
         for role, pair in (('paired_lane0', (paired_gateway, 0)), ('paired_lane1', (paired_gateway, 1))):
             for event in events.get(pair, set()):
                 counts[f'{role}_{event}'] += 1
+        if 'WR_DATA' not in events.get((paired_gateway,0), ()):
+            missing_lane0.append([rank, paired_gateway])
+        counts['cross_rows_wr_data'] += len(payload_writes)
+        if len(payload_writes) != 32 and len(missing_rows) < 6:
+            missing_rows.append([rank, paired_gateway, sorted(set(range(32)) - payload_writes)])
         counts['remote_slots_wr_data'] += sum('WR_DATA' in observed for observed in events.values())
         if len(examples) < 3:
             examples.append([rank, paired_gateway, sorted(events.get((paired_gateway,0), ())),
                              sorted(events.get((paired_gateway,1), ()))])
     return dict(counts=counts, sample_columns=['receiver','gateway','lane0_events','lane1_events'],
-                examples=examples)
+                examples=examples, missing_lane0=missing_lane0[:8], missing_payload_rows=missing_rows)
