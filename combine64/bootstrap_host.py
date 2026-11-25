@@ -1,6 +1,7 @@
 # Copyright (c) 2026 TileXR Project.
 """Create the task-owned CPU container and compile immutable candidate source."""
 import base64
+import fcntl
 import hashlib
 import io
 import json
@@ -22,7 +23,7 @@ def execute(argv, timeout=20):
     return p.stdout
 
 
-def main(request):
+def build(request):
     assert execute(['hostname', '-s']).decode().strip() == 'host-94-26'
     assert platform.machine() == 'aarch64'
     assert request['revision'] == REVISION
@@ -77,3 +78,12 @@ def main(request):
     (ROOT/'bootstrap-result.json').write_text(json.dumps(record,indent=2))
     print(json.dumps(record,separators=(',',':')))
     return 0 if proc.returncode==0 and record['build']['all_compiled'] else 1
+
+
+def main(request):
+    baseline_lock = ROOT.parent / 'run-b5383cf-a1' / 'sst.lock'
+    if baseline_lock.is_file():
+        with baseline_lock.open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return build(request)
+    return build(request)
