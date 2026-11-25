@@ -14,8 +14,9 @@ STATE.mkdir(exist_ok=True)
 
 def fetch(url):
     request = urllib.request.Request(url, headers={'User-Agent': 'GLM16-validation/1'})
-    with urllib.request.urlopen(request, timeout=45,
-                                context=ssl._create_unverified_context()) as response:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler(PROXIES),
+              urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
+    with opener.open(request, timeout=45) as response:
         return response.read(16 * 1024 * 1024)
 
 result = {'model': MODEL, 'revision': REVISION,
@@ -55,6 +56,10 @@ except Exception as error:
     result['error_class'] = type(error).__name__
     if hasattr(error, 'code'):
         result['http_status'] = error.code
+    reason = getattr(error, 'reason', None)
+    if reason is not None:
+        result['reason_class'] = type(reason).__name__
+        result['errno'] = getattr(reason, 'errno', None)
 
 archive_probe = r'''
 import json, tarfile

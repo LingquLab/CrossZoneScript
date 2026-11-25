@@ -4,13 +4,15 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import urllib.request
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
 assert args['operation'] in {'prepare', 'network'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
-node_source = 'ARGS = ' + repr(args) + '\n' + remote
+proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
+node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr(proxies) + '\n' + remote
 jump_source = 'NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(args['operation']) + '\n' + r'''
 import json, subprocess
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
