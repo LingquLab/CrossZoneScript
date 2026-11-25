@@ -24,7 +24,7 @@ def main():
     assert type(attempt) is int and 1 <= attempt <= 20
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
-    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION
+    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / '86f802f'
     logs.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).parent
     args.update(tokens=tokens, attempt=attempt, timeout=timeout)

@@ -179,7 +179,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False):
     binary=kernel.read_bytes()
     padded.write_bytes(binary+bytes(10485760-len(binary)))
     loader.prepare_loader(output/'loader',root,padded,loader.sha256(padded),'tilexr_moonep_combine_ht_kernel',specs)
-    stats.update(runtime_root=root,sim_send=True,candidate_commit='b5383cfd65828a165fae9957d287967136c06260',
+    stats.update(runtime_root=root,sim_send=True,candidate_commit='86f802f9f8a19728364c466b0e9cb7416e038595',
                  kernel_sha256=loader.sha256(padded),routes_sha256=loader.sha256(output/'routes.json'))
     (output/'fixture-data/manifest.json').write_text(json.dumps(stats,indent=2))
     if disk_backed:

@@ -12,8 +12,8 @@ from pathlib import Path, PurePosixPath
 
 SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
-ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION / 'run-b5383cf-a1'
-REVISION = 'b5383cfd65828a165fae9957d287967136c06260'
+ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION / 'run-86f802f-a1'
+REVISION = '86f802f9f8a19728364c466b0e9cb7416e038595'
 
 
 def execute(argv, timeout=20):
@@ -51,7 +51,7 @@ def main(request):
                 target.parent.mkdir(parents=True,exist_ok=True)
                 with target.open('xb') as dest: dest.write(archive.extractfile(member).read())
     (ROOT/'build.sh').write_text(request['build_script'])
-    name='combine-ht-'+SESSION[:8]+'-b5383cf-a1'
+    name='combine-ht-'+SESSION[:8]+'-86f802f-a1'
     container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
                        '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8','--memory=32g',
                        '--pids-limit=1024','--shm-size=64m','--ulimit','nofile=524288:524288',

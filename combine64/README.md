@@ -1,8 +1,10 @@
 # combine_ht EP64 simulator validation
 
 Session `de038086-2b21-40e2-bad9-65360186ad97`. Candidate
-`b5383cfd65828a165fae9957d287967136c06260` on
-`LingquLab/TileXR:codex/combine-ht-e2e-ep16-32-64`.
+`86f802f9f8a19728364c466b0e9cb7416e038595` fixes the local return forward
+cache on top of b5383cf. Build and case outputs for the candidate reside in
+`run-86f802f-a1`. Baseline runs use the prior script commit
+`25209a7416214c14f9b8049995590ad49f586659`.
 
 SIM_SEND=ON, perf model, 64 ranks, H128, topk6, FP32. Route generation
 uses 256 experts and seed 20261124. Dispatch and expert computation are assumed

@@ -10,8 +10,8 @@ import subprocess
 import traceback
 
 SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
-REVISION = 'b5383cfd65828a165fae9957d287967136c06260'
-ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}/run-b5383cf-a1')
+REVISION = '86f802f9f8a19728364c466b0e9cb7416e038595'
+ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}/run-86f802f-a1')
 TEMPLATE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549')
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 PLATFORM_FILES = {'test_UBusSim.py', 'sst-environment.json', 'environment.snapshot.json', 'installed_model.py'}

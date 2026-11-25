@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 SESSION='de038086-2b21-40e2-bad9-65360186ad97'
-REVISION='b5383cfd65828a165fae9957d287967136c06260'
+REVISION='86f802f9f8a19728364c466b0e9cb7416e038595'
 
 
 def main():
@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--args-file',type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     assert args=={'action':'build'}
-    logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION
+    logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION/'86f802f'
     logs.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='combine-ht-source-') as temporary:
         def git(*argv):

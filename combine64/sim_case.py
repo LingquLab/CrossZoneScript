@@ -21,7 +21,7 @@ SUPPORT = SOURCE / 'tools/unitest/simulator/experiments/inter_server_send/sst'
 sys.path.insert(0, str(SUPPORT))
 WORLD, HIDDEN, TOPK, REDUCERS, FINAL_CORES = 64, 128, 6, 8, 8
 STRIPE, MAGIC = 512, 2026
-REVISION = 'b5383cfd65828a165fae9957d287967136c06260'
+REVISION = '86f802f9f8a19728364c466b0e9cb7416e038595'
 LOCAL_ENTRY = 'tilexr_moonep_combine_ht_kernel'
 ENTRIES = {
     'local-send': LOCAL_ENTRY,
