@@ -108,13 +108,18 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result['operator_qualified']=result['qualified'] and not result['diagnostic_only']
     result['run']={k:v for k,v in result.get('run',{}).items() if k in ('status','returncode','guards','error','started_unix','finished_unix','elapsed_seconds')}
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
-    print(json.dumps(result,separators=(',',':')),flush=True)
+    if result.get('kernel_compatibility_variant')=='sq-align512':
+        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant')}
+        compact['profiling_lanes']=result.get('profiling',{}).get('committed_lanes')
+        compact['profiling_dropped']=result.get('profiling',{}).get('dropped_records')
+        print(json.dumps(compact,separators=(',',':')),flush=True)
+    else:print(json.dumps(result,separators=(',',':')),flush=True)
     return 0 if result['qualified'] else 1
 
 def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
     assert attempt in ("a1","a2","a3")
     assert phase in ('send','reduce','fused')
-    assert kernel_variant in ('original','cq-memory-barrier')
+    assert kernel_variant in ('original','cq-memory-barrier','sq-align512')
     compatibility=None
     if kernel_variant=='cq-memory-barrier':
         assert (tokens,phase,attempt)==(16,'send','a2')
@@ -122,6 +127,12 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
         assert compatibility['exit_codes']==[0,0] and compatibility['text_identical'] is False
         assert sha(ROOT/'source/include/tilexr/comm/udma/device/api.h')==compatibility['baseline_header_sha256']
         assert sha(ROOT/'cq-compiler-barrier-a2/include/tilexr/comm/udma/device/api.h')==compatibility['overlay_header_sha256']
+    if kernel_variant=='sq-align512':
+        assert (tokens,phase,attempt)==(16,'send','a3')
+        compatibility=json.loads((ROOT/'sq-align512-a1/report.json').read_text())
+        assert compatibility['exit_codes']==[0,0]
+        assert sha(ROOT/'source/src/moonep/combine_ht/kernels/combine_ht_kernel.h')==compatibility['baseline_header_sha256']
+        assert sha(ROOT/'sq-align512-a1/include/combine_ht_kernel.h')==compatibility['overlay_header_sha256']
     asset=ROOT/'assets'/('64p-t%d'%tokens)
     identity=json.loads((asset/'identity.json').read_text())
     case=ROOT/'cases'/('64p-t%d-local-%s-%s'%(tokens,phase,attempt));case.mkdir(parents=True,exist_ok=False)
@@ -146,7 +157,8 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
                 ws[offset:offset+len(payload)]=payload;provenance.update(hashlib.sha256(payload).digest())
             (folder/'workspace.bin').write_bytes(ws)
     if compatibility is not None:
-        binary=ROOT/'cq-compiler-barrier-a2/local_ht.o';assert sha(binary)==compatibility['overlay_object_sha256']
+        binary=ROOT/('sq-align512-a1/local_ht.o' if kernel_variant=='sq-align512' else 'cq-compiler-barrier-a2/local_ht.o')
+        assert sha(binary)==compatibility['object_sha256' if kernel_variant=='sq-align512' else 'overlay_object_sha256']
         raw=binary.read_bytes();(case/'kernel/inter_server_send.o').write_bytes(raw+bytes(10485760-len(raw)))
     elif (ROOT/'profile-build/result.json').is_file():
         instrument=json.loads((ROOT/'profile-build/result.json').read_text())['targets']['local_ht']
@@ -160,7 +172,7 @@ def local(cid,tools,tokens,phase,attempt="a1",kernel_variant='original'):
     if compatibility is not None:
         meta.update(compatibility_header_sha256=compatibility['overlay_header_sha256'],
             compatibility_baseline_header_sha256=compatibility['baseline_header_sha256'],
-            compatibility_scope='40596e2 plus two compiler memory clobbers around existing DCCI; original source mount unchanged')
+            compatibility_scope=('40596e2 plus SIM_SEND SQ publication split/drain at 512B boundaries' if kernel_variant=='sq-align512' else '40596e2 plus two compiler memory clobbers around existing DCCI; original source mount unchanged'))
     write(case/'fixture-data/manifest.json',meta)
     seconds=900 if compatibility is not None else {4:900,16:1800,32:2700,64:3600,128:5400}[tokens]
     return run_case(cid,case,tools,'check_local.py','tilexr_moonep_combine_ht_kernel',seconds)
@@ -315,6 +327,16 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='sq-align-send16':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/sq_align_build.py'],ROOT/'sq-align512-build.log',450)
+            report=ROOT/'sq-align512-a1/report.json'
+            if report.is_file():
+                summary=json.loads(report.read_text());summary.pop('commands',None);print(json.dumps(summary,separators=(',',':')),flush=True)
+            if code:return code
+            return local(cid,tools,16,'send','a3','sq-align512')
         if action=='cq-sq-snapshot':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
