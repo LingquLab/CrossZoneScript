@@ -20,7 +20,33 @@ def use_strided_leader_reads(source):
     return source[:first]+barrier+source[end:]
 
 
-def main(tools,strided=False):
+def initialize_fp32_accumulator(source):
+    first=source.index('    __aicore__ void ReduceFp32Token(')
+    end=source.index('\n#else',first)
+    reducer=source[first:end]
+    replacements=(
+        ('        Duplicate(output, 0.0F, hidden);\n        PipeBarrier<PIPE_V>();',
+         '        bool initialized = false;'),
+        ('            Add(output, output, row, hidden);',
+         '            if (!initialized) {\n'
+         '                Adds(output, row, 0.0F, hidden);\n'
+         '                initialized = true;\n'
+         '            } else {\n'
+         '                Add(output, output, row, hidden);\n'
+         '            }'),
+        ('        Sync<HardEvent::V_MTE3>();',
+         '        if (!initialized) {\n'
+         '            Duplicate(output, 0.0F, hidden);\n'
+         '        }\n'
+         '        Sync<HardEvent::V_MTE3>();'),
+    )
+    for old,new in replacements:
+        assert reducer.count(old)==1
+        reducer=reducer.replace(old,new)
+    return source[:first]+reducer+source[end:]
+
+
+def main(tools,strided=False,seed_accumulator=False):
     tools=Path(tools)
     prior=json.loads((ROOT/'cases/64p-t16-pipeline-a3/phase-result.json').read_text())
     assert prior['run']['status']=='timed_out' and prior['kernel_compatibility_variant']=='sq-align-all512'
@@ -38,7 +64,34 @@ def main(tools,strided=False):
     variant='four-module-sq-align-all512-cq'
     barrier_algorithm='leader_release'
     original_source_sha256=sha(source)
-    if strided:
+    if seed_accumulator:
+        assert strided
+        previous=ROOT/'pipeline-four-module-sq-align-all512-cq-strided-a1'
+        meta=json.loads((previous/'build-result.json').read_text())
+        wrapper=previous/'pipeline_kernel.cpp'
+        assert sha(wrapper)==meta['source_sha256']
+        binary=(previous/'kernel.o').read_bytes()
+        assert hashlib.sha256(binary).hexdigest()==meta['sha256']
+        failing=ROOT/'cases/64p-t32-pipeline-a2'
+        run=json.loads((failing/'run.json').read_text())
+        assert run['status']=='failed' and run['returncode']==0
+        assert run['kernel_sha256']==hashlib.sha256(binary+bytes(10485760-len(binary))).hexdigest()
+        for name in ('compatibility_header_sha256','compatibility_inter_source_sha256'):
+            assert meta[name]==baseline[name]
+        assert meta['compatibility_api_header_sha256']==api['overlay_header_sha256']
+        variant+='-strided-seeded'
+        barrier_algorithm='leader_release_strided'
+        reducer=ROOT/'source/src/ep/combine_ht/final_reduce_kernel.cpp'
+        overlay=ROOT/'pipeline-final-reduce-seeded.cpp'
+        with overlay.open('x') as output:
+            output.write(initialize_fp32_accumulator(reducer.read_text()))
+        wrapper_text=wrapper.read_text()
+        include='#include "'+str(reducer)+'"'
+        assert wrapper_text.count(include)==1
+        source=ROOT/'pipeline-four-module-sq-align-all512-cq-strided-seeded.cpp'
+        with source.open('x') as output:
+            output.write(wrapper_text.replace(include,'#include "'+str(overlay)+'"'))
+    elif strided:
         original_build=ROOT/'pipeline-four-module-sq-align-all512-cq-a1'
         original=json.loads((original_build/'build-result.json').read_text())
         assert original['source_sha256']==original_source_sha256
@@ -69,13 +122,18 @@ def main(tools,strided=False):
     report.update(source_sha256=sha(source),baseline_pipeline_object_sha256=baseline['sha256'],
         pipeline_build_variant=variant,compiler_scalar_dcci=False,
         stage_isolation_noinline=True,barrier_algorithm=barrier_algorithm,extra_round_fence=False,
-        kernel_compatibility_variant='sq-align-all512-cq-barrier'+('-strided' if strided else ''),
+        kernel_compatibility_variant='sq-align-all512-cq-barrier'+('-strided' if strided else '')+
+            ('-seeded' if seed_accumulator else ''),
         compatibility_header_sha256=baseline['compatibility_header_sha256'],
         compatibility_baseline_header_sha256=baseline['compatibility_baseline_header_sha256'],
         compatibility_inter_source_sha256=baseline['compatibility_inter_source_sha256'],
         compatibility_api_header_sha256=api['overlay_header_sha256'],compatibility_baseline_api_header_sha256=api['baseline_header_sha256'])
+    if seed_accumulator:
+        report['compatibility_final_reduce_source_sha256']=sha(overlay)
+        report['compatibility_baseline_final_reduce_source_sha256']=sha(reducer)
     (target/'build-result.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,separators=(',',':')),flush=True);return 0
 if __name__=='__main__':
     import sys
-    raise SystemExit(main(sys.argv[1],strided='--strided' in sys.argv[2:]))
+    raise SystemExit(main(sys.argv[1],strided='--strided' in sys.argv[2:],
+                          seed_accumulator='--seed-accumulator' in sys.argv[2:]))

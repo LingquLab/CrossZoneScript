@@ -22,10 +22,11 @@ def main(root,directory,abis,tokens=4,attempt="a1",build_variant="original"):
     asset_identity=json.loads((local/'identity.json').read_text())
     assert asset_identity['candidate_commit']=='40596e2d9d454b7a7b00b4b34b96d49158e1c3a3'
     assert (asset_identity['world'],asset_identity['tokens'],asset_identity['hidden'],asset_identity['topk'])==(64,tokens,128,6)
-    assert build_variant in ('original','scalar-dcci','isolated-inter','leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided')
+    assert build_variant in ('original','scalar-dcci','isolated-inter','leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded')
     build_root=root/{'original':'pipeline-build-40596e2-a1','scalar-dcci':'pipeline-scalar-dcci-a1','isolated-inter':'pipeline-isolated-inter-a1','leader-barrier':'pipeline-leader-barrier-a1','four-module-joint':'pipeline-four-module-joint-a1','four-module-sq-align512':'pipeline-four-module-sq-align512-a1','four-module-sq-align-all512':'pipeline-four-module-sq-align-all512-a1','four-module-sq-align-all512-cq':'pipeline-four-module-sq-align-all512-cq-a1',
-        'four-module-sq-align-all512-cq-strided':'pipeline-four-module-sq-align-all512-cq-strided-a1'}[build_variant]
-    extra_fence=build_variant not in ('four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided')
+        'four-module-sq-align-all512-cq-strided':'pipeline-four-module-sq-align-all512-cq-strided-a1',
+        'four-module-sq-align-all512-cq-strided-seeded':'pipeline-four-module-sq-align-all512-cq-strided-seeded-a1'}[build_variant]
+    extra_fence=build_variant not in ('four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded')
     build=json.loads((build_root/'build-result.json').read_text())
     assert build['compile_exit']==build['link_exit']==0 and build['abi_bytes']==512
     case=root/'cases'/('64p-t%d-pipeline-%s'%(tokens,attempt))
@@ -169,7 +170,7 @@ def main(root,directory,abis,tokens=4,attempt="a1",build_variant="original"):
         barrier_gold=bytearray(8192)
         final_epoch=6 if extra_fence else 5
         for block in range(16):struct.pack_into('<I',barrier_gold,block*512,final_epoch)
-        if build_variant in ('leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided'):struct.pack_into('<I',barrier_gold,8160,final_epoch)
+        if build_variant in ('leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded'):struct.pack_into('<I',barrier_gold,8160,final_epoch)
         gold_values={'returned':gold[c['returnOffset']:c['signalOffset']],
                      'completed':gold[c['readyOffset']:], 'output':final,'status':golden_status,
                      'gather':(local/'fixture-data'/name/'golden-returned.bin').read_bytes(),
@@ -200,17 +201,19 @@ def main(root,directory,abis,tokens=4,attempt="a1",build_variant="original"):
     (case/'export-layout.json').write_text(json.dumps(layout,indent=2))
     meta={'world':64,'tokens':tokens,'profiling_capacity':32,'blocks':16,'hidden':128,'topk':6,'experts':256,'entry':'tilexr_ht_pipeline_sst',
           'candidate_commit':'40596e2d9d454b7a7b00b4b34b96d49158e1c3a3','kernel_sha256':sha(case/'kernel/inter_server_send.o'),
-          'wrapper_sha256':build['sha256'],'pipeline_build_variant':build_variant,'compiler_scalar_dcci':build_variant=='scalar-dcci','stage_isolation_noinline':build_variant in ('isolated-inter','leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided'),'barrier_algorithm':'leader_release' if build_variant in ('leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided') else 'all_lanes_poll_all','extra_round_fence':extra_fence,'routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,'joint_input_mode':'initial_expert_outputs_and_routes',
+          'wrapper_sha256':build['sha256'],'pipeline_build_variant':build_variant,'compiler_scalar_dcci':build_variant=='scalar-dcci','stage_isolation_noinline':build_variant in ('isolated-inter','leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded'),'barrier_algorithm':'leader_release' if build_variant in ('leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded') else 'all_lanes_poll_all','extra_round_fence':extra_fence,'routes_sha256':sha(local/'routes.json'),'joint_single_invocation':True,'joint_input_mode':'initial_expert_outputs_and_routes',
           'local_physical_qps':[local_slot(g) for g in range(8)],'return_physical_qps':[runtime.physical_qp(q) for q in range(32)]}
-    if build_variant in ('four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided'):
+    if build_variant in ('four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded'):
         meta.update({k:build[k] for k in ('kernel_compatibility_variant','compatibility_header_sha256','compatibility_baseline_header_sha256')})
-    if build_variant in ('four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided'):meta['compatibility_inter_source_sha256']=build['compatibility_inter_source_sha256']
-    if build_variant in ('four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided'):
+    if build_variant in ('four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded'):meta['compatibility_inter_source_sha256']=build['compatibility_inter_source_sha256']
+    if build_variant in ('four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded'):
         meta['compatibility_api_header_sha256']=build['compatibility_api_header_sha256']
         meta['barrier_algorithm']=build['barrier_algorithm']
+    if 'compatibility_final_reduce_source_sha256' in build:
+        meta['compatibility_final_reduce_source_sha256']=build['compatibility_final_reduce_source_sha256']
     (case/'fixture-data/manifest.json').write_text(json.dumps(meta,indent=2))
     print(json.dumps(meta,separators=(',',':')))
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--build-variant',choices=('original','scalar-dcci','isolated-inter','leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided'),default='original');p.add_argument('--attempt',choices=('a1','a2','a3','a4','a5','a6'),default='a1');p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
+    p=argparse.ArgumentParser();p.add_argument('--build-variant',choices=('original','scalar-dcci','isolated-inter','leader-barrier','four-module-joint','four-module-sq-align512','four-module-sq-align-all512','four-module-sq-align-all512-cq','four-module-sq-align-all512-cq-strided','four-module-sq-align-all512-cq-strided-seeded'),default='original');p.add_argument('--attempt',choices=('a1','a2','a3','a4','a5','a6'),default='a1');p.add_argument('--tokens',type=int,choices=(4,16,32,64,128),default=4);p.add_argument('--root',required=True);p.add_argument('--tools',required=True);p.add_argument('--abis',type=Path,required=True)
     a=p.parse_args();main(a.root,a.tools,json.loads(a.abis.read_text()),a.tokens,a.attempt,a.build_variant)
