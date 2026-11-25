@@ -19,19 +19,22 @@ static_assert(offsetof(ParallelKernelArgs, returnForward) == 456, "parallel ABI"
 
 int main(int argc, char **argv)
 {
-    if (argc != 5) return 2;
+    if (argc != 6) return 2;
     using namespace TileXRCombineHT;
     const uint32_t rank = std::stoul(argv[1]);
     const uint32_t local = rank % 8;
     const uint64_t offset = std::stoull(argv[2]);
-    TileXRCombineHTConfig config{rank, 64, 4, 128, 8, 8, 32, 256, 4, 8, 8, 3, 0};
+    constexpr uint32_t chunks = 4;
+    const uint32_t tokens = std::stoul(argv[5]);
+    if (tokens != 4 && tokens != 32) return 2;
+    TileXRCombineHTConfig config{rank, 64, tokens, 128, 8, 2 * tokens, 8 * tokens, 256, chunks, 8, 8, 3, 0};
     TileXRCombineHTLayout layout{};
-    if (TileXRMoonEpCombineHTGetLayout(&config, &layout) || layout.chunks != 4 || layout.groups != 1) return 3;
+    if (TileXRMoonEpCombineHTGetLayout(&config, &layout) || layout.chunks != chunks || layout.groups != 1) return 3;
     constexpr uint64_t stride = 0x2000000000ULL, workspace = 0x200000000ULL;
     std::array<PrefillEndpoint, kLocalRanks> endpoints{};
     std::array<std::vector<int64_t>, kLocalRanks> rows;
     std::array<int32_t, kLocalRanks> counts{};
-    std::array<int32_t, kLocalRanks * 4 * 2> ranges{};
+    std::array<int32_t, kLocalRanks * chunks * 2> ranges{};
     std::ifstream memory(argv[3], std::ios::binary);
     for (uint32_t gateway = 0; gateway < kLocalRanks; ++gateway) {
         if (gateway == local) continue;
@@ -45,8 +48,11 @@ int main(int argc, char **argv)
         for (uint32_t token = 0; token < config.tokens; ++token) {
             rows[gateway].insert(rows[gateway].end(), {
                 int64_t(rank), int64_t(token), int64_t(local * config.tokens + token)});
-            ranges[2 * (gateway * config.tokens + token)] = token;
-            ranges[2 * (gateway * config.tokens + token) + 1] = token + 1;
+        }
+        for (uint32_t chunk = 0; chunk < chunks; ++chunk) {
+            const uint32_t index = 2 * (gateway * chunks + chunk);
+            ranges[index] = chunk * (tokens / chunks);
+            ranges[index + 1] = (chunk + 1) * (tokens / chunks);
         }
         counts[gateway] = config.tokens;
     }

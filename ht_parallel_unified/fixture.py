@@ -45,9 +45,9 @@ def make_golden(rank, config, original_status):
     gather = b''.join(bytes(ROW) if lane==rank%8 else f32(values(server*8+lane, token))
                      for lane in range(8) for token in range(TOKENS))
     gather_ready = b''.join(struct.pack('<Q', 0 if lane==rank%8 else 1).ljust(ROW,b'\0')
-                          for token in range(TOKENS) for lane in range(8))
+                          for chunk in range(CHUNKS) for lane in range(8))
     partial = b''.join(f32(partial_values(server, token)) for token in range(TOKENS)) * 2
-    ready = struct.pack('<qii',MAGIC,TOKENS,0).ljust(ROW,b'\0')*8
+    ready = struct.pack('<qii',MAGIC,CHUNKS,0).ljust(ROW,b'\0')*8
     local_ready = struct.pack('<q',MAGIC).ljust(ROW,b'\0')*8
     returned = bytearray(config['signalOffset']-config['returnOffset'])
     completed = bytearray(config['returnOffset']-config['completionOffset'])
@@ -60,7 +60,7 @@ def make_golden(rank, config, original_status):
     for peer in range(64):
         if peer//8 != server:
             for lane in range(2):
-                slot = (peer*TOKENS + TOKENS-1)*2 + lane
+                slot = (peer*CHUNKS + CHUNKS-1)*2 + lane
                 struct.pack_into('<q',completed,ROW*slot,MAGIC)
     status=bytearray(original_status)
     status[:16*4]=bytes(16*4)
@@ -75,19 +75,20 @@ def build_rank(rank, abi, raw, prefill, modules):
     native, runtime = modules
     config = native.config_values(abi)
     assert (config['rank'],config['tokens'],config['hidden'],config['chunks'],
-            config['reducerCount'],config['magic'],config['forwardCapacity']) == (rank,4,256,4,8,MAGIC,32)
+            config['reducerCount'],config['magic'],config['forwardCapacity']) == (rank,TOKENS,256,CHUNKS,8,MAGIC,8*TOKENS)
     base = rank * runtime.GM_BYTES
     addresses = {name:base+address for name,address in (runtime.BASES | EXTRA).items()}
     total = config['workspaceBytes']
     local_offset = total + 2*8*ROW
     layout = struct.unpack_from('<6I4Q',raw,168)
-    assert layout[:2] == (4,1)
+    assert layout[:2] == (CHUNKS,1)
     gather_offset, partial_offset = layout[6:8]
-    assert partial_offset - gather_offset == 32*ROW
+    assert partial_offset - gather_offset == 8*TOKENS*ROW
     status_offset = local_offset + partial_offset
     status_bytes = 1536
     workspace = bytearray(status_offset + status_bytes)
-    data = build_routes(rank, lambda server, local, token, column: values(server*8+local,token)[column])
+    data = build_routes(rank, lambda server, local, token, column: values(server*8+local,token)[column],
+                        TOKENS, CHUNKS)
     workspace[:len(data['input'])] = data['input']
     # Prefilled SO source words live in the attached workspace control area.
     for gateway in range(8):
@@ -107,7 +108,7 @@ def build_rank(rank, abi, raw, prefill, modules):
         struct.pack_into('<Q',args,index*8,value)
     struct.pack_into('<Q',args,240,addresses['prefill'])
     args.extend(struct.pack('<3Qq2I',local_offset,pointer+config['partialOffset'],
-                            pointer+config['readyOffset'],MAGIC,8,0))
+                            pointer+config['readyOffset'],MAGIC,2*TOKENS,0))
     raw_fields = [dict(name='arg_'+str(offset),type='uint64_t',offset=offset,value=value[0])
                   for offset,value in zip(range(0,288,8),struct.iter_unpack('<Q',args),strict=True)]
     raw_fields.extend(dict(field,offset=field['offset']+240) for field in abi['fields'][6:])

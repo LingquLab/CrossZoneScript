@@ -15,7 +15,7 @@ def prepare(request, case, support):
     data=gzip.decompress(base64.b64decode(request['object'],validate=True))
     assert hashlib.sha256(data).hexdigest()==KERNEL_SHA256
     runtime_root='/work/inter-server-native/'+case.name
-    identity=dict(tokens=TOKENS,hidden=HIDDEN,chunks=TOKENS,entry=ENTRY,
+    identity=dict(tokens=TOKENS,hidden=HIDDEN,chunks=CHUNKS,entry=ENTRY,
                   runtime_root=runtime_root,phase=1,blocks=BLOCKS)
     with tempfile.TemporaryDirectory(prefix=case.name+'-',dir=MOUNT.parent) as directory:
         temp=Path(directory)
@@ -69,6 +69,7 @@ def main(request):
             if line.startswith('{"ranks":'):
                 report['checker_detail']=json.loads(line)
                 break
-    report['trace']=summarize_trace(case)
+    if TOKENS == 4:
+        report['trace']=summarize_trace(case)
     write_json(case/'unified-result.json',report)
     return report

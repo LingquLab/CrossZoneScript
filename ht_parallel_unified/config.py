@@ -1,7 +1,9 @@
-"""Synthetic EP64 T4/H128 unified kernel workload."""
+"""Shared shape and addresses for the EP64/H128 unified kernel workload."""
 ENTRY = 'tilexr_ep_ht_combine_parallel_kernel'
 CASE = 'ht-parallel-ep64-t4-fp32-1abdfffd'
 TOKENS = 4
+CHUNKS = 4
+T32_CASE = 'ht-parallel-ep64-t32-fp32-1abdfffd'
 HIDDEN = 128
 ROW = 512
 MAGIC = 2026

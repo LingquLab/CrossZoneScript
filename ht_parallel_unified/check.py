@@ -37,4 +37,4 @@ for rank in range(64):
                                   expected=expected[offset:offset+4].hex())
 report=dict(ranks=64,bytes_checked=counts,phase_status=status,mismatched_ranks=errors,first_mismatches=first)
 print(json.dumps(report,separators=(',',':')))
-assert not errors, 'Unified T4 byte comparison failed'
+assert not errors, 'Unified HT Combine byte comparison failed'

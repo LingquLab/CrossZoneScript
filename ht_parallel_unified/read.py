@@ -8,9 +8,14 @@ here=Path(__file__).resolve().parent
 sys.path[:0]=[str(here.parent/'ht_t32_e2e'),str(here.parent/'alltoall')]
 from green_auth import askpass_environment
 from ssh_transport import HOST
-from config import CASE
+from config import CASE, T32_CASE
 
 options=json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2]==['--args-file'] else {}
+tokens = int(options.get('tokens', 4))
+assert tokens in (4, 32)
+if tokens == 32:
+    CASE = T32_CASE
+    assert not options.get('dl') and not options.get('overlap')
 source=f'case_name={CASE!r}\n'+r'''
 from collections import Counter
 import json
@@ -31,7 +36,13 @@ if path.is_file():
     with path.open('rb') as f:
         first=f.read(2*1024*1024)
         report['log']=dict(bytes=path.stat().st_size,cqe_in_prefix=first.count(b'WrCQEResp'))
-        report['log']['hits']={key:bool(re.search(pattern,first,re.I))
+        if case_name.startswith('ht-parallel-ep64-t32-'):
+        all_log = path.read_bytes()
+        report['log']['cqe'] = all_log.count(b'WrCQEResp')
+        stamps = [int(match.group(1)) for line in all_log.splitlines() if b'WrCQEResp' in line
+                  if (match := re.search(rb'\bSim:\s*(\d+)', line))]
+        report['log']['last_cqe_stamp'] = max(stamps, default=None)
+    report['log']['hits']={key:bool(re.search(pattern,first,re.I))
                                for key,pattern in (('unsupported',rb'(?:unsupported|not support)'),
                                ('fatal',rb'\bfatal\b'),('kernel',rb'parallel_kernel'))}
 paths=list(case.glob('OUTPUT/**/*trace*'))
@@ -51,6 +62,12 @@ if ba.is_file():
         actions[value['busPayloadType_']]+=1
     report['ba_schema']=dict(keys=sorted(fields),actions=actions,bytes=ba.stat().st_size,
                              ts_fields=len(re.findall(rb'"ts"\s*:',raw)))
+if case_name.startswith('ht-parallel-ep64-t32-'):
+    saved = case/'unified-result.json'
+    if saved.is_file():
+        result = json.loads(saved.read_text())
+        report = {key:result[key] for key in ('status','returncode','runner_exit_code','sim_us','kernel_sha256',
+                                              'guards','checked','checker_detail','cqe') if key in result}
 print(json.dumps(report,separators=(',',':')))
 '''
 if options.get('dl'):
