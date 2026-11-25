@@ -72,12 +72,12 @@ print(json.dumps(report,separators=(',',':')))
 '''
 if options.get('queues'):
     assert tokens == 32
+    function = 'detail_gather_queues' if options.get('detail') else 'queue_trace'
     source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + r'''
 import json
 from pathlib import Path
 case = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / T32_CASE
-print(json.dumps(queue_trace(case),separators=(',',':')))
-'''
+''' + f"\nprint(json.dumps({function}(case),separators=(',',':')))\n"
 elif options.get('dl'):
     source=(here/'overlap.py').read_text()+(here/'dl_scan.py').read_text()+f'''
 from pathlib import Path
