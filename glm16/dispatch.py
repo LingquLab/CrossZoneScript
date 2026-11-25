@@ -11,7 +11,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight'}
+assert args['operation'] in {'prepare', 'network', 'paths', 'runtime', 'download', 'compat', 'preflight', 'stop_download'}
 remote = (Path(__file__).parent / (args['operation'] + '.py')).read_text()
 proxies = {k: v for k, v in urllib.request.getproxies().items() if k in {'http', 'https'}}
 proxy_url = proxies.get('https') or proxies.get('http')
@@ -19,7 +19,7 @@ assert proxy_url, 'bridge download proxy is required'
 proxy = urllib.parse.urlsplit(proxy_url)
 assert proxy.scheme in {'http', 'https'} and proxy.hostname and proxy.port
 auth = proxy.netloc.rsplit('@', 1)[0] + '@' if '@' in proxy.netloc else ''
-node_timeout = 22000 if args['operation'] == 'download' else 170
+node_timeout = args.get('download_seconds', 86400) + 600 if args['operation'] == 'download' else 170
 port = 18744 if args.get('host') == '141.61.94.26' else 18743
 local_url = proxy._replace(netloc=auth + f'127.0.0.1:{port}').geturl()
 node_source = 'ARGS = ' + repr(args) + '\nPROXIES = ' + repr({'http': local_url, 'https': local_url}) + '\n' + remote

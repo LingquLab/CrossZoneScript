@@ -30,7 +30,11 @@ status_path = STATE / 'download-status.json'
 total = sum(x['size'] for x in FILES)
 space = os.statvfs(ROOT)
 assert space.f_bavail * space.f_frsize > total + 20 * 1024**3, 'insufficient_free_space'
-deadline = time.monotonic() + 21600
+budget = ARGS.get('download_seconds', 86400)
+workers = ARGS.get('workers', 16)
+assert isinstance(budget, int) and 3600 <= budget <= 172800
+assert isinstance(workers, int) and 1 <= workers <= 32
+deadline = time.monotonic() + budget
 guard = threading.Lock()
 done = set()
 active = {}
@@ -53,7 +57,7 @@ def save_status(state):
                  'files_done': len(done), 'files_total': len(FILES),
                  'verified_bytes': completed, 'downloaded_bytes': completed + partial,
                  'total_bytes': total, 'elapsed_seconds': round(time.time()-started, 1),
-                 'updated_at': time.time(), 'failures': list(failures)}
+                 'updated_at': time.time(), 'workers': workers, 'failures': list(failures)}
     tmp = status_path.with_suffix('.tmp')
     tmp.write_text(json.dumps(value))
     tmp.replace(status_path)
@@ -117,7 +121,7 @@ def transfer(item):
             time.sleep(2 * (attempt + 1))
 
 save_status('running')
-with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
     pending = {pool.submit(transfer, x): x for x in sorted(FILES, key=lambda x: x['size'])}
     while pending:
         finished, _ = concurrent.futures.wait(pending, timeout=5,
