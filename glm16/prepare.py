@@ -54,6 +54,8 @@ try:
                   manifest=str(manifest_path))
 except Exception as error:
     result['error_class'] = type(error).__name__
+    result['errno'] = getattr(error, 'errno', None)
+    result['strerror'] = getattr(error, 'strerror', None)
     if hasattr(error, 'code'):
         result['http_status'] = error.code
     reason = getattr(error, 'reason', None)
