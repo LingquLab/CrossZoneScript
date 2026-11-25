@@ -101,12 +101,17 @@ print(json.dumps(dict(input_files=len(left), golden_and_layout_files=len(left_go
 '''
 elif options.get('queues'):
     assert tokens == 32
-    function = 'detail_gather_queues' if options.get('detail') else 'queue_trace'
-    source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + r'''
+    function = 'queue_trace'
+    if options.get('detail'):
+        function = 'detail_gather_queues'
+    if options.get('count_cq'):
+        function = 'count_cq_slots'
+    source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + f'''
 import json
 from pathlib import Path
-case = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / T32_CASE
-''' + f"\nprint(json.dumps({function}(case),separators=(',',':')))\n"
+case = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / {CASE!r}
+print(json.dumps({function}(case),separators=(',',':')))
+'''
 elif options.get('dl'):
     source=(here/'overlap.py').read_text()+(here/'dl_scan.py').read_text()+f'''
 from pathlib import Path

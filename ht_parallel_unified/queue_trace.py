@@ -110,3 +110,74 @@ def detail_gather_queues(case):
     return dict(summary=counts, most_common_missing_chunk1_cq_slots=masks.most_common(12),
                 example_columns=['rank','peer','physical_slot','sq_fetch_start_bb','cq_bb',
                                  'sq_head_wr_req','doorbell_wr_req'], examples=examples)
+
+
+def expected_cq_slots(rank):
+    """Map expected CQ BBs to the producer's physical queues for BS32."""
+    expected = {}
+    rank_server = rank // 8
+    for peer in range(64):
+        if peer == rank:
+            continue
+        local = peer % 8
+        peer_server = peer // 8
+        if peer_server == rank_server:
+            expected[peer*40 + PRODUCER_QUEUE[local]] = ('gather', set(range(36)))
+            physical_slot = local % 2 * 20 + local // 2
+            payload = 16 if local == (rank % 8 + 1) % 8 else 0
+            expected[peer*40 + physical_slot] = ('local_return', set(range(payload + 1)))
+            continue
+        group = (peer_server + 4 - rank_server % 4) % 4
+        position = (0 if group == 0 else 8 + (group - 1) * 16 + peer_server // 4 * 8)
+        relative = (local - rank % 8) % 8
+        position += relative
+        owner = relative if position >= 48 else (position + 8) % 16
+        for lane in (0, 1):
+            payload = (24 if lane == 0 else 8) if peer == rank ^ 8 else 0
+            ring = peer * 40 + lane * 20 + owner
+            expected[ring] = ('cross_return', set(range(payload + 1)))
+    return expected
+
+
+def count_cq_slots(case):
+    stage_names = ('gather', 'local_return', 'cross_return')
+    stages = {name: Counter() for name in stage_names}
+    total = Counter()
+    samples = []
+    for rank in range(64):
+        path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
+        if not path.is_file():
+            continue
+        with path.open('rb') as trace:
+            data = trace.read(MAX_TRACE_BYTES)
+            total['truncated_hosts'] += bool(trace.read(1))
+        total['hosts'] += 1
+        traces = defaultdict(set)
+        for match in TRACE_ARGS.finditer(data):
+            if b'"WR_REQ"' not in match[0]:
+                continue
+            try:
+                args = json.loads(match[0])
+                if args['busPayloadType_'] != 'WR_REQ':
+                    continue
+                value = args['oriAddr_']
+                address = int(value, 0) if isinstance(value, str) else int(value)
+            except (KeyError, ValueError, TypeError):
+                continue
+            host, local_address = divmod(address, GM_BYTES)
+            ring, offset = divmod(local_address - CQ_BASE, RING_BYTES)
+            if host == rank and 0 <= ring < 64*40:
+                traces[ring].add(offset // 64)
+                total['wr_req_cq_records'] += 1
+        for ring, (name, slots) in expected_cq_slots(rank).items():
+            found = traces.pop(ring, set())
+            missing = slots - found
+            summary = stages[name]
+            summary['expected'] += len(slots)
+            summary['seen'] += len(slots & found)
+            summary['unexpected_slots'] += len(found - slots)
+            summary['qps_missing'] += bool(missing)
+            if missing and len(samples) < 6:
+                samples.append([rank, ring//40, ring%40, name, sorted(missing), sorted(found)])
+        total['unexpected_qp_slots'] += sum(map(len, traces.values()))
+    return dict(totals=total, stages=stages, first_missing=samples)
