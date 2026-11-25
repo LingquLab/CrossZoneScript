@@ -90,7 +90,36 @@ if case_name.startswith(('ht-parallel-ep64-t8-', 'ht-parallel-ep64-t16-', 'ht-pa
                     break
 print(json.dumps(report,separators=(',',':')))
 '''
-if options.get('compare_inputs'):
+if options.get('output_diff'):
+    assert tokens == 32
+    source = f'case_name={CASE!r}\n' + r'''
+import json
+from pathlib import Path
+import struct
+
+root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / case_name
+even_mismatches = odd_mismatches = prior_plus_current = 0
+sample = []
+for rank in range(64):
+    name = f'rank{rank:02d}'
+    actual = struct.unpack('<4096f', (root/'actual'/name/'output.bin').read_bytes())
+    golden = struct.unpack('<4096f', (root/'fixture-data'/name/'golden-output.bin').read_bytes())
+    for token in range(32):
+        for column in range(128):
+            index = token * 128 + column
+            if actual[index] == golden[index]:
+                continue
+            if token % 2:
+                odd_mismatches += 1
+                prior_plus_current += actual[index] == golden[index] + golden[index - 128]
+            else:
+                even_mismatches += 1
+            if len(sample) < 3:
+                sample.append([rank, token, column, actual[index], golden[index], golden[index - 128] if token else None])
+print(json.dumps(dict(checked=64*4096, even_mismatches=even_mismatches, odd_mismatches=odd_mismatches,
+                      prior_plus_current=prior_plus_current, sample=sample), separators=(',', ':')))
+'''
+elif options.get('compare_inputs'):
     assert tokens == 32
     source = (here/'config.py').read_text() + f'''
 import json
