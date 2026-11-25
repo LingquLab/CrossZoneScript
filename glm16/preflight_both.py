@@ -1,4 +1,4 @@
-"""Run the independent read-only checks in one Bridge execution envelope."""
+"""Run an authorized independent operation on both nodes in one Bridge envelope."""
 import argparse
 import concurrent.futures
 import json
@@ -9,12 +9,13 @@ import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--args-file', required=True)
-parser.parse_args()
+operation = json.loads(Path(parser.parse_args().args_file).read_text()).get('operation', 'preflight')
+assert operation in {'preflight', 'stage'}
 
 def check(host):
     with tempfile.TemporaryDirectory(prefix='glm16-preflight-') as directory:
         args = Path(directory) / 'args.json'
-        args.write_text(json.dumps({'operation': 'preflight', 'host': host}))
+        args.write_text(json.dumps({'operation': operation, 'host': host}))
         result = subprocess.run([sys.executable, str(Path(__file__).parent / 'dispatch.py'),
                                  '--args-file', str(args)], capture_output=True,
                                 text=True, timeout=135)
