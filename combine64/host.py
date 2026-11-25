@@ -69,6 +69,7 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
         'compatibility_header_sha256':meta.get('compatibility_header_sha256'),
         'compatibility_baseline_header_sha256':meta.get('compatibility_baseline_header_sha256'),
         'compatibility_inter_source_sha256':meta.get('compatibility_inter_source_sha256'),
+        'compatibility_api_header_sha256':meta.get('compatibility_api_header_sha256'),
         'wall_seconds':time.monotonic()-mono,'started_unix':started,'finished_unix':time.time(),
         'kernel_sha256':sha(case/'kernel/inter_server_send.o'),'routes_sha256':meta['routes_sha256'],
         'platform_simulated_us':None,'profiling_operator_us':None}
@@ -109,8 +110,8 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     result['operator_qualified']=result['qualified'] and not result['diagnostic_only']
     result['run']={k:v for k,v in result.get('run',{}).items() if k in ('status','returncode','guards','error','started_unix','finished_unix','elapsed_seconds')}
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
-    if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512'):
-        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','compatibility_inter_source_sha256')}
+    if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512','sq-align-all512-cq-barrier'):
+        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','compatibility_inter_source_sha256','compatibility_api_header_sha256')}
         compact['profiling_lanes']=result.get('profiling',{}).get('committed_lanes')
         compact['profiling_dropped']=result.get('profiling',{}).get('dropped_records')
         print(json.dumps(compact,separators=(',',':')),flush=True)
@@ -336,6 +337,13 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='cq-visible-joint16':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/cq_visible_joint_build.py',runtime],ROOT/'cq-visible-joint16-build.log',450)
+            if code:return code
+            return pipeline_phase(cid,tools,16,dict(attempt='a4',build_variant='four-module-sq-align-all512-cq'),1200)
         if action=='all-align-snapshot':
             assert tokens==16
             case=ROOT/'cases/64p-t16-pipeline-a3'
