@@ -42,3 +42,11 @@ batch size. `stage_timeouts` can set a separate SST timeout per stage. The
 runner saves a result after every stage and stops on the first failure.
 `action=status` reads the batch journal. Add `status_for` to read one stage's
 run record. Both actions accept `candidate` as `b5383cf` or `86f802f`.
+
+Set `profiling=true` to use the SST timing wrappers built by
+`action=profile-build`. The wrappers keep the production compute bodies and
+record one Begin and one End per physical AIV. The fixture checks every
+lane for two committed records and zero drops. The reported timing is the
+maximum per-AIV Begin-to-End interval, converted with the pinned clock
+evidence. The runner separately records the SST platform's simulated time
+and SST process wall-clock duration.

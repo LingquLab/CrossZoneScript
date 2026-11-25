@@ -55,7 +55,7 @@ def stage_tools(root, files):
     tools = root / 'tools' / key
     tools.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
-        assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py', 'profile_capture.h'}
+        assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py', 'profile_capture.h', 'profile_case.py', 'clock_evidence.json'}
         path = tools / name
         if path.exists():
             assert path.read_bytes() == content.encode()
@@ -97,6 +97,8 @@ REPORT_FIELDS = (
     'environment_sha256', 'platform_simulated_us', 'sst_wall_seconds',
     'runner_wall_seconds', 'guards', 'checked_ranks', 'checked_bytes',
     'predecessor', 'actual_input_sha256', 'model_config', 'error',
+    'profiling_enabled', 'profiling_operator_us', 'profiling_max_lane_ticks',
+    'profiling_lanes', 'profiling_dropped_records', 'profiling_clock_receipt',
 )
 
 
@@ -308,7 +310,10 @@ def main(args):
             if action == 'profile-build':
                 return profile_build(root, cid, tools, timeout)
             config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout,
-                          revision=revision, platform_sha256=platform_hashes)
+                          revision=revision, platform_sha256=platform_hashes, profiling=args.get('profiling', False))
+            if config['profiling']:
+                profile_summary = root / 'profile-build/build-summary.json'
+                assert json_file(profile_summary)['all_compiled'], 'profile_build_not_passed'
             if action == 'matrix':
                 results = run_matrix(root, cid, tools, config, args)
                 report = dict(matrix=results, revision=revision)

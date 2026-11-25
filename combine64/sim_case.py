@@ -209,13 +209,15 @@ def check_outputs(case, environment, record):
             paths = [dump_dir / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
             data = reconstruct_die_output(paths, segment['addr'] - row['sys_va_base_addr'], segment['size'], decoder)
             (out / f'{name}.bin').write_bytes(data)
+            fields[name] = fields.get(name, 0) + len(data)
+            if name == 'profile':
+                continue
             expected = (case / 'fixture-data' / rank_name / f'golden-{name}.bin').read_bytes()
             if data != expected:
                 assert len(data) == len(expected), (rank_name, name, len(data), len(expected))
                 offset = next(i for i, (got, want) in enumerate(zip(data, expected)) if got != want)
                 aligned = offset & ~3
                 raise ValueError(f'{rank_name} {name}+{aligned}: got {data[aligned:aligned+8].hex()}, expected {expected[aligned:aligned+8].hex()}')
-            fields[name] = fields.get(name, 0) + len(data)
     record.update(checked_ranks=WORLD, checked_bytes=fields)
 
 
@@ -223,13 +225,15 @@ def main(config):
     action, tokens, attempt, timeout = (config[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     revision = config['revision']
     assert read_json(ROOT / 'identity.json')['revision'] == revision
-    build = read_json(ROOT / 'build-summary.json')
-    assert build['all_compiled'] and build['sim_send']
+    use_profile = config.get('profiling', False)
+    build_file = 'profile-build/build-summary.json' if use_profile else 'build-summary.json'
+    build = read_json(ROOT / build_file)
+    assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
     case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
     assert not case.exists(), 'case_already_exists'
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
               'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
-              'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
+              'profiling_enabled': use_profile, 'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
     started = time.monotonic()
     write_json(ROOT / 'progress.json', {'stage': 'prepare_case', 'case': case.name, 'updated_unix': time.time()})
     try:
@@ -240,6 +244,12 @@ def main(config):
         else:
             from return_case import prepare_return_case
             record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], build), config.get('source_case'), revision))
+        if use_profile:
+            from profile_case import bind
+            if action in ('local-send', 'gateway-reduce'):
+                linked = object_for(ENTRIES[action], build).read_bytes()
+                (case / 'kernel/inter_server_send.o').write_bytes(linked + bytes(10485760 - len(linked)))
+            bind(case, BLOCKS[action])
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], build))
         env = stage_platform(case, config['platform_sha256'])
@@ -253,6 +263,9 @@ def main(config):
         write_json(ROOT / 'progress.json', {'stage': 'sst', 'case': case.name, 'updated_unix': time.time()})
         run_sst(case, env, timeout, record)
         check_outputs(case, env, record)
+        if use_profile:
+            from profile_case import summarize
+            record.update(summarize(case, WORLD, BLOCKS[action]))
         record['status'] = 'sst_and_checker_passed'
     except BaseException as error:
         if record.get('status') not in ('timed_out', 'interrupted'):

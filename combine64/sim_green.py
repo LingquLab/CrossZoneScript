@@ -8,7 +8,7 @@ import subprocess
 import traceback
 
 SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
-SCRIPT_FILES = ('fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py', 'profile_capture.h')
+SCRIPT_FILES = ('fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py', 'profile_capture.h', 'profile_case.py', 'clock_evidence.json')
 STAGES = ('local-send', 'gateway-reduce', 'local-return',
            'inter-server-send', 'final-independent', 'joint-producer',
            'final-from-producer', 'joint-final')
@@ -33,6 +33,7 @@ def main():
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args.get('candidate', '86f802f')
     assert candidate in ('b5383cf', '86f802f')
+    assert type(args.get('profiling', False)) is bool
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
