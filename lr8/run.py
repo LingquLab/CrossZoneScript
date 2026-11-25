@@ -56,6 +56,9 @@ def main():
         assert args['ubus_config_override'] == (
             '/opt/tilexr-lr8-0c04d831-32p-nocredit-ta-tp-retry-4lxg_qc8/'
             '32p-131072i32-0-measurement/UBusSim_config/UBusSim_simulator_config.yml')
+    if 'clos_router_override' in args:
+        assert 'ubus_config_override' in args
+        assert type(args['clos_router_override']) is bool
     if 'threads' in args:
         threads = args['threads']
         assert type(threads) is int and 1 <= threads <= min(32, *(ranks for ranks, _ in args['cases']))

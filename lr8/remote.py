@@ -158,6 +158,13 @@ def run():
     require(user_config['architecture_config']['host_num'] >= ranks,
             'User configuration has insufficient hosts')
     configs['UBusSim_config/UBusSim_simulator_config.yml'] = user_config''')
+        if 'clos_router_override' in ARGS:
+            anchor = '    zero_levels(user_config)'
+            assert suite.count(anchor) == 1
+            suite = suite.replace(anchor, anchor +
+                "\n    user_config['simulator_info']['clos_router_in_fm_flag'] = " +
+                repr(ARGS['clos_router_override']))
+            print(json.dumps(dict(clos_router_override=ARGS['clos_router_override'])), flush=True)
     if ARGS.get('cq_gm_doorbell'):
         anchor = 'cq_store_instruction="st_dev", cq_address_contract='
         assert suite.count(anchor) == 1
