@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-bc67bdfe4a6a47c480ce1bb68e83b2dc",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"20261124-rotate\":{\"total_sim_us\":433.535,\"cqe\":38959,\"ps_first_p50_p90_p95_p99_last\":[16260000,147828000,253747000,282849000,327092000,421338000],\"ba_files\":64},\"20261124-peer\":{\"total_sim_us\":413.009,\"cqe\":38959,\"ps_first_p50_p90_p95_p99_last\":[17285000,153727000,272000000,296375000,330227000,400919000],\"ba_files\":64},\"20261125-rotate\":{\"total_sim_us\":388.698,\"cqe\":38965,\"ps_first_p50_p90_p95_p99_last\":[16034000,147433000,252521000,277659000,315039000,376312000],\"ba_files\":64},\"20261125-peer\":{\"total_sim_us\":381.781,\"cqe\":38965,\"ps_first_p50_p90_p95_p99_last\":[17393000,152756000,271400000,294399000,327349000,369824000],\"ba_files\":64},\"20261126-rotate\":{\"total_sim_us\":391.575,\"cqe\":39024,\"ps_first_p50_p90_p95_p99_last\":[15656000,147375000,252212000,279287000,315890000,377769000],\"ba_files\":64},\"20261126-peer\":{\"total_sim_us\":407.443,\"cqe\":39024,\"ps_first_p50_p90_p95_p99_last\":[16817000,154210000,272265000,294615000,326442000,393491000],\"ba_files\":64}}",
+  "task_id": "ht-bs128-cq-timing",
+  "type": "RESULT",
+  "worktree_modified": false
+}
