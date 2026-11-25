@@ -55,6 +55,8 @@ def main():
         assert set(matrix_timeouts) == {'32', '64', '128'}
         remote_seconds = 120 + wait_seconds + sum(stage_budget(STAGES, matrix_timeouts[str(size)], timeout, size)
                                                  for size in (32, 64, 128))
+        if args.get('profiling'):
+            remote_seconds += 750
     if args.get('require_bs4_gateway'):
         remote_seconds += 150
     if args.get('require_previous_bs'):

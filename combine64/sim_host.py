@@ -301,6 +301,13 @@ def main(args):
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         if action == 'matrix':
             wait_for_bs16(root, revision, args['wait_for_bs16'])
+            if args.get('profiling'):
+                profile_summary = root / 'profile-build/build-summary.json'
+                deadline = time.monotonic() + 750
+                while not profile_summary.is_file() and time.monotonic() < deadline:
+                    time.sleep(5)
+                assert profile_summary.is_file(), 'profile_build_result_pending'
+                assert json_file(profile_summary)['all_compiled'], 'profile_build_not_passed'
         with (root / 'sst.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if args.get('require_previous_bs'):
