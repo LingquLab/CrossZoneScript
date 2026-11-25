@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-e1ac8b0275e6409ea803118e8e6ae9a6",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"exists\":true,\"run.json\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"phase-summary.json\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"runner_exit_code\":0,\"sim_us\":109.405,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"unified-result.json\":{\"status\":\"sst_and_checker_passed\",\"returncode\":0,\"runner_exit_code\":0,\"sim_us\":109.405,\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"log\":{\"bytes\":1464833,\"cqe_in_prefix\":12364,\"hits\":{\"unsupported\":false,\"fatal\":false,\"kernel\":false}},\"trace_inventory\":[[\"HostN_ba_layer_trace.json\",64],[\"HostN_dl_layer_trace.json\",64]],\"ba_schema\":{\"keys\":[\"aicoreId_\",\"busPayloadType_\",\"dstChip_\",\"dstDie_\",\"dst_\",\"isaId_\",\"memCnt\",\"oriAddr_\",\"rdAddr_\",\"recvL2SnpFlag_\",\"size_\",\"srcChip_\",\"srcDie_\",\"src_\",\"subcoreId_\",\"ubWrSplitFlag_\",\"wrAddr_\"],\"actions\":{\"RD_REQ\":251,\"RD_REQ_RESP\":101,\"WR_REQ\":15,\"WR_REQ_RESP\":11,\"WR_DATA_RESP\":11,\"WR_DATA\":11},\"bytes\":9622912,\"ts_fields\":2691}}",
+  "task_id": "ht-parallel-ep64-t4-terminal",
+  "type": "RESULT",
+  "worktree_modified": false
+}

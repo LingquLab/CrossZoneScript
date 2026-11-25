@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-a6d54433623b406f96462112710b526c",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"run\":{\"status\":\"sst_and_checker_passed\",\"sim_us\":109.405,\"cqe\":12364,\"runner_exit_code\":0,\"checked\":{\"ranks\":64,\"bytes_checked\":{\"gather\":1048576,\"gather_ready\":1048576,\"partial\":262144,\"ready\":262144,\"local_ready\":262144,\"returned\":1048576,\"completed\":16777216,\"output\":131072,\"status\":98304},\"phase_status\":{\"gather\":{\"0\":512},\"reduce\":{\"0\":512},\"local_return\":{\"0\":512},\"cross_return\":{\"0\":1024},\"final\":{\"0\":1024}},\"mismatched_ranks\":{},\"first_mismatches\":{}},\"guards\":{\"status\":\"guards_verified\",\"count\":256}},\"counts\":{\"files\":64,\"cross_return0_arrival\":256},\"local\":{\"matched\":0,\"return0_earlier\":0,\"examples\":[]},\"cross_arrival\":{\"matched\":0,\"return0_earlier\":0,\"examples\":[]},\"cross_sq\":{\"matched\":0,\"return0_earlier\":0,\"examples\":[]},\"sample_event_kinds\":{\"0\":{\"cross_return0_arrival\":[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\",\"WR_REQ_RESP\"]},\"1\":{\"cross_return0_arrival\":[\"WR_DATA\",\"WR_DATA_RESP\",\"WR_REQ\",\"WR_REQ_RESP\"]}}}",
+  "task_id": "ht-parallel-ep64-t4-overlap",
+  "type": "RESULT",
+  "worktree_modified": false
+}

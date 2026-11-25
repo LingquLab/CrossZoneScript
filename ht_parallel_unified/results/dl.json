@@ -1,0 +1,19 @@
+{
+  "checks": [],
+  "error_code": "",
+  "event_id": "green-2cf30f0371e24e7f912e521d0e904185",
+  "execution": {
+    "exit_code": 0,
+    "status": "EXITED"
+  },
+  "iteration": 1,
+  "local_modification_outcome": "NOT_RUN",
+  "local_modification_tested": false,
+  "protocol": "cross-zone/v3",
+  "question": "",
+  "status": "PASS",
+  "summary": "Direct EXEC (no AI review):\n{\"coverage\":{\"files\":64,\"events\":96319,\"timestamped\":93759},\"argument_fields\":[\"aicoreId_\",\"dcna\",\"dnode\",\"dport\",\"dstChip\",\"dst_\",\"isaId_\",\"lsize\",\"name\",\"oriAddr_\",\"pktCnt\",\"pktSize\",\"psize\",\"ptype\",\"rdAddr_\",\"returnCreditsInfo\",\"returnVlInfo\",\"scna\",\"size_\",\"snode\",\"sport\",\"srcChip\",\"src_\",\"subcoreId_\",\"type\",\"vl\",\"wrAddr_\"],\"event_names\":[[\"URMA\",46336],[\"CREDIT\",18692],[\"thread_name\",1984],[\"process_name\",512],[\"start\",512],[\"MEM_RD_REQ_4_to_0\",112],[\"MEM_RD_REQ_5_to_0\",112],[\"MEM_RD_REQ_2_to_0\",112],[\"MEM_RD_REQ_3_to_0\",112],[\"MEM_RD_REQ_7_to_0\",112],[\"MEM_RD_REQ_6_to_0\",112],[\"MEM_RD_REQ_1_to_0\",112]]}",
+  "task_id": "ht-parallel-ep64-t4-dl",
+  "type": "RESULT",
+  "worktree_modified": false
+}
