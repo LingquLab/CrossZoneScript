@@ -21,7 +21,7 @@ if latest.is_file():
     for p in sorted(folder.rglob('*.log'))[:12]:
         with p.open('rb') as stream:
             text = stream.read(512 * 1024).decode('utf-8', 'replace')
-        lines = [x for x in text.splitlines() if re.search(r'(?i)ERROR|failed|TsdOpen|not permitted|denied', x)]
+        lines = [x for x in text.splitlines() if re.search(r'\[ERROR\]|\[FATAL\]', x)]
         out.append({'file': str(p), 'bytes': p.stat().st_size,
-                    'error_lines': [x[:700] for x in lines[:6]]})
+                    'error_lines': [x[:800] for x in lines[:8]]})
 print(json.dumps({'probe_logs': out}))
