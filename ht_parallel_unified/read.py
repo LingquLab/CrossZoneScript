@@ -106,6 +106,8 @@ elif options.get('queues'):
         function = 'detail_cross_queues' if options.get('cross') else 'detail_gather_queues'
     if options.get('count_cq'):
         function = 'count_cq_slots'
+    if options.get('cross_so'):
+        function = 'cross_so_arrival'
     source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + f'''
 import json
 from pathlib import Path

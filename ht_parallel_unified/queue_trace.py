@@ -195,3 +195,55 @@ def count_cq_slots(case):
                 samples.append([rank, ring//40, ring%40, name, sorted(missing), sorted(found)])
         total['unexpected_qp_slots'] += sum(map(len, traces.values()))
     return dict(totals=total, stages=stages, first_missing=samples)
+
+
+def cross_so_arrival(case):
+    offsets = json.loads((case/'fixture-data/trace-offsets.json').read_text())
+    counts = Counter()
+    examples = []
+    for rank in range(64):
+        path = case/'OUTPUT/stat_trace'/f'Host{rank}_ba_layer_trace.json'
+        if not path.is_file():
+            continue
+        counts['hosts'] += 1
+        workspace = offsets[rank]['workspace']
+        completion = offsets[rank]['offset_map']['completed']
+        paired_gateway = rank ^ 8
+        targets = {}
+        for gateway in range(64):
+            if gateway // 8 == rank // 8:
+                continue
+            for lane in range(2):
+                addr = workspace + completion + ((gateway*4+3)*2+lane)*512
+                targets[addr] = (gateway, lane)
+        with path.open('rb') as trace:
+            data = trace.read(MAX_TRACE_BYTES)
+            counts['truncated_hosts'] += bool(trace.read(1))
+        events = defaultdict(set)
+        for match in TRACE_ARGS.finditer(data):
+            if b'"WR_' not in match[0]:
+                continue
+            try:
+                args = json.loads(match[0])
+                event = args['busPayloadType_']
+                if event not in ('WR_REQ', 'WR_DATA', 'WR_DATA_RESP'):
+                    continue
+            except (KeyError, ValueError):
+                continue
+            for field in ('oriAddr_', 'wrAddr_'):
+                value = args.get(field)
+                try:
+                    addr = int(value, 0) if isinstance(value, str) else int(value)
+                except (TypeError, ValueError):
+                    continue
+                if addr in targets:
+                    events[targets[addr]].add(event)
+        for role, pair in (('paired_lane0', (paired_gateway, 0)), ('paired_lane1', (paired_gateway, 1))):
+            for event in events.get(pair, set()):
+                counts[f'{role}_{event}'] += 1
+        counts['remote_slots_wr_data'] += sum('WR_DATA' in observed for observed in events.values())
+        if len(examples) < 3:
+            examples.append([rank, paired_gateway, sorted(events.get((paired_gateway,0), ())),
+                             sorted(events.get((paired_gateway,1), ()))])
+    return dict(counts=counts, sample_columns=['receiver','gateway','lane0_events','lane1_events'],
+                examples=examples)
