@@ -6,7 +6,7 @@
 
 | 调度 | AIV 处理顺序 |
 | --- | --- |
-| `rotate` 轮转 | BS32 切成 4 个 8-token chunk。每个 chunk 内按原调度轮流访问 owner 负责的对端 peer |
+| `rotate` 轮转 | BS32、BS64、BS128 均切成 4 个 chunk，每个 chunk 分别有 8、16、32 个 token。每个 chunk 内按原调度轮流访问 owner 负责的对端 peer |
 | `peer` 不轮转 | 每个 owner 按 peer 发完全部 token 的 payload，再换下一个 peer |
 
 两组使用同一个设备对象。参数块偏移 84 的 `SendConfig.reserved` 选择调度。为便于逐字节对照，`peer` 保留 abi 中的四段 range 和相同的 SO 地址，运行时读取覆盖全部 token 的 range。测试开始时预置完整 ready，发送结束时两组均在各自 owner 的所有 payload 之后发 SO，并执行 `Drain`。两组独立运行同一 SST 配置，计时取模拟器打印的完成时刻。每个 seed 的两组先后顺序交替，`20261124` 先跑 `rotate`。
@@ -43,9 +43,9 @@ python3 ht_peer_order/reproduce_fixture.py /path/TileXR ./fixture-t32-20261124 -
 
 不轮转平均少 7.880 µs。按每对的轮转时间归一化，平均少 4.762%。[逐轮数据](results/bs32/rounds.csv) · [统计和正式回执](results/bs32)
 
-`routes.json.gz` 保存原始 TopK 表、payload lane 计数和路由哈希。BS64 复用前三个 seed，作为批量增大时的补测。
+`routes.json.gz` 保存原始 TopK 表、payload lane 计数和路由哈希。BS64 和 BS128 按相同方法生成路由，每个 seed 内比较两组相同的输入。
 
-## BS64 补测
+## BS64 首批
 
 同一对象和 SST 配置完成 3 对、6 次运行。两组的 payload、SO、status、guard 和同 seed 导出哈希均通过校验。
 
@@ -55,3 +55,14 @@ python3 ht_peer_order/reproduce_fixture.py /path/TileXR ./fixture-t32-20261124 -
 | 不轮转 | 244.691 | 246.326 | 249.697 | 258.075 |
 
 三个 seed 的轮转耗时分别少 13.776、0.377、18.355 µs，平均少 10.836 µs。BS32 和 BS64 的快慢方向相反。补测覆盖前三个 seed，统计范围见 [BS64 逐轮数据](results/bs64/rounds.csv) 和 [正式回执](results/bs64/receipts)。
+
+## BS64 扩展至 10 对
+
+20 次 SST 均通过。10 对均匹配路由哈希、payload WQE 数、SO WQE 数、CQE 数和四个导出区的 SHA-256。每对发送 7,168 条 SO，payload WQE 数在 15,860 至 15,997 之间。每侧通过 256 个 guard。
+
+| 调度 | 最短（µs） | 中位数（µs） | 平均（µs） | 最长（µs） |
+| --- | ---: | ---: | ---: | ---: |
+| 轮转 | 222.856 | 233.944 | 237.319 | 261.625 |
+| 不轮转 | 238.759 | 245.509 | 247.113 | 258.075 |
+
+轮转在 9 对中更快，按平均耗时比不轮转少 9.794 µs，降幅 3.963%。seed `20261127` 的不轮转更快，轮转耗时 261.625 µs，不轮转耗时 255.689 µs。[逐轮数据](results/bs64-expanded/rounds.csv) · [统计和正式回执](results/bs64-expanded)
