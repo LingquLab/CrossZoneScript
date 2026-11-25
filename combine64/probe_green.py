@@ -1,0 +1,85 @@
+# Copyright (c) 2026 TileXR Project.
+"""Return bounded activity and completion evidence for the active SST case."""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+
+SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
+REMOTE = r'''
+import json
+from pathlib import Path
+import os
+import re
+import subprocess
+import time
+
+root = Path('/mnt/share/tilexr-sim-jobs/de038086-2b21-40e2-bad9-65360186ad97/run-86f802f-a1')
+identity = json.loads((root / 'identity.json').read_text())
+assert identity['revision'] == '86f802f9f8a19728364c466b0e9cb7416e038595'
+cid = identity['container_id']
+info = json.loads(subprocess.check_output(['docker', 'inspect', cid], timeout=10))[0]
+assert info['Id'] == cid and info['Config']['Labels']['crosszone.session'] == 'de038086-2b21-40e2-bad9-65360186ad97'
+allowed = ('stage', 'status', 'pid', 'started_unix', 'sst_wall_seconds', 'platform_simulated_us',
+           'returncode', 'checked_ranks', 'guards', 'error')
+
+def latest():
+    progress = json.loads((root / 'progress.json').read_text())
+    raw = progress['case']
+    assert re.fullmatch(r't(?:4|16|32|64|128)-[a-z-]+-a[0-9]+', raw), 'invalid case name'
+    case = root / 'cases' / raw
+    report = dict(progress=progress)
+    path = case / 'run.json'
+    if path.is_file():
+        run = json.loads(path.read_text())
+        report.update({key: run[key] for key in allowed if key in run})
+        if run.get('status') == 'running' and type(run.get('pid')) is int:
+            probe = subprocess.run(['docker', 'exec', cid, 'cat', f"/proc/{run['pid']}/stat"],
+                                   capture_output=True, timeout=10)
+            if probe.returncode == 0:
+                fields = probe.stdout.decode().rsplit(')', 1)[1].split()
+                report['process_state'] = fields[0]
+                report['cpu_ticks'] = int(fields[11]) + int(fields[12])
+    log = case / 'sim.log'
+    if log.is_file():
+        length = log.stat().st_size
+        with log.open('rb') as f:
+            f.seek(max(0, length - 524288), os.SEEK_SET)
+            tail = f.read().decode(errors='replace')
+        ticks = re.findall(r'Sim: ([0-9]+)[(]cycle[)]', tail)
+        completed = re.findall(r'Simulation is complete, simulated time: ([0-9.]+) (ns|us|ms|s)', tail)
+        report.update(log_bytes=length, last_sim_cycle=int(ticks[-1]) if ticks else None,
+                      completion_marker=completed[-1] if completed else None)
+        report['error_classes'] = [word for word in ('fatal','segmentation fault','assertion','panic')
+                                   if word in tail.lower()]
+    return report
+
+first = latest()
+if first.get('status') == 'running':
+    time.sleep(12)
+second = latest()
+print(json.dumps(dict(first=first, second=second), separators=(',',':')))
+'''
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--args-file', type=Path, required=True)
+    assert json.loads(parser.parse_args().args_file.read_text(encoding='utf-8')) == {}
+    key = Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'
+    cmd = ['ssh', '-T', '-i', str(key), '-p', '22', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
+           '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=12',
+           'root@141.61.94.26', 'timeout --kill-after=5 55 python3 -']
+    process = subprocess.run(cmd, input=REMOTE.encode(), capture_output=True, timeout=75)
+    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / '86f802f'
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / 'probe.stderr').write_bytes(process.stderr)
+    if process.returncode != 0:
+        return 1
+    print(json.dumps(json.loads(process.stdout), separators=(',', ':')))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
