@@ -1,4 +1,4 @@
-"""Collect related read-only diagnostics and exact saved execution receipts."""
+"""Collect task-scoped diagnostics, bounded device probes and saved receipts."""
 import argparse
 import concurrent.futures
 import json
@@ -13,7 +13,7 @@ parser.add_argument('--args-file', type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text())
 actions = args.get('actions', [])
 assert len(actions) <= 3
-assert all(x['operation'] in {'probe_logs', 'download_status', 'preflight'}
+assert all(x['operation'] in {'probe_logs', 'download_status', 'preflight', 'proxy_probe', 'npu_probe'}
            and x['host'] in {'141.61.94.58', '141.61.94.26'} for x in actions)
 
 def collect(action):
@@ -21,7 +21,8 @@ def collect(action):
         p = Path(directory) / 'args.json'
         p.write_text(json.dumps(action))
         result = subprocess.run([sys.executable, str(Path(__file__).parent / 'dispatch.py'),
-                                 '--args-file', str(p)], capture_output=True, text=True, timeout=135)
+                                 '--args-file', str(p)], capture_output=True, text=True,
+                                timeout=300 if action['operation'] == 'npu_probe' else 135)
         row = dict(action, exit=result.returncode)
         try:
             row['evidence'] = json.loads(result.stdout)
