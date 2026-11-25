@@ -35,8 +35,8 @@ path=case/'sim.log'
 if path.is_file():
     with path.open('rb') as f:
         first=f.read(2*1024*1024)
-        report['log']=dict(bytes=path.stat().st_size,cqe_in_prefix=first.count(b'WrCQEResp'))
-        if case_name.startswith('ht-parallel-ep64-t32-'):
+    report['log']=dict(bytes=path.stat().st_size,cqe_in_prefix=first.count(b'WrCQEResp'))
+    if case_name.startswith('ht-parallel-ep64-t32-'):
         all_log = path.read_bytes()
         report['log']['cqe'] = all_log.count(b'WrCQEResp')
         stamps = [int(match.group(1)) for line in all_log.splitlines() if b'WrCQEResp' in line
@@ -82,6 +82,7 @@ from pathlib import Path
 case=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / {CASE!r}
 print(json.dumps(summarize_saved_overlap(case),separators=(',',':')))
 '''
+compile(source, '<unified-status>', 'exec')
 ssh=['ssh','-T','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o',
      'BatchMode=no','-o','NumberOfPasswordPrompts=1','-o','PreferredAuthentications=password',
      '-o','PubkeyAuthentication=no',HOST,'python3','-']
