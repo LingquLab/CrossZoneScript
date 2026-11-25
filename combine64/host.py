@@ -112,7 +112,8 @@ def run_case(cid,case,tools,checker,entry,seconds=900):
     write(case/'phase-result.json',result);write(ROOT/'progress.json',dict(stage='finished',case=str(case),qualified=result['qualified'],updated_unix=time.time()))
     if result.get('kernel_compatibility_variant') in ('sq-align512','sq-align-all512','sq-align-all512-cq-barrier',
                                                      'sq-align-all512-cq-barrier-strided'):
-        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','compatibility_inter_source_sha256','compatibility_api_header_sha256')}
+        compact={k:result.get(k) for k in ('case','qualified','operator_qualified','run','platform_simulated_us','profiling_operator_us','sst_wall_seconds','wall_seconds','model_errors','kernel_sha256','kernel_compatibility_variant','pipeline_build_variant','barrier_algorithm','compatibility_inter_source_sha256','compatibility_api_header_sha256')}
+        compact['sst_timeout_seconds']=seconds
         compact['profiling_lanes']=result.get('profiling',{}).get('committed_lanes')
         compact['profiling_dropped']=result.get('profiling',{}).get('dropped_records')
         print(json.dumps(compact,separators=(',',':')),flush=True)
@@ -353,6 +354,24 @@ def main(request):
                          ROOT/'strided-barrier-joint16-build.log',450)
             if code:return code
             return pipeline_phase(cid,tools,16,dict(attempt='a5',build_variant='four-module-sq-align-all512-cq-strided'),1200)
+        if action=='strided-barrier-regression':
+            assert tokens==32
+            variant='four-module-sq-align-all512-cq-strided'
+            accepted=ROOT/'cases/64p-t16-pipeline-a5'
+            gate=json.loads((accepted/'phase-result.json').read_text())
+            binary=(ROOT/('pipeline-'+variant+'-a1/kernel.o')).read_bytes()
+            padded=hashlib.sha256(binary+bytes(10485760-len(binary))).hexdigest()
+            assert gate['operator_qualified'] and gate['pipeline_build_variant']==variant
+            assert gate['kernel_sha256']==padded==sha(accepted/'kernel/inter_server_send.o')
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            outcomes=[
+                local(cid,tools,4,'send','a3','sq-align512'),
+                pipeline_phase(cid,tools,4,dict(attempt='a6',build_variant=variant),1200),
+                return_phase(cid,tools,32,'inter-send-independent','a2','sq-align-all512'),
+                pipeline_phase(cid,tools,32,dict(attempt='a2',build_variant=variant),1500),
+            ]
+            return int(any(outcomes))
         if action=='joint-cq-trace16':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
