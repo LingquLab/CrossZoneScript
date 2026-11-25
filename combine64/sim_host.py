@@ -107,12 +107,13 @@ def run_case(root, cid, tools, config):
     logs.mkdir(exist_ok=True)
     log_path = logs / (case.name + '.log')
     container_tools = str(Path('/work') / tools.relative_to(root))
+    overhead = {4: 230, 16: 230, 32: 400, 64: 600, 128: 900}[tokens]
     argv = [
-        'docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + 230),
+        'docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + overhead),
         'python3', f'{container_tools}/sim_case.py', json.dumps(config),
     ]
     with log_path.open('xb') as log:
-        proc = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + 260)
+        proc = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + overhead + 30)
     result_path = case / 'phase-result.json'
     if result_path.is_file():
         report = json_file(result_path)
@@ -201,6 +202,37 @@ def require_previous_bs(root, revision, tokens):
             assert row['candidate_commit'] == REVISIONS['b5383cf'] and row['tokens'] == 4
             assert row['stage'] == phase and row['status'] == 'sst_and_checker_passed' and row['checked_ranks'] == 64
 
+
+def wait_for_bs16(root, revision, timeout):
+    journal = root / 'hapi-logs/t16-batch-a1.json'
+    setup_error = root / 't16-batch-a1-host-error.log'
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        assert not setup_error.exists(), 'bs16_setup_failed'
+        if journal.is_file():
+            rows = json_file(journal)
+            assert all(row.get('status') == 'sst_and_checker_passed' and row.get('container_exit') == 0
+                       for row in rows), 'bs16_stage_failed'
+            if len(rows) == len(STAGES):
+                require_previous_bs(root, revision, 32)
+                return
+        time.sleep(15)
+    raise TimeoutError('bs16_completion_not_observed')
+
+
+def run_matrix(root, cid, tools, config, args):
+    matrix = []
+    for size in (32, 64, 128):
+        require_previous_bs(root, config['revision'], size)
+        point = dict(config, action='batch', tokens=size)
+        stages = dict(stage_timeouts=args['matrix_timeouts'][str(size)])
+        results = run_batch(root, cid, tools, point, stages)
+        matrix.extend(results)
+        reviewed = results[-1]
+        if reviewed['status'] != 'sst_and_checker_passed' or reviewed['container_exit'] != 0:
+            break
+    return matrix
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args.get('candidate', '86f802f')
@@ -223,6 +255,8 @@ def main(args):
             assert result['revision'] == revision and result['build_exit'] == 0, 'candidate_build_not_passed'
         cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
+        if action == 'matrix':
+            wait_for_bs16(root, revision, args['wait_for_bs16'])
         with (root / 'sst.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if args.get('require_previous_bs'):
@@ -231,7 +265,10 @@ def main(args):
             tools, platform_hashes = stage_tools(root, args['files'])
             config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout,
                           revision=revision, platform_sha256=platform_hashes)
-            if action == 'batch':
+            if action == 'matrix':
+                results = run_matrix(root, cid, tools, config, args)
+                report = dict(matrix=results, revision=revision)
+            elif action == 'batch':
                 results = run_batch(root, cid, tools, config, args)
                 report = dict(batch=results, tokens=tokens, revision=revision)
             else:

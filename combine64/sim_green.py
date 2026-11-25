@@ -14,27 +14,41 @@ STAGES = ('local-send', 'gateway-reduce', 'local-return',
            'final-from-producer', 'joint-final')
 
 
+
+CASE_OVERHEAD = {4: 260, 16: 260, 32: 430, 64: 630, 128: 930}
+
+
+def stage_budget(stages, timeouts, default, tokens):
+    assert timeouts.keys() <= set(STAGES)
+    assert all(type(value) is int and 30 <= value <= 7200 for value in timeouts.values())
+    return sum(timeouts.get(stage, default) + CASE_OVERHEAD[tokens] for stage in stages)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'batch', *STAGES) and tokens in (4, 16, 32, 64, 128)
+    assert action in ('status', 'batch', 'matrix', *STAGES) and tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args.get('candidate', '86f802f')
     assert candidate in ('b5383cf', '86f802f')
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
-    remote_seconds = timeout + 300
+    remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if action == 'batch':
         start = STAGES.index(args.get('start_stage', STAGES[0]))
         end = STAGES.index(args.get('end_stage', STAGES[-1]))
         assert start <= end
-        stage_timeouts = args.get('stage_timeouts', {})
-        assert stage_timeouts.keys() <= set(STAGES)
-        assert all(type(value) is int and 30 <= value <= 7200 for value in stage_timeouts.values())
-        remote_seconds = 90 + sum(stage_timeouts.get(stage, timeout) + 260 for stage in STAGES[start:end + 1])
+        remote_seconds = 90 + stage_budget(STAGES[start:end + 1], args.get('stage_timeouts', {}), timeout, tokens)
+    if action == 'matrix':
+        assert tokens == 32 and attempt == 1 and candidate == '86f802f'
+        wait_seconds = args['wait_for_bs16']
+        assert type(wait_seconds) is int and 30 <= wait_seconds <= 17000
+        matrix_timeouts = args['matrix_timeouts']
+        assert set(matrix_timeouts) == {'32', '64', '128'}
+        remote_seconds = 120 + wait_seconds + sum(stage_budget(STAGES, matrix_timeouts[str(size)], timeout, size)
+                                                 for size in (32, 64, 128))
     if args.get('require_bs4_gateway'):
         remote_seconds += 150
     if args.get('require_previous_bs'):
