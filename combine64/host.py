@@ -315,6 +315,12 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='cq-snapshot-decode':
+            assert tokens==16
+            code=execute(cid,['python3',runtime+'/cq_snapshot_decode.py'],ROOT/'cq-snapshot16-decode.log',120)
+            report=ROOT/'cases/64p-t16-send-cq-snapshot40us-a1/cq-sparse-report.json'
+            if report.is_file():print(json.dumps(json.loads(report.read_text()),separators=(',',':')),flush=True)
+            return code
         if action=='cq-snapshot':
             assert tokens==16
             active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
