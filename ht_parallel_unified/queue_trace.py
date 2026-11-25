@@ -49,17 +49,22 @@ def queue_trace(case):
                 samples=found, gather_cq_expected_per_chunk=63, gather_so_cq_expected_per_chunk=7)
 
 
-def detail_gather_queues(case):
-    return detail_queues(case, cross=False)
+def detail_gather_queues(case, tokens=32):
+    return detail_queues(case, cross=False, tokens=tokens)
 
 
 def detail_cross_queues(case):
     return detail_queues(case, cross=True)
 
 
-def detail_queues(case, cross):
-    expected = set(range(25 if cross else 36))
-    inspected = set(range(18,25) if cross else range(9,18))
+def detail_queues(case, cross, tokens=32):
+    expected = set(range(25 if cross else tokens + 4))
+    if cross:
+        inspected = set(range(18,25))
+    elif tokens == 16:
+        inspected = set(range(10,20))
+    else:
+        inspected = set(range(9,18))
     counts = Counter()
     masks = Counter()
     examples = []
