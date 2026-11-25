@@ -80,7 +80,26 @@ if case_name.startswith('ht-parallel-ep64-t32-'):
                     break
 print(json.dumps(report,separators=(',',':')))
 '''
-if options.get('queues'):
+if options.get('compare_inputs'):
+    assert tokens == 32
+    source = (here/'config.py').read_text() + r'''
+import json
+from pathlib import Path
+root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native')
+first, second = (root/name for name in (T32_CASE, T32_LONG_CASE))
+a, b = (json.loads((case/'case-manifest.json').read_text()) for case in (first, second))
+assert a['kernel_sha256'] == b['kernel_sha256'] == KERNEL_SHA256
+left, right = ({name: digest for name, digest in manifest['files'].items() if name.startswith('input_bin/')}
+               for manifest in (a,b))
+left_golden, right_golden = ({name: digest for name, digest in manifest['fixture_files'].items()
+                             if name != 'manifest.json'} for manifest in (a,b))
+assert left == right and left_golden == right_golden
+wa, wb = ((case/'workload.yml').read_text().replace(case.name, T32_CASE) for case in (first,second))
+assert json.loads(wa) == json.loads(wb)
+print(json.dumps(dict(input_files=len(left), golden_and_layout_files=len(left_golden),
+                      normalized_workloads_equal=True, kernel_sha256=KERNEL_SHA256),separators=(',',':')))
+'''
+elif options.get('queues'):
     assert tokens == 32
     function = 'detail_gather_queues' if options.get('detail') else 'queue_trace'
     source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + r'''
