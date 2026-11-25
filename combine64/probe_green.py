@@ -24,6 +24,18 @@ assert info['Id'] == cid and info['Config']['Labels']['crosszone.session'] == 'd
 allowed = ('stage', 'status', 'pid', 'started_unix', 'sst_wall_seconds', 'platform_simulated_us',
            'returncode', 'checked_ranks', 'guards', 'error')
 
+def directory_activity(directory):
+    samples = []
+    for path in directory.rglob('*'):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if path.is_file():
+            samples.append(stat)
+    return dict(files=len(samples), bytes=sum(stat.st_size for stat in samples),
+                last_write_unix=max((stat.st_mtime for stat in samples), default=None))
+
 def latest():
     progress = json.loads((root / 'progress.json').read_text())
     raw = progress['case']
@@ -43,16 +55,22 @@ def latest():
                 report['cpu_ticks'] = int(fields[11]) + int(fields[12])
     log = case / 'sim.log'
     if log.is_file():
-        length = log.stat().st_size
+        stat = log.stat()
+        length = stat.st_size
         with log.open('rb') as f:
             f.seek(max(0, length - 524288), os.SEEK_SET)
             tail = f.read().decode(errors='replace')
         ticks = re.findall(r'Sim: ([0-9]+)[(]cycle[)]', tail)
         completed = re.findall(r'Simulation is complete, simulated time: ([0-9.]+) (ns|us|ms|s)', tail)
-        report.update(log_bytes=length, last_sim_cycle=int(ticks[-1]) if ticks else None,
+        cq_ticks = re.findall(r'Sim: ([0-9]+)[(]cycle[)][^\n]*WrCQEResp', tail)
+        report.update(log_bytes=length, log_last_write_unix=stat.st_mtime,
+                      last_sim_cycle=int(ticks[-1]) if ticks else None,
+                      last_cq_cycle=int(cq_ticks[-1]) if cq_ticks else None,
                       completion_marker=completed[-1] if completed else None)
         report['error_classes'] = [word for word in ('fatal','segmentation fault','assertion','panic')
                                    if word in tail.lower()]
+    report['stat_trace'] = directory_activity(case / 'stat_trace')
+    report['dumps'] = directory_activity(case / 'bin')
     return report
 
 first = latest()
