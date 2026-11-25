@@ -103,7 +103,7 @@ elif options.get('queues'):
     assert tokens == 32
     function = 'queue_trace'
     if options.get('detail'):
-        function = 'detail_gather_queues'
+        function = 'detail_cross_queues' if options.get('cross') else 'detail_gather_queues'
     if options.get('count_cq'):
         function = 'count_cq_slots'
     source = (here/'config.py').read_text() + (here/'queue_trace.py').read_text() + f'''

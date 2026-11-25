@@ -50,7 +50,16 @@ def queue_trace(case):
 
 
 def detail_gather_queues(case):
-    expected = set(range(36))
+    return detail_queues(case, cross=False)
+
+
+def detail_cross_queues(case):
+    return detail_queues(case, cross=True)
+
+
+def detail_queues(case, cross):
+    expected = set(range(25 if cross else 36))
+    inspected = set(range(18,25) if cross else range(9,18))
     counts = Counter()
     masks = Counter()
     examples = []
@@ -61,6 +70,11 @@ def detail_gather_queues(case):
         counts['hosts'] += 1
         gather = {peer*40 + PRODUCER_QUEUE[peer % 8]: peer for peer in range(rank//8*8, rank//8*8+8)
                   if peer != rank}
+        if cross:
+            peer = rank ^ 8
+            ring, = (ring for ring,(kind, slots) in expected_cq_slots(rank).items()
+                     if ring // 40 == peer and kind == 'cross_return' and len(slots) == 25)
+            gather = {ring: peer}
         dbs = {0x1C00000000 + (ring%40//20)*0x100000000 + (peer*20 + ring%20)*64: ring
                for ring, peer in gather.items()}
         evidence = {ring: dict(sq=set(), cq=set(), bells=0, sq_head=0) for ring in gather}
@@ -96,18 +110,18 @@ def detail_gather_queues(case):
         for ring, evidence_row in evidence.items():
             counts['qps'] += 1
             sq, cq = evidence_row['sq'], evidence_row['cq']
-            missing_stage1 = tuple(sorted(set(range(9,18)) - cq))
-            masks[missing_stage1] += 1
+            missing = tuple(sorted(inspected - cq))
+            masks[missing] += 1
             counts['sq_head_write_records'] += evidence_row['sq_head']
             counts['doorbell_write_records'] += evidence_row['bells']
             counts['sq_fetch_starts'] += len(sq)
             counts['cq_slots'] += len(cq)
-            counts['qps_missing_chunk1_so_cq'] += 17 not in cq
-            counts['qps_with_chunk2_cq'] += any(18 <= slot < 27 for slot in cq)
-            if missing_stage1 and len(examples) < 6:
+            counts['qps_missing_inspected_so_cq'] += max(inspected) not in cq
+            counts['missing_cq_at_recorded_sq_fetch_starts'] += len(set(missing) & sq)
+            if missing and len(examples) < 6:
                 examples.append([rank, gather[ring], ring%40, sorted(sq), sorted(cq),
                                  evidence_row['sq_head'], evidence_row['bells']])
-    return dict(summary=counts, most_common_missing_chunk1_cq_slots=masks.most_common(12),
+    return dict(summary=counts, most_common_missing_cq_slots=masks.most_common(12),
                 example_columns=['rank','peer','physical_slot','sq_fetch_start_bb','cq_bb',
                                  'sq_head_wr_req','doorbell_wr_req'], examples=examples)
 
