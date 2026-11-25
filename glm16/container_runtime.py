@@ -21,9 +21,15 @@ def idle():
             'process_rows': rows[:12], 'health': [x.strip() for x in p.stdout.splitlines() if 'Ascend950' in x][:8]}
 
 def create(kind, run_id):
+    assert kind in {'model', 'validate', 'smoke'}
     gate = idle()
     assert gate['idle'], 'NPU_workload_present'
     assert re.fullmatch(r'[a-z0-9-]{1,50}', run_id)
+    result_dir = ROOT / 'results' / run_id
+    result_dir.mkdir(parents=True, exist_ok=True)
+    for name, expected in SPEC['script_sha256'].items():
+        assert name in {'benchmark.py', 'serve.py', 'validate_spec.py', 'hccl_smoke.py', 'container_runtime.py'}
+        assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == expected, 'staged_script_identity_changed'
     name = SPEC['name'] + '-' + kind
     exists = subprocess.run(['docker', 'container', 'inspect', name], capture_output=True, timeout=12)
     assert exists.returncode != 0, 'owned_name_already_exists_inspect_before_retry'
@@ -58,7 +64,9 @@ def create(kind, run_id):
     assert p.returncode == 0, 'container_create_failed'
     cid = p.stdout.strip()
     assert re.fullmatch('[0-9a-f]{64}', cid)
-    return {'id': cid, 'name': name, 'kind': kind, 'health': gate['health']}
+    record = {'id': cid, 'name': name, 'kind': kind, 'health': gate['health']}
+    (result_dir / ('container-' + kind + '.json')).write_text(json.dumps(record))
+    return record
 
 parser = argparse.ArgumentParser()
 parser.add_argument('action', choices=['gate', 'create', 'remove', 'state'])
