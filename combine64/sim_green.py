@@ -30,7 +30,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'watch', 'profile-build', 'batch', 'matrix', 'inter-snapshot', *STAGES)
+    assert action in ('status', 'watch', 'profile-build', 'batch', 'matrix', 'inter-snapshot', 'inter-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args.get('candidate', '86f802f')
@@ -45,6 +45,9 @@ def main():
         assert type(args.get('wait_for_terminal')) is int and 0 <= args['wait_for_terminal'] <= 6000
         assert type(args.get('interrupt_stalled', False)) is bool
         remote_seconds += args['wait_for_terminal'] + 25
+    if action == 'inter-evidence':
+        assert (candidate, tokens, attempt) == ('86f802f', 64, 3)
+        remote_seconds = timeout + 45
     if action == 'profile-build':
         remote_seconds = timeout + 2500
     if action == 'watch':

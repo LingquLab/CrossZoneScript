@@ -340,6 +340,16 @@ def main(args):
             assert result['revision'] == revision and result['build_exit'] == 0, 'candidate_build_not_passed'
         cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
+        if action == 'inter-evidence':
+            tools, _ = stage_tools(root, args['files'])
+            script = str(Path('/work') / tools.relative_to(root) / 'inter_snapshot.py')
+            proc = subprocess.run(['docker', 'exec', cid, 'python3', script], capture_output=True, timeout=timeout)
+            output = proc.stdout if proc.returncode == 0 else proc.stderr
+            (root / 'inter-evidence.log').write_bytes(output)
+            if proc.returncode:
+                return proc.returncode
+            print(proc.stdout.decode(), end='')
+            return 0
         if action == 'matrix':
             wait_for_bs16(root, revision, args['wait_for_bs16'])
             if args.get('profiling'):
