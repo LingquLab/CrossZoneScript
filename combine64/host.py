@@ -327,6 +327,15 @@ def main(request):
                 data=json.loads(report.read_text());data.pop('commands',None)
                 print(json.dumps(data,separators=(',',':')),flush=True)
             return code
+        if action=='sq-align-snapshot':
+            assert tokens==16
+            active=subprocess.run(['docker','top',cid,'-eo','pid,comm'],capture_output=True,text=True,timeout=10)
+            assert active.returncode==0 and 'sstsim' not in active.stdout
+            code=execute(cid,['python3',runtime+'/sq_align_snapshot.py'],ROOT/'sq-align16-snapshot-runner.log',1500)
+            report=ROOT/'cases/64p-t16-pipeline-sq-align-snapshot200us-a1/diagnostic.json'
+            if report.is_file():
+                summary=json.loads(report.read_text());summary.pop('pending_samples',None);summary.pop('dump_files',None);print(json.dumps(summary,separators=(',',':')),flush=True)
+            return code
         if action=='sq-align-regression':
             gate=json.loads((ROOT/'cases/64p-t16-local-send-a3/phase-result.json').read_text())
             assert gate['operator_qualified'] and gate['kernel_compatibility_variant']=='sq-align512'
