@@ -150,12 +150,15 @@ def stage_platform(case, expected):
     return environment
 
 
-def run_sst(case, environment, timeout, record):
+def run_sst(case, environment, timeout, record, stop_at_us=None):
     command = [
         'bash', '-c', 'set -e; source "$1"; shift; exec "$@"',
         'bash', environment['env_script'], environment['sst_bin'],
-        '-n', '8', str(case / 'test_UBusSim.py'),
+        '-n', '8',
     ]
+    if stop_at_us is not None:
+        command.append(f'--stop-at={stop_at_us}us')
+    command.append(str(case / 'test_UBusSim.py'))
     start = time.monotonic()
     record.update(status='running', command=command, started_unix=time.time())
     with (case / 'sim.log').open('wb') as log:
@@ -226,6 +229,7 @@ def main(config):
     revision = config['revision']
     assert read_json(ROOT / 'identity.json')['revision'] == revision
     use_profile = config.get('profiling', False)
+    stop_at_us = config.get('diagnostic_stop_us')
     build_file = 'profile-build/build-summary.json' if use_profile else 'build-summary.json'
     build = read_json(ROOT / build_file)
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
@@ -252,6 +256,16 @@ def main(config):
             bind(case, BLOCKS[action])
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], build))
+        if stop_at_us is not None:
+            from inter_snapshot import add_queue_exports
+            original = read_json(case.parent / 't64-inter-server-send-a2/phase-result.json')
+            for key in ('candidate_commit', 'tokens', 'stage', 'routes_sha256',
+                        'kernel_sha256', 'source_object_sha256'):
+                assert original[key] == record[key], key
+            record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source='t64-inter-server-send-a2')
+            workload = read_json(case / 'workload.yml')
+            add_queue_exports(workload)
+            write_json(case / 'workload.yml', workload)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
         model_config = case / 'v310_config/davidV100_simulator_config.yml'
@@ -261,12 +275,18 @@ def main(config):
         record['model_config'] = dict(component=component, lsu_level=int(level), sha256=digest(model_config))
         record['environment_sha256'] = digest(case / 'sst-environment.json')
         write_json(ROOT / 'progress.json', {'stage': 'sst', 'case': case.name, 'updated_unix': time.time()})
-        run_sst(case, env, timeout, record)
-        check_outputs(case, env, record)
-        if use_profile:
-            from profile_case import summarize
-            record.update(summarize(case, WORLD, BLOCKS[action]))
-        record['status'] = 'sst_and_checker_passed'
+        run_sst(case, env, timeout, record, stop_at_us)
+        if stop_at_us is None:
+            check_outputs(case, env, record)
+            if use_profile:
+                from profile_case import summarize
+                record.update(summarize(case, WORLD, BLOCKS[action]))
+            record['status'] = 'sst_and_checker_passed'
+        else:
+            from inter_snapshot import summarize as summarize_snapshot
+            layout = read_json(case / 'export-layout.json')
+            record.update(summarize_snapshot(case, layout, Path(env['decoder_library'])))
+            record['status'] = 'diagnostic_snapshot'
     except BaseException as error:
         if record.get('status') not in ('timed_out', 'interrupted'):
             record['status'] = 'failed'
@@ -278,7 +298,7 @@ def main(config):
     if (case / 'run.json').is_file():
         write_json(case / 'run.json', record)
     write_json(ROOT / 'progress.json', {'stage': record['status'], 'case': case.name, 'updated_unix': time.time()})
-    return 0 if record['status'] == 'sst_and_checker_passed' else 1
+    return 0 if record['status'] in ('sst_and_checker_passed', 'diagnostic_snapshot') else 1
 
 
 if __name__ == '__main__':

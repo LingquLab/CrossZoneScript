@@ -55,7 +55,9 @@ def stage_tools(root, files):
     tools = root / 'tools' / key
     tools.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
-        assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py', 'profile_capture.h', 'profile_case.py', 'clock_evidence.json'}
+        assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py',
+                        'build_profile.py', 'profile_capture.h', 'profile_case.py', 'clock_evidence.json',
+                        'inter_snapshot.py'}
         path = tools / name
         if path.exists():
             assert path.read_bytes() == content.encode()
@@ -99,6 +101,8 @@ REPORT_FIELDS = (
     'predecessor', 'actual_input_sha256', 'model_config', 'error',
     'profiling_enabled', 'profiling_operator_us', 'profiling_max_lane_ticks',
     'profiling_lanes', 'profiling_dropped_records', 'profiling_clock_receipt',
+    'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
+    'incomplete_lane_count', 'pending_queues', 'pending_queue_count', 'missing_exports',
 )
 
 
@@ -309,6 +313,15 @@ def main(args):
                     time.sleep(5)
                 assert profile_summary.is_file(), 'profile_build_result_pending'
                 assert json_file(profile_summary)['all_compiled'], 'profile_build_not_passed'
+        if action == 'inter-snapshot':
+            prior_path = root / 'cases/t64-inter-server-send-a2/phase-result.json'
+            deadline = time.monotonic() + args['wait_for_terminal']
+            while not prior_path.is_file() and time.monotonic() < deadline:
+                time.sleep(10)
+            prior = json_file(prior_path)
+            if prior['status'] != 'timed_out':
+                print(json.dumps({'status': 'snapshot_skipped', 'original_status': prior['status']}))
+                return 0
         with (root / 'sst.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if args.get('require_previous_bs'):
@@ -322,6 +335,11 @@ def main(args):
             if config['profiling']:
                 profile_summary = root / 'profile-build/build-summary.json'
                 assert json_file(profile_summary)['all_compiled'], 'profile_build_not_passed'
+            if action == 'inter-snapshot':
+                report = run_case(root, cid, tools, dict(config, action='inter-server-send',
+                                                       diagnostic_stop_us=args['stop_at_us']))
+                print(json.dumps(report, separators=(',', ':')))
+                return 0 if report['status'] == 'diagnostic_snapshot' and report['container_exit'] == 0 else 1
             if action == 'matrix':
                 results = run_matrix(root, cid, tools, config, args)
                 report = dict(matrix=results, revision=revision)
