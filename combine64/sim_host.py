@@ -185,11 +185,11 @@ def require_bs4_gateway(deadline):
     assert (result['candidate_commit'], result['tokens'], result['stage']) == (REVISIONS['b5383cf'], 4, 'gateway-reduce')
 
 
-def require_previous_bs(root, revision, tokens):
+def require_previous_bs(root, revision, tokens, attempt=1):
     sizes = (4, 16, 32, 64, 128)
     assert tokens != sizes[0], 'no_preceding_batch_size'
     previous = sizes[sizes.index(tokens) - 1]
-    journal = root / 'hapi-logs' / f't{previous}-batch-a1.json'
+    journal = root / 'hapi-logs' / f't{previous}-batch-a{attempt}.json'
     assert journal.is_file(), 'preceding_batch_result_missing'
     rows = json_file(journal)
     expected = STAGES[2:] if previous == 4 else STAGES
@@ -225,7 +225,8 @@ def wait_for_bs16(root, revision, timeout):
 def run_matrix(root, cid, tools, config, args):
     matrix = []
     for size in (32, 64, 128):
-        require_previous_bs(root, config['revision'], size)
+        predecessor_attempt = 1 if size == 32 else config['attempt']
+        require_previous_bs(root, config['revision'], size, predecessor_attempt)
         point = dict(config, action='batch', tokens=size)
         stages = dict(stage_timeouts=args['matrix_timeouts'][str(size)])
         results = run_batch(root, cid, tools, point, stages)

@@ -48,7 +48,7 @@ def main():
         assert start <= end
         remote_seconds = 90 + stage_budget(STAGES[start:end + 1], args.get('stage_timeouts', {}), timeout, tokens)
     if action == 'matrix':
-        assert tokens == 32 and attempt == 1 and candidate == '86f802f'
+        assert tokens == 32 and candidate == '86f802f'
         wait_seconds = args['wait_for_bs16']
         assert type(wait_seconds) is int and 30 <= wait_seconds <= 17000
         matrix_timeouts = args['matrix_timeouts']

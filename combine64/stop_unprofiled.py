@@ -34,7 +34,7 @@ def proc(pid):
         return None
 
 def docker_config(cmd):
-    if len(cmd) < 10 or cmd[:4] != ['docker','exec',CID,'timeout'] or not re.fullmatch(r'/work/tools/[0-9a-f]{16}/sim_case.py',cmd[-2]):
+    if len(cmd) != 9 or cmd[:4] != ['docker','exec',CID,'timeout'] or not re.fullmatch(r'/work/tools/[0-9a-f]{16}/sim_case.py',cmd[-2]):
         return None
     try:
         cfg = json.loads(cmd[-1])
@@ -44,21 +44,26 @@ def docker_config(cmd):
         return cfg
     return None
 
-owned = []
-for item in Path('/proc').iterdir():
-    if not item.name.isdigit():
-        continue
-    child = proc(item.name)
-    if not child:
-        continue
-    cfg = docker_config(child[0])
-    if not cfg:
-        continue
-    controller = proc(child[1])
-    supervisor = proc(controller[1]) if controller else None
-    if controller and supervisor and controller[0][-1:] == ['-'] and supervisor[0] == ['timeout','--kill-after=30','94390','python3','-']:
-        owned.append((int(item.name), child[1], controller[1], controller[2], supervisor[2], cfg))
+def controllers():
+    found = []
+    for item in Path('/proc').iterdir():
+        if not item.name.isdigit():
+            continue
+        child = proc(item.name)
+        cfg = docker_config(child[0]) if child else None
+        if not cfg:
+            continue
+        controller = proc(child[1])
+        supervisor = proc(controller[1]) if controller else None
+        if controller and supervisor and controller[0][-1:] == ['-'] and supervisor[0] == ['timeout','--kill-after=30','94390','python3','-']:
+            found.append((int(item.name), child[1], controller[1], controller[2], supervisor[2], cfg))
+    return found
 
+deadline = time.monotonic() + 8
+owned = controllers()
+while not owned and time.monotonic() < deadline:
+    time.sleep(.5)
+    owned = controllers()
 assert len(owned) <= 1, 'multiple_legacy_controllers'
 report = {'legacy_candidates':len(owned),'changed':False}
 if owned:
