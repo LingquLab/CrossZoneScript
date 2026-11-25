@@ -154,7 +154,8 @@ def expected_cq_slots(rank, tokens=32):
         for lane in (0, 1):
             payload = (tokens * 3 // 4 if lane == 0 else tokens // 4) if peer == rank ^ 8 else 0
             ring = peer * 40 + lane * 20 + owner
-            expected[ring] = ('cross_return', set(range(payload + 1)))
+            notifications = (2 if lane == 0 else 0) if globals().get('SHARED_SO_QP') else 1
+            expected[ring] = ('cross_return', set(range(payload + notifications)))
     return expected
 
 
