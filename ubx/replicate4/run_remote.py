@@ -4,9 +4,11 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import sys
+import time
 import traceback
 
 ROOT = Path("/root/ubx-replicate4-e172cd2-bs32-f50")
@@ -22,7 +24,48 @@ def load_json(path):
     return json.loads(path.read_text())
 
 
-def preflight():
+def occupants():
+    pids = set()
+    for device in range(16):
+        process_text = subprocess.check_output(
+            ["npu-smi", "info", "-t", "proc-mem", "-i", str(device)], text=True, timeout=6,
+        )
+        assert re.search(rf"NPU ID\s*:\s*{device}\b", process_text), f"NPU {device} identity unknown"
+        found = {int(pid) for pid in re.findall(r"Process id\s*:\s*(\d+)", process_text, re.I)}
+        assert found or "No process in device" in process_text, f"NPU {device} occupancy unknown"
+        pids.update(found)
+    return pids
+
+
+def clear_occupants(pids):
+    assert all(pid > 1 and pid not in (os.getpid(), os.getppid()) for pid in pids)
+    descriptors = {}
+    terminated, killed = [], []
+    try:
+        for pid in sorted(pids):
+            try:
+                descriptors[pid] = os.pidfd_open(pid)
+            except ProcessLookupError:
+                pass
+        for sig, confirmed in ((signal.SIGTERM, terminated), (signal.SIGKILL, killed)):
+            current = occupants()
+            for pid in sorted(current & descriptors.keys()):
+                try:
+                    signal.pidfd_send_signal(descriptors[pid], sig)
+                    confirmed.append(pid)
+                except ProcessLookupError:
+                    pass
+            if confirmed:
+                time.sleep(4)
+    finally:
+        for descriptor in descriptors.values():
+            os.close(descriptor)
+    report = {"term_sent": len(terminated), "kill_sent": len(killed)}
+    (ROOT / "full-bs32-f50-npu-cleanup.json").write_text(json.dumps(report))
+    return report
+
+
+def preflight(cleanup=False):
     assert not OUTPUT.exists(), "Prior execution directory exists"
     receipt = load_json(ROOT / "build-result.json")
     assert receipt["built"] and receipt["revision"] == REVISION
@@ -30,14 +73,13 @@ def preflight():
         assert hashlib.sha256((BUILD / name).read_bytes()).hexdigest() == digest, name
     library, = (p for p in (ROOT / "runtime-install").glob("lib*/libtile-comm.so") if p.is_file())
     assert hashlib.sha256(library.read_bytes()).hexdigest() == receipt["runtime_sha256"]
+    pids = occupants()
+    cleanup_report = {"term_sent": 0, "kill_sent": 0}
+    if pids and cleanup:
+        cleanup_report = clear_occupants(pids)
+        pids = occupants()
+    assert not pids, "NPU occupied after preflight"
     for device in range(16):
-        process_text = subprocess.check_output(
-            ["npu-smi", "info", "-t", "proc-mem", "-i", str(device)], text=True, timeout=6,
-        )
-        assert re.search(rf"NPU ID\s*:\s*{device}\b", process_text), f"NPU {device} identity unknown"
-        assert "No process in device" in process_text and not re.search(
-            r"Process id\s*:", process_text, re.I
-        ), f"NPU {device} occupied or unrecognized"
         health = subprocess.check_output(
             ["npu-smi", "info", "-t", "health", "-i", str(device)], text=True, timeout=6,
         )
@@ -46,7 +88,7 @@ def preflight():
     for port in range(PORT, PORT + 514):
         with socket.socket() as probe:
             probe.bind(("0.0.0.0", port))
-    print(json.dumps({"ready": True, "idle": 16, "healthy": 16, "port": PORT}))
+    print(json.dumps({"ready": True, "idle": 16, "healthy": 16, "port": PORT, **cleanup_report}))
 
 
 def run(index):
@@ -99,8 +141,8 @@ def run(index):
 if __name__ == "__main__":
     action = sys.argv[1]
     PORT = int(sys.argv[3])
-    if action == "preflight":
-        preflight()
+    if action in ("preflight", "preflight-cleanup"):
+        preflight(cleanup=action == "preflight-cleanup")
     else:
         assert action == "run"
         run(int(sys.argv[2]))

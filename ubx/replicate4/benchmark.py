@@ -168,7 +168,7 @@ def read_verifier():
     return load_clock_results(source)
 
 
-def main(ports=(43000,)):
+def main(ports=(43000,), cleanup=False):
     here = Path(__file__).resolve().parent
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (here / "run_remote.py").read_text()
@@ -176,9 +176,10 @@ def main(ports=(43000,)):
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         wait_for_build(pool)
         verifier = read_verifier()
+        action = "preflight-cleanup" if cleanup else "preflight"
         for port in ports:
             try:
-                readiness = list(pool.map(lambda i: controller(i, "preflight", payload, port), range(2)))
+                readiness = list(pool.map(lambda i: controller(i, action, payload, port), range(2)))
                 assert all(item["ready"] and item["port"] == port for item in readiness)
                 break
             except RuntimeError as exc:
@@ -189,7 +190,13 @@ def main(ports=(43000,)):
         results = list(pool.map(lambda i: controller(i, "run", payload, port), range(2)))
         assert all(result["passed"] for result in results)
         summary = summarize(pool, verifier)
-    print(json.dumps(dict(summary, coordinator_port=port), separators=(",", ":")))
+    summary["coordinator_port"] = port
+    if cleanup:
+        summary["npu_cleanup"] = [
+            dict(host=host, term_sent=receipt["term_sent"], kill_sent=receipt["kill_sent"])
+            for host, receipt in zip(HOSTS, readiness)
+        ]
+    print(json.dumps(summary, separators=(",", ":")))
 
 
 if __name__ == "__main__":
