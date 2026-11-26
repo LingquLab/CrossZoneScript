@@ -56,7 +56,9 @@ elif options.get('recover_profile'):
                         f'case = MOUNT / {case!r}', 'try:',
                         f'    result = recover_profile(case, {step_ends!r}, {len(ends)})',
                         "except (AssertionError, ValueError, OSError) as error:",
-                        "    result = dict(status='recovery_failed', error_type=type(error).__name__, detail=str(error))",
+                        "    import traceback",
+                        "    frame = traceback.extract_tb(error.__traceback__)[-1]",
+                        "    result = dict(status='recovery_failed', error_type=type(error).__name__, detail=str(error), function=frame.name, line=frame.lineno)",
                         "print(json.dumps(result, separators=(',', ':')))"))
 elif options.get('suite_status'):
     assert profile

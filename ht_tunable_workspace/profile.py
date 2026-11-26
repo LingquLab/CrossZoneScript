@@ -33,6 +33,7 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
     sample = None
     stream_states = Counter()
     overlap = Counter()
+    rank_coverage = Counter()
     for rank in range(64):
         path = case / directory / f'rank{rank:02d}' / 'profile.bin'
         raw = path.read_bytes()
@@ -59,10 +60,8 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
         ready_later_id = SEND_BASE + (chunks - 1) * SEND_STRIDE
         ready_later = [cycle for aiv in range(send_start, send_start + send_cores)
                        for cycle, event in per_aiv.get(aiv, ()) if event == ready_later_id]
-        assert ready_later
         submitted_later = [cycle for aiv in range(send_start, send_start + send_cores)
                            for cycle, event in per_aiv.get(aiv, ()) if event == ready_later_id + 1]
-        assert submitted_later
         first_compute = []
         for aiv in range(final_start, blocks):
             if aiv not in per_aiv:
@@ -79,7 +78,11 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
                 compute[step].append(cycle)
                 if step == 0:
                     first_compute.append(cycle)
-        assert first_compute, (rank, 'no complete final step 0 stream')
+        rank_coverage['last_chunk_ready'] += bool(ready_later)
+        rank_coverage['last_chunk_send_submission'] += bool(submitted_later)
+        rank_coverage['final_step0_compute'] += bool(first_compute)
+        if not (ready_later and submitted_later and first_compute):
+            continue
         overlap['ranks'] += 1
         overlap['ranks_with_all_sender_ready_markers'] += len(ready_later) == send_cores
         overlap['compute_before_some_sender_last_chunk_ready'] += min(first_compute) < max(ready_later)
@@ -88,9 +91,11 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
         if rank == 0:
             sample = dict(rank=0, first_final_compute=min(first_compute), first_last_chunk_ready=min(ready_later),
                           last_last_chunk_ready=max(ready_later), last_send_submission=max(submitted_later))
-    result = dict(expected_steps=steps, streams=stream_states, same_rank_comparison=overlap, sample_cycles=sample,
-                  first_compute_cycle_by_step=[min(values) for values in compute.values()],
-                  last_compute_cycle_by_step=[max(values) for values in compute.values()])
+    result = dict(expected_steps=steps, streams=stream_states, rank_coverage=rank_coverage,
+                  same_rank_comparison=overlap, sample_cycles=sample,
+                  final_compute_markers_by_step=[len(values) for values in compute.values()],
+                  first_compute_cycle_by_step=[min(values, default=None) for values in compute.values()],
+                  last_compute_cycle_by_step=[max(values, default=None) for values in compute.values()])
     (case / 'tunable-profile-markers.json').write_text(json.dumps(all_events, separators=(',', ':')))
     (case / 'tunable-profile-summary.json').write_text(json.dumps(result, separators=(',', ':')))
     return result
