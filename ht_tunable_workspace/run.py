@@ -23,11 +23,15 @@ tokens = options.get('tokens', 4)
 assert tokens in (4, 32, 1024)
 mode = options.get('mode')
 profile = bool(options.get('profile'))
+memory_retry = bool(options.get('memory_retry'))
 assert mode in (None, 'direct', 'logical', 'physical')
 assert tokens != 4 or (mode in (None, 'direct') and not profile)
 assert tokens != 1024 or (mode != 'direct' and profile)
 assert not (profile and mode == 'direct')
+assert not memory_retry or tokens == 1024
 case = f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32' + (f'-{mode}' if mode else '') + ('-profile' if profile else '')
+if memory_retry:
+    case += '-mem256'
 ends = chunk_ends(tokens)
 step_ends = [ends[index] for index in sync_steps(tokens, mode)]
 timeout = {4: 1200, 32: 6000, 1024: 108000}[tokens]
@@ -91,7 +95,8 @@ print(json.dumps(dict(status=state.get('status'), returncode=state.get('returnco
 '''
 elif options.get('suite_status'):
     assert profile
-    suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile'
+    suffix_memory = '-mem256' if memory_retry else ''
+    suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile{suffix_memory}'
              for label, suffix in (('Window', ''), ('LogicalChunk', '-logical'), ('PhysicalChunk', '-physical'))}
     source = prefix + f'\nsuite = {suite!r}\n' + r'''
 report = {}
@@ -193,6 +198,9 @@ else:
             target.write_text(runner)''')
     phase = (root / 'ht_four_stage/local_phases.py').read_text().replace('"--timeout", "540"', f'"--timeout", "{timeout}"').replace(
         'timeout=600)', f'timeout={timeout + adapter_margin})')
+    if memory_retry:
+        assert phase.count('"--memory=32g"') == 1
+        phase = phase.replace('"--memory=32g"', '"--memory=256g"')
     modules = {'config': (shared / 'config.py').read_text(), 'route': (shared / 'route.py').read_text(),
                'shared_fixture': (shared / 'fixture.py').read_text(),
                'runtime': (here / 'runtime.py').read_text()}
@@ -216,7 +224,8 @@ else:
         '    globals()[name] = module\n',
         fixture, (here / 'profile.py').read_text(), (here / 'sync_layout.py').read_text(),
         f'CASE = {case!r}\nKERNEL_SHA256 = {binary_sha!r}\n'
-        f'TOKENS = {tokens}\nHIDDEN = 128\nCHUNKS = {len(ends)}\nMODE = {mode!r}\nPROFILE = {profile!r}\n',
+        f'TOKENS = {tokens}\nHIDDEN = 128\nCHUNKS = {len(ends)}\nMODE = {mode!r}\nPROFILE = {profile!r}\n'
+        f'CONTAINER_MEMORY_GIB = {256 if memory_retry else 32}\n',
         green,
         '''
 from time import monotonic
@@ -232,7 +241,8 @@ def run(request):
     result.update(revision=request['revision'], tokens=TOKENS, blocks=BLOCKS, hidden=HIDDEN, chunks=CHUNKS,
                   send_cores=8 if direct else 16, qp_counts=[8, 8] if direct else [16, 16],
                   sync={'logical': 'LogicalChunk', 'physical': 'PhysicalChunk'}.get(MODE, 'Window'),
-                  rotation='ServerStaggered' if direct else 'Legacy', reuse_gather=not direct, profiling=PROFILE)
+                  rotation='ServerStaggered' if direct else 'Legacy', reuse_gather=not direct, profiling=PROFILE,
+                  container_memory_gib=CONTAINER_MEMORY_GIB)
     if direct:
         trace = json.loads((case / 'fixture-data/trace-offsets.json').read_bytes())
         counts = {name: sum(len(row['sq_bindings'][name]) for row in trace) for name in trace[0]['sq_bindings']}
