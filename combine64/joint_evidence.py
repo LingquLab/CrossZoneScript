@@ -29,7 +29,10 @@ def main(case):
     decoder = Path(json.loads((case / 'sst-environment.json').read_text())['decoder_library'])
     groups = 4 // report['peer_slots']
     layout = json.loads((case / 'export-layout.json').read_text())
+    routes = json.loads((case.parent.parent / 'assets' /
+        f"t4-intra{report['intra_cores']}-peer{report['peer_slots']}" / 'routes.json').read_text())
     counters = Counter()
+    missing_rows = []
     missing_stages = Counter()
     missing_links = Counter()
     outstanding = Counter()
@@ -66,6 +69,12 @@ def main(case):
             if expected != blank:
                 observed = data['gather'][offset:offset + STRIPE]
                 counters['gathered' if observed == expected else 'gather_missing'] += 1
+                if observed != expected:
+                    route = routes[index // 6]
+                    expert = route['experts'][index % 6]
+                    sender = expert // 4
+                    assert sender // 8 == rank // 8 and sender != rank
+                    missing_rows.append((sender, rank, route['token']))
 
     for sender, (heads, tails) in queues.items():
         for receiver in range(WORLD):
@@ -103,10 +112,37 @@ def main(case):
                     missing_links[key] += 1
                     if received and delta > 0 and len(queue_samples) < 12:
                         queue_samples.append([sender, receiver, slot, chunk, head, tail])
+    gather_dependencies = Counter()
+    gather_samples = []
+    for sender, receiver, chunk in missing_rows:
+        within = receiver % 8
+        peers_per_core = 8 // report['intra_cores']
+        begin = within // peers_per_core * peers_per_core
+        owned = range(receiver // 8 * 8 + begin, receiver // 8 * 8 + begin + peers_per_core)
+        previous = chunk == 0 or all(
+            i64(flags[peer][0], (sender % 8) * STRIPE + (chunk - 1) * 8) == MAGIC for peer in owned)
+        pending_peers = []
+        for peer in owned:
+            if peer == sender:
+                continue
+            qp = peer % 8
+            physical = 16 + qp // 2 + (qp % 2) * 20
+            offset = (peer * PHYSICAL_QPS + physical) * 64
+            head = struct.unpack_from('<I', queues[sender][0], offset)[0]
+            tail = struct.unpack_from('<I', queues[sender][1], offset)[0]
+            if head > tail:
+                pending_peers.append([peer, physical, head, tail])
+        key = '/'.join((f'c{chunk}', 'return_visible' if previous else 'return_missing',
+                        'pending_sq' if pending_peers else 'no_pending_sq'))
+        gather_dependencies[key] += 1
+        if previous and pending_peers and len(gather_samples) < 12:
+            gather_samples.append([sender, receiver, chunk, pending_peers])
     log = (case / 'sim.log').read_text(errors='replace')
     cq = re.findall(r'Sim: ([0-9]+)[(]cycle[)][^\n]*WrCQEResp', log)
     summary = dict(stop_at_us=report['stop_at_us'], last_cq_cycle=int(cq[-1]) if cq else None,
                    gather=dict(counters), missing_gateway_by_stage=dict(missing_stages),
+                   missing_gather_dependencies=dict(gather_dependencies),
+                   missing_gather_examples=gather_samples,
                    missing_links=dict(missing_links), pending_sq_delta=dict(outstanding),
                    examples_sender_receiver_slot_chunk_head_tail=queue_samples)
     print(json.dumps(summary, separators=(',', ':')))
