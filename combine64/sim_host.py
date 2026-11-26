@@ -140,6 +140,13 @@ def status(root, args):
         state['age_seconds'] = round(now - state['updated_unix'], 1)
         report['progress'] = state
     tokens, attempt = args['tokens'], args['attempt']
+    identity = root / 'identity.json'
+    cid = None
+    if identity.is_file():
+        try:
+            cid = task_container(root, REVISIONS[args['candidate']])
+        except (AssertionError, KeyError, subprocess.SubprocessError):
+            pass
     reports = []
     for stage in STAGES:
         case = root / 'cases' / f't{tokens}-{stage}-a{attempt}'
@@ -155,7 +162,24 @@ def status(root, args):
             if log.is_file():
                 st = log.stat()
                 row.update(log_bytes=st.st_size, log_age_seconds=round(now - st.st_mtime, 1))
+                with log.open('rb') as feed:
+                    feed.seek(max(0, st.st_size - 524288))
+                    tail = feed.read(524288).decode(errors='replace')
+                for key, pattern in (
+                    ('last_sim_cycle', r'Sim: ([0-9]+)[(]cycle[)]'),
+                    ('last_cq_cycle', r'Sim: ([0-9]+)[(]cycle[)][^\n]*WrCQEResp'),
+                ):
+                    observed = re.findall(pattern, tail)
+                    if observed:
+                        row[key] = int(observed[-1])
             row['sst_has_exited'] = run.get('returncode') is not None
+            pid = run.get('pid')
+            if cid and type(pid) is int and not row['sst_has_exited']:
+                proc = subprocess.run(['docker', 'exec', cid, 'cat', f'/proc/{pid}/stat'],
+                                      capture_output=True, timeout=8)
+                if proc.returncode == 0:
+                    fields = proc.stdout.decode().rsplit(')', 1)[1].split()
+                    row.update(process_state=fields[0], cpu_ticks=int(fields[11]) + int(fields[12]))
             reports.append(row)
     report['cases'] = reports
     return report
