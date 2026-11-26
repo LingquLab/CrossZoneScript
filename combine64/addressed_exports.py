@@ -58,11 +58,23 @@ def reconstruct_die_output(paths, address, size, decoder_library):
     result, offset = bytearray(size), 0
     while offset < size:
         current = address + offset
-        die = ((current >> 9) ^ (current >> 16) ^ (current >> 23)) & 1
+        die = owning_die(current)
         count = min(size - offset, 512 - current % 512)
         result[offset : offset + count] = copies[die][offset : offset + count]
         offset += count
     return bytes(result)
+
+
+def owning_die(address):
+    return ((address >> 9) ^ (address >> 16) ^ (address >> 23)) & 1
+
+
+def read_die_stripe(paths, address, size, decoder_library):
+    if len(paths) != 2 or address < 0 or not 0 < size <= 512 - address % 512:
+        raise ValueError("Need a nonempty range within one stripe")
+    if digest(decoder_library) != V310_DECODER_SHA256:
+        raise ValueError("Die ownership is unverified for this decoder library")
+    return read_addressed(paths[owning_die(address)], address, size)
 
 
 def export_actual(layout, dump_dir, output, decoder_library):

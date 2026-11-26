@@ -361,7 +361,7 @@ def observe_joint(case, environment, intra_cores):
 
 
 def observe_cq(case, environment):
-    from addressed_exports import reconstruct_die_output
+    from addressed_exports import read_die_stripe, reconstruct_die_output
     layout = read_json(case / 'export-layout.json')
     decoder = Path(environment['decoder_library'])
 
@@ -371,6 +371,14 @@ def observe_cq(case, environment):
         sources = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
         return reconstruct_die_output(sources, segment['addr'] - row['sys_va_base_addr'], segment['size'], decoder)
 
+    def entry(rank, name, index):
+        row = layout['ranks'][rank]
+        segment = row['exports'][name]
+        assert 0 <= index < segment['size'] // 64
+        sources = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
+        address = segment['addr'] - row['sys_va_base_addr'] + index * 64
+        return read_die_stripe(sources, address, 64, decoder)
+
     samples = []
     for rank, peer, slot in CQ_PROBE_QUEUES:
         sample = dict(rank=rank, peer=peer, slot=slot)
@@ -378,21 +386,18 @@ def observe_cq(case, environment):
         for name in ('sq_head', 'sq_tail', 'cq_tail'):
             sample[name] = struct.unpack_from('<I', read(rank, name), offset)[0]
         try:
-            entries = read(rank, f'cq-{peer}-{slot}')
             index = sample['cq_tail']
-            if index < len(entries) // 64:
-                words = struct.unpack_from('<2I', entries, index * 64)
+            if index < 1536 // 64:
+                words = struct.unpack_from('<2I', entry(rank, f'cq-{peer}-{slot}', index))
                 sample.update(cq_next_owner=(words[0] >> 2) & 1, cq_next_status=words[0] >> 16,
                               cq_next_sq_index=words[1] & 0xFFFF)
         except (FileNotFoundError, ValueError):
             sample['cq_dump_missing'] = True
         try:
-            entries = read(rank, f'sq-{peer}-{slot}')
             index = sample['sq_head'] - 1
-            if 0 <= index < len(entries) // 64:
-                entry = entries[index * 64:(index + 1) * 64]
-                sample.update(sq_last_words=list(struct.unpack_from('<5I', entry)),
-                              sq_last_nonzero=any(entry))
+            if 0 <= index < 1536 // 64:
+                payload = entry(rank, f'sq-{peer}-{slot}', index)
+                sample.update(sq_last_nonzero=any(payload))
         except (FileNotFoundError, ValueError):
             sample['sq_dump_missing'] = True
         samples.append(sample)

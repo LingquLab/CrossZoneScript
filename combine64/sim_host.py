@@ -496,11 +496,12 @@ def run_large_matrix(origin, revision, args):
     return 0
 
 
-def inspect_joint_snapshot(root, cid, args):
+def inspect_joint_snapshot(root, cid, revision, args):
     tools, _ = stage_tools(root, args['files'])
     entry = Path('/work') / tools.relative_to(root) / 'joint_evidence.py'
-    case = '/work/cases/t4-joint-final-a2'
-    proc = subprocess.run(['docker', 'exec', cid, 'timeout', '125', 'python3', str(entry), case],
+    attempt = str(args['attempt'])
+    case = f'/work/cases/t4-joint-final-a{attempt}'
+    proc = subprocess.run(['docker', 'exec', cid, 'timeout', '125', 'python3', str(entry), case, revision, attempt],
                           capture_output=True, timeout=145)
     (root / 'joint-evidence.stderr').write_bytes(proc.stderr)
     if proc.returncode == 0:
@@ -538,7 +539,7 @@ def main(args):
             cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         if action == 'joint-evidence':
-            return inspect_joint_snapshot(root, cid, args)
+            return inspect_joint_snapshot(root, cid, revision, args)
         verify_prerequisite(root, revision, args)
         if args.get('replace_legacy_batch'):
             wait_or_interrupt_legacy(root, cid, revision)

@@ -21,12 +21,13 @@ def i64(data, offset):
     return struct.unpack_from('<q', data, offset)[0]
 
 
-def main(case):
+def main(case, revision, attempt):
     report = json.loads((case / 'phase-result.json').read_text())
-    assert report['candidate_commit'] == 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354'
+    assert report['candidate_commit'] == revision
     assert report['status'] == 'diagnostic_snapshot' and report['tokens'] == 4
-    assert report['stage'] == 'joint-final' and report['attempt'] == 2
-    decoder = Path(json.loads((case / 'sst-environment.json').read_text())['decoder_library'])
+    assert report['stage'] == 'joint-final' and report['attempt'] == attempt
+    environment = json.loads((case / 'sst-environment.json').read_text())
+    decoder = Path(environment['decoder_library'])
     groups = 4 // report['peer_slots']
     layout = json.loads((case / 'export-layout.json').read_text())
     routes = json.loads((case.parent.parent / 'assets' /
@@ -145,9 +146,12 @@ def main(case):
                    missing_gather_examples=gather_samples,
                    missing_links=dict(missing_links), pending_sq_delta=dict(outstanding),
                    examples_sender_receiver_slot_chunk_head_tail=queue_samples)
+    if attempt == 3:
+        from sim_case import observe_cq
+        summary.update(observe_cq(case, environment))
     print(json.dumps(summary, separators=(',', ':')))
     return 0
 
 
 if __name__ == '__main__':
-    raise SystemExit(main(Path(sys.argv[1])))
+    raise SystemExit(main(Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])))
