@@ -70,6 +70,25 @@ available_kib = next(int(line.split()[1]) for line in memory.splitlines() if lin
 print(json.dumps(dict(available_cpu_count=len(os.sched_getaffinity(0)), available_memory_kib=available_kib,
                       available_storage_bytes=shutil.disk_usage(MOUNT).free)))
 '''
+elif options.get('termination'):
+    source = prefix + f'\ncase = MOUNT / {case!r}\n' + r'''
+from datetime import datetime, timezone
+run = case / 'run.json'
+state = json.loads(run.read_text())
+end = int(run.stat().st_mtime)
+model = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+since = datetime.fromtimestamp(end - 90, timezone.utc).isoformat()
+until = datetime.fromtimestamp(end + 30, timezone.utc).isoformat()
+events = subprocess.run(['docker', 'events', '--since', since, '--until', until, '--filter', f'image={model}',
+                         '--filter', 'type=container', '--format', '{{json .}}'],
+                        capture_output=True, check=True, timeout=45)
+records = [json.loads(line) for line in events.stdout.splitlines()]
+summary = [{'action': item['Action'], 'delta_seconds': item['time'] - end,
+            'exit_code': item['Actor']['Attributes'].get('exitCode')}
+           for item in records if item.get('Action') in ('oom', 'die', 'kill')]
+print(json.dumps(dict(status=state.get('status'), returncode=state.get('returncode'), error=state.get('error'),
+                      timeout_seconds=state.get('timeout_seconds'), model_events=summary), separators=(',', ':')))
+'''
 elif options.get('suite_status'):
     assert profile
     suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile'
@@ -248,7 +267,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'BatchMode=no', '-o', 'NumberOfPasswordPrompts=1', '-o',
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 transport_timeout = 700 if options.get('recover_profile') else timeout + transport_margin
-if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'cq', 'direct_activity', 'read_profile')):
+if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'cq', 'direct_activity', 'read_profile')):
     transport_timeout = 900 if tokens == 1024 and (options.get('cq') or options.get('read_profile')) else 120
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
