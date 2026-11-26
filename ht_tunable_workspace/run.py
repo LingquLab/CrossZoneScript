@@ -129,7 +129,7 @@ elif options.get('suite_status'):
     suffix_memory = '-mem256' if memory_retry else ''
     suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile{suffix_memory}'
              for label, suffix in (('Window', ''), ('LogicalChunk', '-logical'), ('PhysicalChunk', '-physical'))}
-    source = prefix + f'\nsuite = {suite!r}\n' + r'''
+    source = prefix + f'\nsuite = {suite!r}\nresource_status = {bool(tokens == 1024)!r}\n' + r'''
 report = {}
 for mode, case_name in suite.items():
     case = MOUNT / case_name
@@ -147,6 +147,25 @@ for mode, case_name in suite.items():
         stamps = [int(match) for match in re.findall(rb'Sim:\s*(\d+)[^\n]*WrCQEResp', raw)]
         entry.update(observed_log_cqe=raw.count(b'WrCQEResp'), last_cqe_stamp=max(stamps, default=None))
     report[mode] = entry
+if resource_status:
+    model = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+    active = docker('ps', '--filter', 'ancestor=' + model, '--no-trunc', '-q').stdout.split()
+    containers = json.loads(docker('inspect', *[value.decode() for value in active]).stdout) if active else []
+    matching = {}
+    for mode, case_name in suite.items():
+        expected = '/work/inter-server-native/' + case_name + '/adapter/run.py'
+        for row in containers:
+            if row['State']['Running'] and expected in row['Config']['Cmd'] and any(
+                mount['Destination'] == '/work' and Path(mount['Source']) == MOUNT.parent for mount in row['Mounts']
+            ):
+                matching[row['Id']] = mode
+                report[mode]['memory_limit_gib'] = row['HostConfig']['Memory'] // 1024**3
+    if matching:
+        stats = docker('stats', '--no-stream', '--no-trunc', '--format', '{{json .}}', *matching, timeout=45)
+        for item in map(json.loads, stats.stdout.splitlines()):
+            mode = matching[item['ID']]
+            report[mode]['memory_usage'] = item['MemUsage']
+            report[mode]['cpu_percent'] = item['CPUPerc']
 print(json.dumps(report, separators=(',', ':')))
 '''
 elif options.get('status'):
