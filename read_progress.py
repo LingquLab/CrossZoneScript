@@ -29,6 +29,9 @@ def host_receipt(host):
     if host.get("hardware_launched"):
         brief["network_restored"] = host.get("network_restored")
         brief["exited_ranks"] = sum(isinstance(code, int) for code in host.get("exit_codes", {}).values())
+    offender = host.get("interference") or {}
+    if offender.get("kind") in ("current_fixture", "other_fixture", "profiler", "other", "unavailable"):
+        brief["interference"] = {key: offender[key] for key in ("device", "kind") if key in offender}
     rows = host.get("before_occupancy", host.get("occupancy", []))
     if rows:
         brief["busy"] = [row["device"] for row in rows if row.get("pids")]

@@ -104,6 +104,19 @@ def worker_source():
         if source.count(from_) != 1:
             raise ValueError("retained worker shape changed: " + from_)
         source = source.replace(from_, to)
+    bare_interference = "                    require(group in groups, 'Foreign workload detected; performance invalid')"
+    detailed_interference = """                    if group not in groups:
+                        try:
+                            executable = (Path('/proc') / str(pid) / 'exe').resolve(strict=True)
+                            kind = ('current_fixture' if executable == package / 'bin/ubx_full_intra' else
+                                    'other_fixture' if executable.name == 'ubx_full_intra' else
+                                    'profiler' if executable.name.startswith('msprof') else 'other')
+                        except OSError:
+                            kind = 'unavailable'
+                        report['interference'] = {'device': row['device'], 'kind': kind}
+                        save(directory / 'unexpected-process.json', report['interference'])
+                        raise ValueError('Foreign workload detected; performance invalid')"""
+    source = source.replace(bare_interference, detailed_interference)
     compile(source, "ubx_case_worker_abi18.py", "exec")
     return source
 
