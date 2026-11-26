@@ -9,7 +9,7 @@ import time
 
 SESSION='59af0a93-b62f-4211-927e-a44f047667cf'
 ROOT=Path('/mnt/share/tilexr-sim-jobs')/SESSION
-CASES=(('71b62db','t32-inter-server-send-a2'),('2dfd2b4','t32-joint-reuse-a1'))
+CASES=(('b61cb53','t32-joint-reuse-a2'),)
 
 
 def sample(candidate,name):
@@ -20,6 +20,8 @@ def sample(candidate,name):
     assert info['Id']==cid and info['Config']['Labels']['crosszone.session']==SESSION
     case=root/'cases'/name
     result=dict(candidate=candidate,case=name,container_running=info['State']['Running'])
+    progress=root/'progress.json'
+    if progress.is_file(): result['progress']=json.loads(progress.read_text())
     for filename in ('run.json','phase-result.json'):
         path=case/filename
         if path.is_file():
@@ -49,7 +51,7 @@ def sample(candidate,name):
                       last_cq_cycle=int(cq[-1]) if cq else None,
                       completion=completion[-1] if completion else None)
         result['error_classes']=[word for word in ('fatal','segmentation fault','assertion','panic') if word in tail.lower()]
-    for folder in ('bin','stat_trace'):
+    for folder in ('bin','stat_trace','actual'):
         path=case/folder
         sizes=[p.stat().st_size for p in path.glob('*') if p.is_file()] if path.exists() else []
         result[folder]=dict(files=len(sizes),bytes=sum(sizes))
