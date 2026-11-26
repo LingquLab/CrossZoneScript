@@ -12,6 +12,7 @@ from pathlib import Path
 SESSION='44b9c060-a5dd-46a8-897f-e4a6fee171e2'
 REVISIONS = {
     '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
+    'd04fde0': 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354',
 }
 
 
@@ -38,7 +39,9 @@ def main():
         archive=git('archive','--format=tar.gz',revision)
     directory=Path(__file__).parent
     request={'candidate':candidate,'revision':revision,'tree':tree,'source_sha256':hashlib.sha256(archive).hexdigest(),
-             'source':base64.b64encode(archive).decode(),'build_script':(directory/'build.sh').read_text(encoding='utf-8')}
+             'source':base64.b64encode(archive).decode(),'build_script':(directory/'build.sh').read_text(encoding='utf-8'),
+             'profile_files':{name:(directory/name).read_text(encoding='utf-8')
+                              for name in ('build_profile.py', 'profile_capture.h')}}
     source=(directory/'bootstrap_host.py').read_text(encoding='utf-8')+'\nraise SystemExit(main('+repr(request)+'))\n'
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     argv=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',

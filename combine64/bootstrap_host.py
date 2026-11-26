@@ -15,6 +15,7 @@ IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5
 SESSION_ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION
 REVISIONS = {
     '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
+    'd04fde0': 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354',
 }
 
 
@@ -55,9 +56,15 @@ def build(request):
                 target.parent.mkdir(parents=True,exist_ok=True)
                 with target.open('xb') as dest: dest.write(archive.extractfile(member).read())
     (root/'build.sh').write_text(request['build_script'])
+    profile_tools = root / 'bootstrap-tools'
+    profile_tools.mkdir()
+    assert request['profile_files'].keys() == {'build_profile.py', 'profile_capture.h'}
+    for name, code in request['profile_files'].items():
+        (profile_tools / name).write_text(code)
+    limit_gib = 32 if candidate == '518b9df' else 64
     name=f'combine-ht-{SESSION[:8]}-{candidate}-a1'
     container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
-                       '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8','--memory=32g',
+                       '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8',f'--memory={limit_gib}g',f'--memory-swap={limit_gib}g',
                        '--pids-limit=1024','--shm-size=64m','--ulimit','nofile=524288:524288',
                        '--label','crosszone.session='+SESSION,'--mount','type=bind,src='+str(root)+',dst=/work',
                        '--mount','type=bind,src='+str(source)+',dst=/work/source,readonly',IMAGE,'/bin/bash','-c','exec tail -f /dev/null']).decode().strip()
@@ -65,7 +72,8 @@ def build(request):
     assert info['Image']==IMAGE and info['HostConfig']['NetworkMode']=='none'
     record.update(container_id=container, container_name=name)
     assert info['State']['Running'] and info['HostConfig']['Runtime']=='runc'
-    assert info['HostConfig']['Memory']==32*2**30
+    assert info['HostConfig']['Memory']==limit_gib*2**30
+    record['memory_bytes'] = info['HostConfig']['Memory']
     assert info['Config']['Labels']['crosszone.session']==SESSION
     record['container_network'] = info['HostConfig']['NetworkMode']
     hashes=execute(['docker','exec',container,'sha256sum','/opt/sim/cann-env.sh','/opt/sim/plugins/libUBusSimulator.so']).decode().splitlines()
@@ -78,9 +86,21 @@ def build(request):
     record.update(build_exit=proc.returncode, wall_seconds=time.monotonic()-start)
     summary=root/'build-summary.json'
     record['build']=json.loads(summary.read_text()) if summary.is_file() else {'all_compiled':False,'missing_summary':True}
+    if proc.returncode == 0 and record['build']['all_compiled']:
+        profile_start = time.monotonic()
+        command = ('source /opt/sim/cann-env.sh; '
+                   'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
+                   '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
+                   'exec python3 /work/bootstrap-tools/build_profile.py')
+        with (root/'profile-build.log').open('xb') as log:
+            profile = subprocess.run(['docker','exec',container,'timeout','--kill-after=15','420',
+                                      'bash','-c',command], stdout=log,stderr=subprocess.STDOUT,timeout=445)
+        summary = root/'profile-build/build-summary.json'
+        record['profile'] = json.loads(summary.read_text()) if summary.is_file() else {'all_compiled': False}
+        record.update(profile_exit=profile.returncode, profile_build_seconds=time.monotonic()-profile_start)
     (root/'bootstrap-result.json').write_text(json.dumps(record,indent=2))
     print(json.dumps(record,separators=(',',':')))
-    return 0 if proc.returncode==0 and record['build']['all_compiled'] else 1
+    return 0 if proc.returncode==0 and record['build']['all_compiled'] and record.get('profile_exit') == 0 else 1
 
 
 def main(request):
