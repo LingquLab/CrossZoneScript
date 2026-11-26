@@ -77,8 +77,10 @@ def transfer(item):
         return
     url = ('https://modelscope.cn/models/' + manifest['model'] + '/resolve/'
            + manifest['revision'] + '/' + urllib.parse.quote(name, safe='/'))
-    for attempt in range(3):
-        if stop.is_set() or time.monotonic() >= deadline:
+    for attempt in range(8):
+        if stop.is_set():
+            raise concurrent.futures.CancelledError()
+        if time.monotonic() >= deadline:
             raise TimeoutError('download_deadline')
         try:
             offset = part.stat().st_size if part.exists() else 0
@@ -92,14 +94,16 @@ def transfer(item):
                 opener = urllib.request.build_opener(urllib.request.ProxyHandler(PROXIES),
                     urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
                 request = urllib.request.Request(url, headers=headers)
-                with opener.open(request, timeout=90) as response:
+                with opener.open(request, timeout=180) as response:
                     if offset:
                         assert response.status == 206 and response.headers.get('Content-Range', '').startswith(f'bytes {offset}-'), 'resume_not_honored'
                     else:
                         assert response.status in (200, 206)
                     with part.open('ab') as stream:
                         while offset < size:
-                            if stop.is_set() or time.monotonic() >= deadline:
+                            if stop.is_set():
+                                raise concurrent.futures.CancelledError()
+                            if time.monotonic() >= deadline:
                                 raise TimeoutError('download_deadline')
                             chunk = response.read(min(8 * 1024 * 1024, size-offset))
                             if not chunk:
@@ -116,9 +120,9 @@ def transfer(item):
                 done.add(name)
             return
         except Exception:
-            if attempt == 2 or stop.is_set():
+            if attempt == 7 or stop.is_set():
                 raise
-            time.sleep(2 * (attempt + 1))
+            time.sleep(min(60, 5 * (attempt + 1)))
 
 save_status('running')
 with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
@@ -130,11 +134,16 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             item = pending.pop(future)
             try:
                 future.result()
+            except concurrent.futures.CancelledError:
+                pass
             except Exception as error:
                 with guard:
-                    failures.append({'file': item['path'], 'error_class': type(error).__name__,
-                                     'http_status': getattr(error, 'code', None)})
+                    if not stop.is_set():
+                        failures.append({'file': item['path'], 'error_class': type(error).__name__,
+                                         'http_status': getattr(error, 'code', None)})
                 stop.set()
+                for queued in pending:
+                    queued.cancel()
         save_status('failed' if failures else 'running')
 final = save_status('failed' if failures else 'completed')
 if not failures:

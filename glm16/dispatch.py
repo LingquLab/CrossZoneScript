@@ -55,7 +55,7 @@ jump_source = ('NODE_SOURCE = ' + repr(node_source) + '\nOPERATION = ' + repr(ar
 import json, subprocess
 assert HOST in {'141.61.94.58','141.61.94.26'}
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-                    '-o', 'ServerAliveInterval=30', *FORWARD,
+                    '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=20', *FORWARD,
                     'root@'+HOST, 'python3', '-'], input=NODE_SOURCE,
                    capture_output=True, text=True, timeout=NODE_TIMEOUT)
 if p.returncode:
@@ -71,7 +71,7 @@ else:
 '''
 forward = ['-o', 'ExitOnForwardFailure=yes', '-R', f'127.0.0.1:{port}:{proxy.hostname}:{proxy.port}'] if needs_proxy else []
 p = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', *forward,
-                    '-o', 'ServerAliveInterval=30',
+                    '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=20',
                     '-o', 'IdentitiesOnly=yes', '-i',
                     'C:/Users/l00929943/.ssh/id_ed25519_server',
                     'root@141.61.94.30', 'python3', '-'], input=jump_source,
