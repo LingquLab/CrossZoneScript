@@ -1,6 +1,8 @@
 """Analyze verified server records without running an NPU workload."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+from pathlib import Path
+import time
 
 from benchmark import HOSTS, OUTPUT, read_verifier, ssh, summarize
 
@@ -16,7 +18,19 @@ def read_state(host):
 
 
 with ThreadPoolExecutor(max_workers=2) as pool:
-    states = list(pool.map(read_state, HOSTS))
+    deadline = time.monotonic() + 330
+    outcome = Path.cwd() / "runs/replicate4-bs32-50-procfs-cleanup/1/execution/execution.json"
+    while True:
+        states = list(pool.map(read_state, HOSTS))
+        if all(item["host_result_exists"] and item["archive_exists"] for item in states):
+            break
+        if outcome.exists():
+            receipt = json.loads(outcome.read_text())
+            if receipt["status"] not in {"STARTING", "RUNNING"}:
+                break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(10)
     result = {"read_only": True, "hosts": states}
     if all(item["host_result_exists"] and item["archive_exists"] for item in states):
         result["benchmark"] = summarize(pool, read_verifier())
