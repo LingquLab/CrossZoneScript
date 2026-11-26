@@ -70,7 +70,7 @@ def main():
     if action == 'status':
         remote_seconds = 95 if args.get('all_variants') else 35
     if action == 'interrupt-stalled-joint':
-        assert tokens == 4 and attempt == 1 and 'stalled_cq_cycle' in args
+        assert tokens == 4 and 'stalled_cq_cycle' in args
         remote_seconds = 140
     if action == 'profile-build':
         remote_seconds = timeout + 45

@@ -309,13 +309,14 @@ import sys
 
 expected = sys.argv[1]
 stage = sys.argv[2]
+attempt = int(sys.argv[3])
 assert stage in ('joint-producer', 'joint-final')
-case = Path('/work/cases') / f't4-{stage}-a1'
+case = Path('/work/cases') / f't4-{stage}-a{attempt}'
 if (case / 'phase-result.json').is_file() or not (case / 'run.json').is_file():
     raise SystemExit(0)
 run = json.loads((case / 'run.json').read_text())
 assert (run['candidate_commit'], run['tokens'], run['stage'], run['attempt'], run['status']) == (
-    expected, 4, stage, 1, 'running')
+    expected, 4, stage, attempt, 'running')
 if run.get('returncode') is not None:
     raise SystemExit(0)
 proc = Path('/proc') / str(run['pid'])
@@ -328,7 +329,7 @@ cmd = (runner / 'cmdline').read_bytes().rstrip(bytes(1)).split(bytes(1))
 assert len(cmd) == 3 and cmd[1].endswith(b'/sim_case.py')
 args = json.loads(cmd[2])
 assert tuple(args[key] for key in ('revision', 'tokens', 'action', 'attempt')) == (
-    expected, 4, stage, 1)
+    expected, 4, stage, attempt)
 os.kill(parent, signal.SIGTERM)
 """
 
@@ -347,14 +348,14 @@ def wait_or_interrupt_legacy(root, cid, revision):
     while not result.is_file() and time.monotonic() < deadline:
         if (producer / 'run.json').is_file():
             subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_CASE,
-                            revision, 'joint-producer'],
+                            revision, 'joint-producer', '1'],
                            capture_output=True, timeout=20, check=True)
             break
         time.sleep(2)
 
 
-def interrupt_stalled_joint(root, cid, revision, cycle):
-    case = root / 'cases/t4-joint-final-a1'
+def interrupt_stalled_joint(root, cid, revision, cycle, attempt=1):
+    case = root / 'cases' / f't4-joint-final-a{attempt}'
     result = case / 'phase-result.json'
     if result.is_file():
         return
@@ -364,7 +365,7 @@ def interrupt_stalled_joint(root, cid, revision, cycle):
     second = log_state(case / 'sim.log')
     assert second['last_cq_cycle'] == cycle and second['log_bytes'] == first['log_bytes']
     assert second['log_age_seconds'] >= first['log_age_seconds'] and not second['simulation_complete_marker']
-    subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_CASE, revision, 'joint-final'],
+    subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_CASE, revision, 'joint-final', str(attempt)],
                    capture_output=True, timeout=20, check=True)
     deadline = time.monotonic() + 90
     while not result.is_file():
@@ -554,7 +555,8 @@ def main(args):
         if action == 'joint-evidence':
             return inspect_joint_snapshot(root, cid, revision, args)
         if 'stalled_cq_cycle' in args:
-            interrupt_stalled_joint(root, cid, revision, args['stalled_cq_cycle'])
+            source_attempt = attempt if action == 'interrupt-stalled-joint' else 1
+            interrupt_stalled_joint(root, cid, revision, args['stalled_cq_cycle'], source_attempt)
         if action == 'interrupt-stalled-joint':
             print(json.dumps(status(root, args), separators=(',', ':')))
             return 0
