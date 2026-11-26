@@ -20,6 +20,7 @@ PORT = 43000
 NICS = [f"hrn5_{device // 2}" for device in range(16)]
 RUNTIME_INSTALL = ROOT / "runtime-install"
 RUNTIME_REVISION = "-"
+ROUTE_MODE = "replicate4"
 
 
 def load_json(path):
@@ -92,7 +93,8 @@ def preflight(cleanup=False):
         )
         # proc-mem has the device ID; some health versions only print health fields.
         assert re.search(r"Health Status\s*:\s*OK\b", health), f"NPU {device} not healthy"
-    for port in range(PORT, PORT + 514):
+    port_count = 1282 if ROUTE_MODE == "replicate16" else 514
+    for port in range(PORT, PORT + port_count):
         with socket.socket() as probe:
             probe.bind(("0.0.0.0", port))
     print(json.dumps({"ready": True, "idle": 16, "healthy": 16, "port": PORT,
@@ -134,8 +136,9 @@ def run(index):
     assert receipt["passed"] and receipt["clock_aligned"] and receipt["revision"] == REVISION
     assert receipt["warmup"] == 10 and receipt["measured"] == 50
     assert receipt["profile_mode"] == "full" and receipt["stage_details_enabled"]
-    assert not receipt["statistics_enabled"] and receipt["route_distribution"] == "replicate4"
+    assert not receipt["statistics_enabled"] and receipt["route_distribution"] == ROUTE_MODE
     assert len(receipt["ranks"]) == 16 and len(load_json(OUTPUT / "archive-members.json")) == 49
+    route_qps = 16 if ROUTE_MODE == "replicate16" else 4
     for rank in receipt["ranks"]:
         node = rank["rank"]
         assert rank["verified"] and rank["verified_rounds"] == 60
@@ -143,13 +146,14 @@ def run(index):
         trace = directory / "dispatch.last.trace.json"
         assert hashlib.sha256(trace.read_bytes()).hexdigest() == rank["trace_sha256"]
         queues = load_json(directory / "route-rdma-queue.json")
-        assert len(queues) == 4
+        assert len(queues) == route_qps
         for group, queue in enumerate(queues):
-            assert queue == dict(
-                relay_core=group, target_group=group, target_lane=4 * group + node % 4,
-                producer=120, completed=120, cq_consumer=60, error=0,
-            )
-    print(json.dumps({"passed": True, "index": index, "ranks": 16, "route_qps_verified": 64}))
+            expected = dict(relay_core=group, target_lane=group, producer=120,
+                            completed=120, cq_consumer=60, error=0)
+            if ROUTE_MODE == "replicate4":
+                expected.update(target_group=group, target_lane=4 * group + node % 4)
+            assert queue == expected
+    print(json.dumps({"passed": True, "index": index, "ranks": 16, "route_qps_verified": 16 * route_qps}))
 
 
 if __name__ == "__main__":
@@ -165,6 +169,9 @@ if __name__ == "__main__":
         REVISION = sys.argv[8]
         HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
         BUILD = ROOT / "dispatch-build"
+    if len(sys.argv) > 9:
+        ROUTE_MODE = sys.argv[9]
+        assert ROUTE_MODE in ("replicate4", "replicate16")
     OUTPUT = ROOT / run_name
     if action in ("preflight", "preflight-cleanup"):
         preflight(cleanup=action == "preflight-cleanup")

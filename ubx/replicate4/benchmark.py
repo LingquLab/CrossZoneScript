@@ -19,6 +19,7 @@ HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
 OUTPUT = ROOT / "full-bs32-f50"
 RUNTIME_INSTALL = ROOT / "runtime-install"
 RUNTIME_REVISION = None
+ROUTE_MODE = "replicate4"
 
 
 def ssh(host, command, *, payload=None, timeout=60, stage="SSH"):
@@ -53,7 +54,7 @@ def wait_for_build(pool):
 
 def controller(index, action, payload, port):
     argv = shlex.join(["python3", "-", action, str(index), str(port), OUTPUT.name,
-                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-", str(ROOT), REVISION])
+                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-", str(ROOT), REVISION, ROUTE_MODE])
     if action == "run":
         libraries = ":".join(str(path) for path in (
             RUNTIME_INSTALL / "lib", RUNTIME_INSTALL / "lib64", ROOT / "dispatch-build",
@@ -111,8 +112,8 @@ def extra_metrics(collection):
         for row in rows[10:]:
             all_rank_rounds.append((rank, [c["end"] - c["start"] for c in row["cores"]]))
         trace = json.loads((directory / "dispatch.last.trace.json").read_text())
-        assert trace["metadata"]["route_distribution"] == "replicate4"
-        assert trace["metadata"]["route_sync_detail_version"] == 4
+        assert trace["metadata"]["route_distribution"] == ROUTE_MODE
+        assert trace["metadata"]["route_sync_detail_version"] == (3 if ROUTE_MODE == "replicate16" else 4)
         windows = {(e["tid"], e["name"]): e for e in trace["traceEvents"]
                    if e.get("ph") == "X" and 40 <= e["tid"] < 56}
         observed = {e["tid"]: e["args"]["core_entry_us"] for e in trace["traceEvents"]
@@ -120,7 +121,8 @@ def extra_metrics(collection):
                     and 40 <= e["tid"] < 56}
         assert set(observed) == set(range(40, 56))
         for core in range(40, 56):
-            path = "own_gm" if (core - 40) % 4 == rank % 4 else "group_peer_gm"
+            own_gm = ROUTE_MODE == "replicate16" or (core - 40) % 4 == rank % 4
+            path = "own_gm" if own_gm else "group_peer_gm"
             load = windows[core, "route_remote_load"]
             sync = windows[core, "route_sync"]
             route_ready = sync["ts"] + sync["dur"] - windows[core, "core_total"]["ts"]
@@ -141,9 +143,9 @@ def extra_metrics(collection):
         rank_rounds_above_core_p95=sum(hit for _, hit in rank_rounds),
         distinct_ranks_above_core_p95=len({rank for rank, hit in rank_rounds if hit}),
         rank_round_count=len(rank_rounds),
-        route_remote_load={path: timings(vals) for path, vals in loads.items()},
-        route_flag_observed_from_core_entry={path: timings(vals) for path, vals in flag_observations.items()},
-        route_ub_ready_from_core_entry={path: timings(vals) for path, vals in routes_ready.items()},
+        route_remote_load={path: timings(vals) for path, vals in loads.items() if vals},
+        route_flag_observed_from_core_entry={path: timings(vals) for path, vals in flag_observations.items() if vals},
+        route_ub_ready_from_core_entry={path: timings(vals) for path, vals in routes_ready.items() if vals},
         worst_route_remote_load=worst_route_load,
     )
 
@@ -160,7 +162,8 @@ def summarize(pool, verifier):
             "trace_hashes_verified", "last_trace_round", "group_stats", "round_core_maxima_stats",
             "aligned_entry_spread_stats", "route_sha256", "missed_targets", "physical_hosts_by_logical_group")
     return {
-        "passed": True, "route_distribution": "replicate4", "route_qps_verified": 128,
+        "passed": True, "route_distribution": ROUTE_MODE,
+        "route_qps_verified": 512 if ROUTE_MODE == "replicate16" else 128,
         "profile_mode": "full", "stage_details_enabled": True, "clock_aligned": True,
         **{key: verified[key] for key in keys}, **summary,
     }
