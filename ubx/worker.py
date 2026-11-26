@@ -46,6 +46,7 @@ def main(c):
             rank = c['node'] * 16 + device
             d = case / ('rank-%d' % rank)
             d.mkdir()
+            (d / 'records').mkdir()
             child = env.copy()
             child.update(RANK=str(rank), DEVICE_ID=str(device), TILEXR_RDMA_DEVICE='hrn5_' + str(device // 2), TILEXR_RDMA_PORT='1')
             out, err = open(d / 'stdout.log', 'wb'), open(d / 'stderr.log', 'wb')
