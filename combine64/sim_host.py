@@ -164,12 +164,11 @@ def run_case(root, cid, tools, config):
 
 
 def status(root, args):
-    now = time.time()
-    report = {'root': str(root), 'exists': root.is_dir(), 'unix': now}
+    report = {'root': str(root), 'exists': root.is_dir(), 'unix': time.time()}
     progress = root / 'progress.json'
     if progress.is_file():
         state = json_file(progress)
-        state['age_seconds'] = round(now - state['updated_unix'], 1)
+        state['age_seconds'] = round(time.time() - state['updated_unix'], 1)
         report['progress'] = state
     tokens, attempt = args['tokens'], args['attempt']
     identity = root / 'identity.json'
@@ -189,11 +188,11 @@ def status(root, args):
         elif (case / 'run.json').is_file():
             run = json_file(case / 'run.json')
             row = {key: run[key] for key in REPORT_FIELDS if key in run}
-            row['sst_elapsed_seconds'] = round(now - run['started_unix'], 1)
+            row['sst_elapsed_seconds'] = round(time.time() - run['started_unix'], 1)
             log = case / 'sim.log'
             if log.is_file():
                 st = log.stat()
-                row.update(log_bytes=st.st_size, log_age_seconds=round(now - st.st_mtime, 1))
+                row.update(log_bytes=st.st_size, log_age_seconds=round(time.time() - st.st_mtime, 1))
                 with log.open('rb') as feed:
                     feed.seek(max(0, st.st_size - 524288))
                     tail = feed.read(524288).decode(errors='replace')
@@ -331,7 +330,14 @@ def main(args):
     root = origin if (intra_cores, peer_slots) == (8, 1) else SESSION_ROOT / f'run-{candidate}-i{intra_cores}-p{peer_slots}'
     case = root / 'cases' / f't{tokens}-{action}-a{attempt}'
     if action == 'status':
-        print(json.dumps(status(root, args), separators=(',', ':')))
+        if args.get('all_variants'):
+            variants = [(8, 1, origin)]
+            variants.extend((i, p, SESSION_ROOT / f'run-{candidate}-i{i}-p{p}') for i, p in ((4, 1), (4, 2), (8, 2)))
+            reports = [dict(status(path, args), intra_cores=i, peer_slots=p) for i, p, path in variants]
+            result = dict(variants=reports)
+        else:
+            result = status(root, args)
+        print(json.dumps(result, separators=(',', ':')))
         return 0
     try:
         if root != origin and not root.exists():

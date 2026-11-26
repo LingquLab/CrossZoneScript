@@ -44,7 +44,7 @@ def main():
         assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 200
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if action == 'status':
-        remote_seconds = 35
+        remote_seconds = 95 if args.get('all_variants') else 35
     if action == 'profile-build':
         remote_seconds = timeout + 45
     if action == 'batch':
