@@ -169,8 +169,8 @@ def main():
     template = make_profile(runner, WINDOWS / "ep32-local.json", OUTPUT)
     runner.transport = install(runner, template, runner.transport if helper.is_file() else None)
     worker = worker_source()
-    checks = RESULT / "occupancy"
-    checks.mkdir(exist_ok=True)
+    checks = RESULT / "occupancy" / uuid.uuid4().hex[:12]
+    checks.mkdir(parents=True)
     runtime = deepcopy(template)
     runtime["runtime"].update(prefix=f"{REMOTE}/baseline-off")
     if Path(runtime["runtime"]["cann_env"]).parent.name != build[0]["cann"] and build[0]["cann"] == "cann-9.3.0":
