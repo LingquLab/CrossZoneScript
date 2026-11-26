@@ -10,6 +10,7 @@ import sys
 SUPPORT = '/work/source/tools/unitest/simulator/experiments/inter_server_send/sst'
 sys.path.insert(0, SUPPORT)
 from addressed_exports import reconstruct_die_output
+from return_case import local_slot
 from runtime import PHYSICAL_QPS, WORLD
 
 MAGIC = 2026
@@ -41,18 +42,27 @@ def main(case, revision, attempt):
     readiness = {}
     flags = {}
     queues = {}
+    gather_trace = []
 
     for row in layout['ranks']:
         rank = row['rank']
         folder = case / 'fixture-data' / f'rank{rank:02}'
         data = {}
-        for name in ('gateway_ready', 'completed', 'local_ready', 'sq_head', 'sq_tail', 'gather'):
+        names = ('gateway_ready', 'completed', 'local_ready', 'sq_head', 'sq_tail', 'gather')
+        for name in (*names, 'status') if attempt == 4 else names:
             region = row['exports'][name]
             sources = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
             data[name] = reconstruct_die_output(
                 sources, region['addr'] - row['sys_va_base_addr'], region['size'], decoder)
         flags[rank] = (data['local_ready'], data['completed'])
         queues[rank] = (data['sq_head'], data['sq_tail'])
+        if attempt == 4:
+            for begin in range(0, 8, 8 // report['intra_cores']):
+                trace, = struct.unpack_from('<I', data['status'], STRIPE + begin * 32 + 4)
+                if trace >> 24 == 1:
+                    chunk, target = (trace >> 16) & 255, (trace >> 8) & 255
+                    assert chunk < CHUNKS and target < 8
+                    gather_trace.append((rank, rank // 8 * 8 + target, chunk))
         ready = data['gateway_ready']
         readiness[rank] = []
         for group in range(groups):
@@ -149,6 +159,18 @@ def main(case, revision, attempt):
     if attempt == 3:
         from sim_case import observe_cq
         summary.update(observe_cq(case, environment))
+    if attempt == 4:
+        traced = Counter()
+        examples = []
+        for rank, target, chunk in gather_trace:
+            slot = local_slot(target % 8)
+            offset = (target * PHYSICAL_QPS + slot) * 64
+            head, tail = [struct.unpack_from('<I', plane, offset)[0] for plane in queues[rank]]
+            visible = chunk > 0 and i64(flags[target][0], (rank % 8) * STRIPE + (chunk - 1) * 8) == MAGIC
+            traced[f'c{chunk}/delta{head - tail}/prior_return_{"visible" if visible else "unseen"}'] += 1
+            if len(examples) < 10:
+                examples.append([rank, target, slot, chunk, head, tail, visible])
+        summary.update(gather_trace_dependencies=dict(traced), gather_trace_examples=examples)
     print(json.dumps(summary, separators=(',', ':')))
     return 0
 
