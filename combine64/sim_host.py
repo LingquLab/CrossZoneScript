@@ -142,7 +142,7 @@ REPORT_FIELDS = (
     'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
     'probe_histograms', 'probe_missing_ranks', 'readiness_trace', 'sst_threads',
     'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples', 'cq_samples', 'cq_frontiers',
-    'joint_trace', 'local_return_qp_base',
+    'joint_trace', 'inter_trace', 'local_return_qp_base',
 )
 
 
@@ -618,6 +618,11 @@ def main(args):
                 if built:
                     return built
                 config['joint_probe'] = True
+            if args.get('inter_probe'):
+                built = profile_build(root, cid, tools, 180, 'inter-probe')
+                if built:
+                    return built
+                config['inter_probe'] = True
             if action == 'batch':
                 results = run_batch(root, cid, tools, config, args)
                 report = dict(batch=results, tokens=tokens, revision=revision)

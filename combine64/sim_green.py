@@ -46,6 +46,8 @@ def main():
         expected_attempt = 4 if args.get('ready_probe') or args.get('joint_probe') else (3 if args.get('cq_probe') else 2)
         if args.get('inter_cq'):
             expected_attempt = 6
+        if args.get('inter_probe'):
+            expected_attempt = 7
         assert action in ('local-return', 'joint-final') and tokens == 4
         assert attempt == expected_attempt and args.get('profiling') is True
         assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 300
@@ -56,6 +58,8 @@ def main():
         assert args.get('cq_probe')
     if args.get('inter_cq'):
         assert args.get('cq_probe') and not args.get('all_local_cq')
+    if args.get('inter_probe'):
+        assert args.get('inter_cq') and 'stop_at_us' in args
     if args.get('joint_probe'):
         assert action == 'joint-final' and 'stop_at_us' in args
     if 'stalled_cq_cycle' in args:
@@ -66,7 +70,7 @@ def main():
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if 'stalled_cq_cycle' in args:
         remote_seconds += 135
-    if args.get('joint_probe'):
+    if args.get('joint_probe') or args.get('inter_probe'):
         remote_seconds += 230
     if action == 'joint-evidence':
         assert tokens == 4 and attempt in (2, 3, 4) and args['peer_slots'] == 2

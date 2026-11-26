@@ -110,9 +110,61 @@ def stage_joint_probe(target):
     (target / worker.name).write_text(text)
 
 
+def stage_inter_probe(target):
+    worker = SOURCE / 'src/ep/combine_ht/inter_server_send_worker.h'
+    text = worker.read_text()
+    marker = '    __aicore__ uint32_t WaitReady(uint32_t chunk)\n'
+    assert text.count(marker) == 1
+    text = text.replace(marker, """    __aicore__ void BindTrace(GM_ADDR status)
+    {
+        if (c_.rank == 0 && (owner_ == 8 || owner_ == 11)) {
+            trace_ = reinterpret_cast<uint64_t>(status) + uint64_t(owner_) * 32 + 4;
+        }
+    }
+    __aicore__ void Trace(uint32_t step, uint32_t peer, uint32_t qp)
+    {
+        if (trace_) {
+            queue_.Store(trace_, (step << 24) | (chunk_ << 16) | (peer << 8) | qp);
+        }
+    }
+""" + marker)
+    anchors = (
+        ('        const uint32_t status = WaitGatewayReady(workspace_', '        Trace(1, 255, 255);'),
+        ('        const uint32_t result = TileXR::UDMAPutNbiOnQpWithFlag<uint64_t>',
+         '        Trace(3, peer, qp);'),
+        ('                if (TileXR::UDMAQuietStatusOnQp(args_, peer, Qp(peer, lane), queue_)) {',
+         '                Trace(9, peer, Qp(peer, lane));'),
+        ('        if (!queue_.TryReadCompletion(cqe, owner, completion)) {',
+         '        Trace(5, peer, qp);'),
+        ('        ready = tail == head;', '        Trace(10, peer, qp);'),
+        ('        const uint32_t cqTail = queue_.Load(cq->tailAddr);', '        Trace(11, peer, qp);'),
+        ('                bool ready;\n                const uint32_t result = ProgressSq(peer, qp, head, ready);',
+         '                Trace(12, peer, qp);'),
+        ('        if (completion.error) {',
+         '        Trace(6, peer, qp);'),
+        ('        if (TileXR::UDMAPollCQUntilSqTail(info, peer, qp, target, observer, queue_)) {',
+         '        Trace(7, peer, qp);'),
+        ('        ready = target == head;',
+         '        Trace(8, peer, qp);'),
+    )
+    for anchor, prefix in anchors:
+        assert text.count(anchor) == 1
+        text = text.replace(anchor, prefix + '\n' + anchor)
+    notify_wait = '        if (TileXR::UDMAPollCQUntilSqTail(info, peer, qp, queue_.Load(sq->headAddr), observer, queue_)) {'
+    assert text.count(notify_wait) == 1
+    text = text.replace(notify_wait, '        Trace(2, peer, qp);\n' + notify_wait)
+    after_notify = '        return result ? uint32_t(TransportError) : uint32_t(Success);'
+    assert text.count(after_notify) == 1
+    text = text.replace(after_notify, '        Trace(4, peer, qp);\n' + after_notify)
+    text = text.replace('    QueueState queue_;', '    QueueState queue_;\n    uint64_t trace_ = 0;')
+    text = text.replace('    uint32_t result = TileXREpHt::Submit(config, owner, transport);',
+                        '    transport.BindTrace(status);\n    uint32_t result = TileXREpHt::Submit(config, owner, transport);')
+    (target / worker.name).write_text(text)
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'profile'
-    assert mode in ('profile', 'ready-probe', 'joint-probe') and len(sys.argv) <= 2
+    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe') and len(sys.argv) <= 2
     target = WORK / (mode + '-build')
     target.mkdir()
     entries = ENTRIES
@@ -121,6 +173,9 @@ def main():
         entries = {key: value for key, value in ENTRIES.items() if 'local_return' in key}
     elif mode == 'joint-probe':
         stage_joint_probe(target)
+        entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
+    elif mode == 'inter-probe':
+        stage_inter_probe(target)
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
     summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
     options = [
@@ -137,7 +192,7 @@ def main():
         'aarch64-linux/ascendc/include', 'aarch64-linux/asc/include', 'aarch64-linux/include',
         'aarch64-linux/pkg_inc', 'aarch64-linux/pkg_inc/runtime',
     )
-    includes = [TOOL_DIR, SOURCE/'include', SOURCE/'src/ep/combine_ht',
+    includes = [target, TOOL_DIR, SOURCE/'include', SOURCE/'src/ep/combine_ht',
                 SOURCE/'src/moonep/combine_ht/common', SOURCE/'src/moonep/combine_ht/kernels',
                 *(CANN / name for name in tool_include)]
     flags = [*options, *('-I' + str(folder) for folder in includes)]
