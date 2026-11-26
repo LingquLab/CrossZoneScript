@@ -2,14 +2,22 @@
 set -euo pipefail
 
 root=/root/ubx-replicate4-e172cd2-bs32-f50
-[[ $(cat "$root/build-status.txt") == 'fetch-dispatch 128' ]]
+step=${1:-}
 test ! -e "$root/build-result.json"
 test ! -e "$root/full-bs32-f50"
-test ! -e "$root/first-build-status.txt"
-mv "$root/build-status.txt" "$root/first-build-status.txt"
-mv "$root/build.log" "$root/first-build.log"
-if [[ -d "$root/source" ]]; then
-    mv "$root/source" "$root/first-fetch"
+if [[ $step == resume-dispatch ]]; then
+    [[ $(cat "$root/build-status.txt") == 'build-dispatch 1' ]]
+    test ! -e "$root/dispatch-configure-first.log"
+    mv "$root/build.log" "$root/dispatch-configure-first.log"
+    mv "$root/build-status.txt" "$root/dispatch-configure-first-status.txt"
+else
+    [[ $(cat "$root/build-status.txt") == 'fetch-dispatch 128' ]]
+    test ! -e "$root/first-build-status.txt"
+    mv "$root/build-status.txt" "$root/first-build-status.txt"
+    mv "$root/build.log" "$root/first-build.log"
+    if [[ -d "$root/source" ]]; then
+        mv "$root/source" "$root/first-fetch"
+    fi
 fi
 exec 3>&1 >"$root/build.log" 2>&1
 phase=setup
@@ -23,6 +31,7 @@ set +u
 source "$toolkit"
 set -u
 
+if [[ $step != resume-dispatch ]]; then
 phase=verify-staged-sources
 printf '%s  %s\n' "$1" "$root/staged-input/sources.tar" | sha256sum --check --status
 tar -xf "$root/staged-input/sources.tar" -C "$root"
@@ -50,6 +59,24 @@ cmake -S "$root/clock-source" -B "$root/clock-build" \
     -DCMAKE_INSTALL_PREFIX="$root/clock-install"
 cmake --build "$root/clock-build" -j8
 cmake --install "$root/clock-build"
+fi
+
+phase=verify-clock-source
+python3 - "$root" "$clock_revision" <<'PY'
+from pathlib import Path
+import sys
+import tarfile
+
+root = Path(sys.argv[1])
+revision = sys.argv[2]
+source = root / "clock-source"
+with tarfile.open(root / "clock-source.tar.gz", "r:gz") as archive:
+    assert archive.pax_headers["comment"] == revision
+    native_kernel = "src/diagnostics/kernels/clock_sleep_at_kernel.cpp"
+    assert archive.extractfile(native_kernel).read() == (source / native_kernel).read_bytes()
+with (source / ".ubx-clock-revision").open("x") as marker:
+    marker.write(revision + "\n")
+PY
 
 phase=build-dispatch
 release="$root/source/dispatch/dispatch-release"
