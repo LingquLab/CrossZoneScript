@@ -1,0 +1,183 @@
+{
+  "execution": {
+    "task_id": "ht-tunable-sync-bs32-logical",
+    "event_id": "green-8b67ce63fa7941eb9564ae5156d677a8",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs32-fp32-logical-profile",
+      "status": "failed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 27136,
+      "sim_us": 206.858,
+      "errors": [],
+      "runner_exit_code": 1,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 32,
+      "blocks": 48,
+      "hidden": 128,
+      "chunks": 4,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "LogicalChunk",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": true,
+      "runner_wall_seconds": 3238.662,
+      "sst_wall_seconds": 3232.811
+    }
+  },
+  "recovered": {
+    "task_id": "ht-tunable-sync-bs32-logical-recover",
+    "event_id": "green-158d2875ff4d4e288a7e671c0bb374fe",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs32-fp32-logical-profile",
+      "status": "sst_and_checker_passed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 27136,
+      "sim_us": 206.858,
+      "errors": [],
+      "runner_exit_code": 1,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 32,
+      "blocks": 48,
+      "hidden": 128,
+      "chunks": 4,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "LogicalChunk",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": true,
+      "runner_wall_seconds": 3238.662,
+      "sst_wall_seconds": 3232.811,
+      "checked": {
+        "ranks": 64,
+        "bytes_checked": {
+          "gather": 8388608,
+          "gather_ready": 1048576,
+          "partial": 2097152,
+          "ready": 262144,
+          "local_ready": 262144,
+          "returned": 8388608,
+          "completed": 16777216,
+          "output": 1048576,
+          "status": 98304
+        },
+        "phase_status": {
+          "gather": {
+            "0": 512
+          },
+          "reduce": {
+            "0": 512
+          },
+          "local_return": {
+            "0": 512
+          },
+          "cross_return": {
+            "0": 1024
+          },
+          "final": {
+            "0": 1024
+          }
+        },
+        "mismatched_ranks": {},
+        "first_mismatches": {}
+      },
+      "exports_sha256": {
+        "returned": "f0624d2e4b5c2bf4ee43ee235eee390c46dc026c0ac79258bde215575b2043b5",
+        "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+        "output": "40af7fc58fb38325eae3368856709486549167d8bb9620fab8cbb9f01b648327",
+        "status": "2561606f9d81e063c0bd963e1287283fc8b90ecc5b2796988ba33f46196812f6"
+      },
+      "profile": {
+        "expected_steps": 1,
+        "streams": {
+          "2": 2943,
+          "0": 129
+        },
+        "rank_coverage": {
+          "last_chunk_ready": 64,
+          "last_chunk_send_submission": 63,
+          "final_step0_compute": 64
+        },
+        "same_rank_comparison": {
+          "ranks": 63,
+          "ranks_with_all_sender_ready_markers": 63,
+          "compute_before_some_sender_last_chunk_ready": 0,
+          "compute_before_all_senders_last_chunk_ready": 0,
+          "compute_before_last_chunk_last_send_submission": 0
+        },
+        "sample_cycles": {
+          "rank": 0,
+          "first_final_compute": 268659,
+          "first_last_chunk_ready": 134248,
+          "last_last_chunk_ready": 188655,
+          "last_send_submission": 205378
+        },
+        "final_compute_markers_by_step": [
+          896
+        ],
+        "first_compute_cycle_by_step": [
+          245777
+        ],
+        "last_compute_cycle_by_step": [
+          311636
+        ]
+      },
+      "observed_profile_sectors": 296064,
+      "unavailable_profile_state_words": 128,
+      "recovered_without_sst": true,
+      "original_runner_exit_code": 1
+    }
+  },
+  "cq_slots": {
+    "task_id": "ht-tunable-sync-bs32-logical-cq",
+    "event_id": "green-a6bc1e6695524e25ac8517d02f19a4b3",
+    "iteration": 1,
+    "result": {
+      "totals": {
+        "truncated_hosts": 0,
+        "hosts": 64,
+        "unexpected_slots": 0
+      },
+      "stages": {
+        "gather": {
+          "expected": 16128,
+          "observed": 16128,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "local_return": {
+          "expected": 1472,
+          "observed": 1472,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "cross_return": {
+          "expected": 9216,
+          "observed": 9216,
+          "qps": 7168,
+          "qps_missing": 0
+        }
+      },
+      "first_missing": []
+    }
+  }
+}
