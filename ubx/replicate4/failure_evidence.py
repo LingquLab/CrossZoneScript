@@ -57,6 +57,36 @@ if record["controller_exists"] or record["run_directory_exists"]:
         [log.parent.name, sum(1 for row in log.open())]
         for log in sorted(OUTPUT.glob("rank*/rounds.jsonl"))[:2]
     ]
+    workers = list(OUTPUT.glob("rank*/worker.log"))
+    evidence = []
+    for name in sorted(workers):
+        lines = name.read_text(errors="replace").splitlines()
+        specific = [line.strip()[:180] for line in lines if re.search(
+            r'mismatch|expired|denied|refused|unreachable|failed|timeout|507\d+|'
+            r'errno|RDMA.*-[1-9]|epoch|register|not support|undefined symbol', line, re.I)]
+        evidence.append((name.parent.name, len(lines), (specific or lines)[-2:]))
+    signatures = {}
+    for rank, count, tail in evidence:
+        key = tuple(tail)
+        signatures.setdefault(key, []).append(rank)
+    record["worker_log_groups"] = [
+        dict(rank_count=len(ranks), example_rank=ranks[0], tail=tail)
+        for tail, ranks in sorted(signatures.items(), key=lambda entry: len(entry[1]), reverse=True)[:4]
+    ]
+    if workers:
+        start = min(log.stat().st_ctime for log in workers) - 10
+        finish = max(log.stat().st_mtime for log in workers) + 30
+        paths = sorted((Path.home()/"ascend/log/run").glob("plog/*.log"))
+        paths = [path for path in paths if start <= path.stat().st_mtime <= finish]
+        recent = []
+        for path in paths[:48]:
+            with path.open("rb") as log:
+                log.seek(max(0, path.stat().st_size - 384000))
+                for line in log.read().decode(errors="replace").splitlines():
+                    if "[ERROR]" in line and "ubx_dispatch_hardware_ep32" in line:
+                        recent.append(line[:240])
+                        break
+        record["runtime_first_errors"] = recent[:3]
 print(json.dumps(record))
 """
 errors = local_failure()
