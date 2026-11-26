@@ -1,0 +1,115 @@
+{
+  "execution": {
+    "task_id": "ht-tunable-bs32-186dfa18",
+    "event_id": "green-d0088b0f86ba4e81ae3d998c59a1e6fe",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs32-fp32",
+      "status": "sst_and_checker_passed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 27136,
+      "sim_us": 204.677,
+      "errors": [],
+      "checked": {
+        "ranks": 64,
+        "bytes_checked": {
+          "gather": 8388608,
+          "gather_ready": 1048576,
+          "partial": 2097152,
+          "ready": 262144,
+          "local_ready": 262144,
+          "returned": 8388608,
+          "completed": 16777216,
+          "output": 1048576,
+          "status": 98304
+        },
+        "phase_status": {
+          "gather": {
+            "0": 512
+          },
+          "reduce": {
+            "0": 512
+          },
+          "local_return": {
+            "0": 512
+          },
+          "cross_return": {
+            "0": 1024
+          },
+          "final": {
+            "0": 1024
+          }
+        },
+        "mismatched_ranks": {},
+        "first_mismatches": {}
+      },
+      "exports_sha256": {
+        "returned": "f0624d2e4b5c2bf4ee43ee235eee390c46dc026c0ac79258bde215575b2043b5",
+        "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+        "output": "40af7fc58fb38325eae3368856709486549167d8bb9620fab8cbb9f01b648327",
+        "status": "2561606f9d81e063c0bd963e1287283fc8b90ecc5b2796988ba33f46196812f6"
+      },
+      "runner_exit_code": 0,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 32,
+      "blocks": 48,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "Window",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": false,
+      "runner_wall_seconds": 3163.028,
+      "sst_wall_seconds": 3132.567
+    }
+  },
+  "cq_slots": {
+    "task_id": "ht-tunable-bs32-cq",
+    "event_id": "green-db206f2ac8574fee98982dd92d2a3549",
+    "iteration": 4,
+    "result": {
+      "totals": {
+        "truncated_hosts": 0,
+        "hosts": 64,
+        "unexpected_slots": 0
+      },
+      "stages": {
+        "gather": {
+          "expected": 16128,
+          "observed": 16128,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "local_return": {
+          "expected": 1472,
+          "observed": 1472,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "cross_return": {
+          "expected": 9216,
+          "observed": 9216,
+          "qps": 7168,
+          "qps_missing": 0
+        }
+      },
+      "first_missing": []
+    }
+  },
+  "comparison": {
+    "revision": "87b26d70",
+    "event_id": "green-db34c8b79a304a15a18289f446628d86",
+    "baseline_sim_us": 201.923,
+    "sim_us_delta": 2.754,
+    "sim_percent_delta": 1.36389,
+    "exports_equal": true
+  }
+}
