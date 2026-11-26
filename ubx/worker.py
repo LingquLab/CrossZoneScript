@@ -41,7 +41,13 @@ def main(c):
     jobs = []
     handles = []
     timeout = False
+    network = Path('/proc/sys/net/ipv4/conf/all/accept_local')
+    original_network = network.read_text().strip()
+    (case / 'network-before.json').write_text(json.dumps({'accept_local': original_network}))
     try:
+        network.write_text('1\n')
+        if network.read_text().strip() != '1':
+            raise RuntimeError('Network setting verification failed')
         for device in range(16):
             rank = c['node'] * 16 + device
             d = case / ('rank-%d' % rank)
@@ -62,17 +68,24 @@ def main(c):
                 break
             time.sleep(1)
     finally:
-        for _, p, _ in jobs:
-            if p.poll() is None:
-                os.killpg(p.pid, signal.SIGTERM)
-        for _, p, _ in jobs:
-            try:
-                p.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.wait(timeout=5)
-        for f in handles:
-            f.close()
+        try:
+            for _, p, _ in jobs:
+                if p.poll() is None:
+                    os.killpg(p.pid, signal.SIGTERM)
+            for _, p, _ in jobs:
+                try:
+                    p.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(p.pid, signal.SIGKILL)
+                    p.wait(timeout=5)
+            for f in handles:
+                f.close()
+        finally:
+            network.write_text(original_network + '\n')
+            restored = network.read_text().strip() == original_network
+            (case / 'network-restored.json').write_text(json.dumps({'restored': restored}))
+            if not restored:
+                raise RuntimeError('Network restoration failed')
     rows = []
     for rank, p, d in jobs:
         summaries = [json.loads(f.read_text()) for f in (d / 'records').glob('*.summary.json')]

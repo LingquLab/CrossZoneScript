@@ -67,7 +67,7 @@ def main():
             if smoke:
                 emit({'event': 'STOP', 'reason': 'resources_unavailable'})
                 return 1
-            wake = min(time.monotonic() + 600, deadline)
+            wake = min(time.monotonic() + settings.get('interval_seconds', 300), deadline)
             while time.monotonic() < wake:
                 time.sleep(min(30, max(0, wake - time.monotonic())))
             continue
