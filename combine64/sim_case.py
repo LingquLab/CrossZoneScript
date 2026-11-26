@@ -224,6 +224,53 @@ def check_outputs(case, environment, record):
     record.update(checked_ranks=WORLD, checked_bytes=fields)
 
 
+def bind_return_probe(case):
+    from runtime import BASES, WORLD, PHYSICAL_QPS
+    layout = read_json(case / 'export-layout.json')
+    workload = read_json(case / 'workload.yml')
+    state_bytes = WORLD * PHYSICAL_QPS * 64
+    for row in layout['ranks']:
+        chip = workload['workload_config'][f"chip{row['rank']}"]
+        for name, plane in (('sq_head', 1), ('sq_tail', 2)):
+            segment = dict(addr=row['sys_va_base_addr'] + BASES['queue_state'] + plane * state_bytes,
+                           size=state_bytes)
+            row['exports'][name] = segment
+            chip['output_param'][name] = segment
+    write_json(case / 'export-layout.json', layout)
+    write_json(case / 'workload.yml', workload)
+
+
+def observe_local_return(case, environment):
+    from addressed_exports import reconstruct_die_output
+    from return_case import local_slot
+    from collections import Counter
+    layout = read_json(case / 'export-layout.json')
+    observations = {name: Counter() for name in ('status', 'local_ready', 'gateway_ready', 'sq_head', 'sq_tail')}
+    missing = Counter()
+    decoder = Path(environment['decoder_library'])
+    for row in layout['ranks']:
+        rank = row['rank']
+        base = row['sys_va_base_addr']
+        for name, histogram in observations.items():
+            segment = row['exports'][name]
+            paths = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
+            try:
+                data = reconstruct_die_output(paths, segment['addr'] - base, segment['size'], decoder)
+            except (FileNotFoundError, ValueError):
+                missing[name] += 1
+                continue
+            if name in ('sq_head', 'sq_tail'):
+                offsets = [(peer * 40 + local_slot(peer % 8)) * 64
+                           for peer in range(rank // 8 * 8, rank // 8 * 8 + 8) if peer != rank]
+            elif name == 'status':
+                offsets = [lane * 32 for lane in range(8)]
+            else:
+                offsets = [i for i in range(0, len(data), 8)]
+            size = '<q' if name.endswith('ready') else '<I'
+            histogram.update(struct.unpack_from(size, data, offset)[0] for offset in offsets)
+    return dict(probe_histograms=observations, probe_missing_ranks=missing)
+
+
 def main(config):
     action, tokens, attempt, timeout = (config[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     revision = config['revision']
@@ -257,15 +304,14 @@ def main(config):
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], build))
         if stop_at_us is not None:
-            from inter_snapshot import add_queue_exports
-            original = read_json(case.parent / 't64-inter-server-send-a2/phase-result.json')
+            assert action == 'local-return'
+            original = read_json(case.parent / 't4-local-return-a1/phase-result.json')
+            assert original['status'] in ('timed_out', 'interrupted')
             for key in ('candidate_commit', 'tokens', 'stage', 'routes_sha256',
                         'kernel_sha256', 'source_object_sha256'):
                 assert original[key] == record[key], key
-            record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source='t64-inter-server-send-a2')
-            workload = read_json(case / 'workload.yml')
-            add_queue_exports(workload)
-            write_json(case / 'workload.yml', workload)
+            record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source='t4-local-return-a1')
+            bind_return_probe(case)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
         model_config = case / 'v310_config/davidV100_simulator_config.yml'
@@ -283,9 +329,7 @@ def main(config):
                 record.update(summarize(case, WORLD, BLOCKS[action]))
             record['status'] = 'sst_and_checker_passed'
         else:
-            from inter_snapshot import summarize as summarize_snapshot
-            layout = read_json(case / 'export-layout.json')
-            record.update(summarize_snapshot(case, layout, Path(env['decoder_library'])))
+            record.update(observe_local_return(case, env))
             record['status'] = 'diagnostic_snapshot'
     except BaseException as error:
         if record.get('status') not in ('timed_out', 'interrupted'):

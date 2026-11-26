@@ -37,6 +37,9 @@ def main():
     assert type(args.get('profiling', False)) is bool
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
+    if 'stop_at_us' in args:
+        assert (action, tokens, attempt, args.get('profiling')) == ('local-return', 4, 2, True)
+        assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 200
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if action == 'status':
         remote_seconds = 35

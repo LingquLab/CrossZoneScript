@@ -101,7 +101,7 @@ REPORT_FIELDS = (
     'profiling_enabled', 'profiling_operator_us', 'profiling_max_lane_ticks',
     'profiling_lanes', 'profiling_dropped_records', 'profiling_clock_receipt',
     'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
-    'incomplete_lane_count', 'pending_queues', 'pending_queue_count', 'missing_exports',
+    'probe_histograms', 'probe_missing_ranks',
 )
 
 
@@ -284,11 +284,13 @@ def main(args):
                 report = dict(batch=results, tokens=tokens, revision=revision)
             else:
                 config['source_case'] = args.get('source_case')
+                config['diagnostic_stop_us'] = args.get('stop_at_us')
                 results = [run_case(root, cid, tools, config)]
                 report = results[0]
         print(json.dumps(report, separators=(',', ':')))
         last = results[-1]
-        return 0 if last['status'] == 'sst_and_checker_passed' and last['container_exit'] == 0 else 1
+        expected = 'diagnostic_snapshot' if 'stop_at_us' in args else 'sst_and_checker_passed'
+        return 0 if last['status'] == expected and last['container_exit'] == 0 else 1
     except Exception as error:
         if root.is_dir():
             log = root / f'{case.name}-host-error.log'
