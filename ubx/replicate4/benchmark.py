@@ -3,7 +3,7 @@ import concurrent.futures
 import hashlib
 import io
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shlex
 import statistics
 import subprocess
@@ -11,9 +11,12 @@ import tarfile
 import tempfile
 import time
 
-from build import HOSTS, SSH
+from build import CANDIDATE as REVISION, HOSTS, ROOT as SERVER_ROOT, SSH
 from round_count import load_clock_results
-from run_remote import HARDWARE, OUTPUT, REVISION, ROOT
+
+ROOT = PurePosixPath(SERVER_ROOT)
+HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
+OUTPUT = ROOT / "full-bs32-f50"
 
 
 def ssh(host, command, *, payload=None, timeout=60, stage="SSH"):
@@ -31,7 +34,7 @@ def ssh(host, command, *, payload=None, timeout=60, stage="SSH"):
 
 def wait_for_build(pool):
     command = (
-        f"if test -f {ROOT}/first-build-status.txt && test -f {ROOT}/build-status.txt; "
+        f"if test -f {ROOT}/build-status.txt && test -f {ROOT}/build-result.json; "
         f"then cat {ROOT}/build-status.txt; else printf pending; fi"
     )
     deadline = time.monotonic() + 330
