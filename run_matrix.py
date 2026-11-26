@@ -62,6 +62,10 @@ def route_profile(profile, generator, outcome, batch, mode, package, artifact_ha
 
 def worker_source():
     source = RUNNER.with_name("ubx_case_worker.py").read_text(encoding="utf-8")
+    launch_receipt = """    receipt = directory / 'started.json'
+    with receipt.open('x', encoding='utf-8') as stream:
+        json.dump({'run_id': request['run_id'], 'started_at': time.time()}, stream)
+"""
     replacements = [
         ("runtime_abi in (16, 17)", "runtime_abi in (16, 17, 18)"),
         ("runtime_abi == 17 or (route_mode", "runtime_abi in (17, 18) or (route_mode"),
@@ -72,6 +76,18 @@ def worker_source():
         ("'Summary contract mismatch')", "'Summary contract mismatch')\n"
          "            require(item.get('max_tokens') == 2 and item.get('packet_trace') is False, "
          "'Packet limit or capture mode mismatch')"),
+        ("    if not report['idle']:\n        return report\n    check_ports(request['port'])\n", ""),
+        (launch_receipt, ""),
+        ("    check_ports(request['port'])\n    children, streams",
+         "    check_ports(request['port'])\n" + launch_receipt + "    children, streams"),
+        ("        if not result_path.exists():",
+         "        busy_before_launch = request['phase'] == 'run' and retryable_occupancy(result)\n"
+         "        if not result_path.exists() and not busy_before_launch:"),
+        ("def run(request):",
+         "def retryable_occupancy(result):\n"
+         "    return (result.get('status') == 'BLOCKED' and result.get('hardware_launched') is False\n"
+         "            and any(row.get('pids') for row in result.get('before_occupancy', ())))\n\n\n"
+         "def run(request):"),
     ]
     for from_, to in replacements:
         if source.count(from_) != 1:
@@ -79,6 +95,16 @@ def worker_source():
         source = source.replace(from_, to)
     compile(source, "ubx_case_worker_abi18.py", "exec")
     return source
+
+
+def retryable_occupancy(result):
+    return (result.get("status") == "BLOCKED" and result.get("hardware_launched") is False
+            and any(row.get("pids") for row in result.get("before_occupancy", ())))
+
+
+def read_receipts(outcome, phase):
+    path = outcome / f"{phase}.private.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
 
 
 def analyze(output, profile, record_reader):
@@ -190,8 +216,7 @@ def main(batch, probe_only=False, wait_seconds=120):
                                 updated_at=time.time(), **details))
         staged.replace(checks / "status.json")
 
-    def wait_idle(batch, package):
-        deadline = time.monotonic() + (0 if probe_only else wait_seconds)
+    def wait_idle(batch, package, deadline):
         poll = 0
         while True:
             poll += 1
@@ -204,7 +229,7 @@ def main(batch, probe_only=False, wait_seconds=120):
                            f'rows=ns["probe_devices"](p,{node},env)\n'
                            f'print(json.dumps({{"status":"PASS","rows":rows}}))\n')
                 return runner.transport(runtime, node, command, checks,
-                                        f"bs{batch}-{package}-{poll}", 50)
+                                        f"bs{batch}-{package}-{poll}-{time.time_ns()}", 50)
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 values = list(pool.map(probe, range(2)))
@@ -232,7 +257,7 @@ def main(batch, probe_only=False, wait_seconds=120):
     # Run a batch as one transaction with four separately archived configurations.
     assert batch in (32, 64, 128)
     if probe_only:
-        return wait_idle(batch, "readiness")
+        return wait_idle(batch, "readiness", time.monotonic())
     summaries = []
     for mode in ("off", "on"):
         for variant in ("baseline", "candidate"):
@@ -249,21 +274,35 @@ def main(batch, probe_only=False, wait_seconds=120):
                     "archives": [{"bytes": v["capture_archive_bytes"], "sha256": v["capture_archive_sha256"]}
                                  for v in archives], **raw})
                 continue
-            if outcome.exists():
-                raise RuntimeError("Case already has an unfinished attempt: " + package)
-            if not wait_idle(batch, package):
-                return False
-            outcome.mkdir(exist_ok=False)
-            if not helper.is_file():
-                (outcome / "ssh-askpass.sh").write_bytes((OUTPUT / "ssh-askpass.sh").read_bytes())
-                (outcome / "ssh-askpass.sh").chmod(0o700)
             hashes = build[0]["artifacts"][package]
             assert hashes == build[1]["artifacts"][package], "host package hash mismatch"
-            profile, routes = route_profile(template, generator, outcome, batch, mode, package,
-                                             {k: v for k, v in hashes.items() if k != KERNEL}, build[0]["cann"])
-            run_id = "topk-bs" + str(batch) + "-" + package + "-" + uuid.uuid4().hex[:10]
-            capture = uuid.uuid4().hex
-            write_json(outcome / "run-identity.json", {"run_id": run_id, "capture": capture})
+            if outcome.exists():
+                prior_run = read_receipts(outcome, "run")
+                prepared = read_receipts(outcome, "prepare")
+                if (outcome / "run.in-flight").exists():
+                    raise RuntimeError("Case launch outcome is unknown: " + package)
+                if len(prior_run) == 2 and all(retryable_occupancy(host) for host in prior_run):
+                    archived = RESULT / "prelaunch-attempts"
+                    archived.mkdir(exist_ok=True)
+                    outcome.rename(archived / f"{outcome.name}-{time.time_ns()}")
+                elif prior_run or len(prepared) != 2 or any(host.get("status") != "PASS" for host in prepared):
+                    raise RuntimeError("Case already has an unfinished attempt: " + package)
+            if outcome.exists():
+                profile = json.loads((outcome / "profile.private.json").read_text(encoding="utf-8"))
+                identity = json.loads((outcome / "run-identity.json").read_text(encoding="utf-8"))
+                run_id, capture = identity["run_id"], identity["capture"]
+                steps = ("run", "collect")
+            else:
+                outcome.mkdir()
+                if not helper.is_file():
+                    (outcome / "ssh-askpass.sh").write_bytes((OUTPUT / "ssh-askpass.sh").read_bytes())
+                    (outcome / "ssh-askpass.sh").chmod(0o700)
+                profile, routes = route_profile(template, generator, outcome, batch, mode, package,
+                                                 {k: v for k, v in hashes.items() if k != KERNEL}, build[0]["cann"])
+                run_id = "topk-bs" + str(batch) + "-" + package + "-" + uuid.uuid4().hex[:10]
+                capture = uuid.uuid4().hex
+                write_json(outcome / "run-identity.json", {"run_id": run_id, "capture": capture})
+                steps = ("prepare", "run", "collect")
 
             def phase(action):
                 def run(node):
@@ -282,9 +321,26 @@ def main(batch, probe_only=False, wait_seconds=120):
                 write_json(outcome / (action + ".private.json"), result)
                 return result
 
-            for step in ("prepare", "run", "collect"):
-                update_status(package, step, run_id=run_id)
-                hosts = phase(step)
+            deadline = time.monotonic() + wait_seconds
+            retries = 0
+            for step in steps:
+                if step == "run":
+                    while True:
+                        if not wait_idle(batch, package, deadline):
+                            return False
+                        update_status(package, step, run_id=run_id)
+                        in_flight = outcome / "run.in-flight"
+                        in_flight.touch(exist_ok=False)
+                        hosts = phase(step)
+                        in_flight.unlink()
+                        if time.monotonic() >= deadline or not all(retryable_occupancy(host) for host in hosts):
+                            break
+                        retries += 1
+                        write_json(outcome / f"run-preflight-retry-{retries}.private.json", hosts)
+                        time.sleep(min(15, max(0, deadline - time.monotonic())))
+                else:
+                    update_status(package, step, run_id=run_id)
+                    hosts = phase(step)
                 if not all(row.get("status") == "PASS" and
                            (step != "run" or row.get("performance_valid")) for row in hosts):
                     print(json.dumps({"status": "BLOCKED", "step": step, "bs": batch, "package": package,
