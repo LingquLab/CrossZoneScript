@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import time
 
 SESSION='59af0a93-b62f-4211-927e-a44f047667cf'
 BASE=Path('/mnt/share/tilexr-sim-jobs')/SESSION
@@ -37,14 +38,20 @@ print(json.dumps({key:result[key] for key in ('status','sst_wall_seconds','runne
 
 def main(request):
     action=request['action']
-    assert action in ('stop-joint','snapshot-send','read-cq')
-    candidate='2dfd2b4' if action=='stop-joint' else '71b62db'
+    assert action in ('stop-joint','snapshot-send','read-cq','snapshot-joint')
+    candidate='b61cb53' if action=='snapshot-joint' else ('2dfd2b4' if action=='stop-joint' else '71b62db')
     root=BASE/f'run-{candidate}-a1'
     identity=json.loads((root/'identity.json').read_text())
     assert identity['revision'].startswith(candidate)
     cid=identity['container_id']
     info=json.loads(subprocess.check_output(['docker','inspect',cid],timeout=10))[0]
     assert info['Id']==cid and info['Config']['Labels']['crosszone.session']==SESSION
+    if action=='snapshot-joint':
+        terminal=root/'cases/t32-joint-reuse-a2/phase-result.json'
+        deadline=time.monotonic()+300
+        while not terminal.is_file() and time.monotonic()<deadline:time.sleep(2)
+        assert terminal.is_file(),'prior_joint_still_running'
+        assert json.loads(terminal.read_text())['status'] in ('timed_out','interrupted')
     if action=='stop-joint':
         argv=['docker','exec',cid,'python3','-c',STOP]
         timeout=50
@@ -56,6 +63,9 @@ def main(request):
         else: target.write_text(content)
         argv=['docker','exec',cid,'timeout','--kill-after=20','1400','python3',str(Path('/work')/target.relative_to(root)),request['tool_key']]
         timeout=1440
+        if action=='snapshot-joint':
+            argv[argv.index('1400')]='1750'
+            timeout=1800
         if action=='read-cq':
             argv=['docker','exec',cid,'python3',str(Path('/work')/target.relative_to(root))]
             timeout=50

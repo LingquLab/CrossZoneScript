@@ -12,16 +12,18 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--args-file',required=True,type=Path)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-    assert set(args)=={'action'} and args['action'] in ('stop-joint','snapshot-send','read-cq')
+    assert set(args)=={'action'} and args['action'] in ('stop-joint','snapshot-send','read-cq','snapshot-joint')
     here=Path(__file__).parent
     args['snapshot_script']=(here/'snapshot_case.py').read_text()
     if args['action']=='read-cq':
         args['snapshot_script']=(here/'cq_read_case.py').read_text()
+    if args['action']=='snapshot-joint':
+        args['snapshot_script']=(here/'joint_snapshot_case.py').read_text()
     from sim_green import SCRIPT_FILES
     files={name:(here/name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
     args['tool_key']=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()[:16]
     code=(here/'recovery_host.py').read_text()+'\nraise SystemExit(main('+repr(args)+'))\n'
-    budget=65 if args['action'] in ('stop-joint','read-cq') else 1470
+    budget=2050 if args['action']=='snapshot-joint' else (65 if args['action'] in ('stop-joint','read-cq') else 1470)
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     cmd=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
          '-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12','-o','ServerAliveInterval=20',
