@@ -72,6 +72,16 @@ def main(args):
         summary = load(directory / "summary.json")
         if summary:
             case["summary"] = summary
+            identity = load(directory / "run-identity.json")
+            archives = load(directory / "collect.private.json")
+            if identity:
+                case["run_id"] = identity["run_id"]
+            if archives:
+                case["archives"] = [
+                    {"node": node, "bytes": row["capture_archive_bytes"], "sha256": row["capture_archive_sha256"],
+                     "present": (directory / f"node-{node}-captures.tar.gz").is_file()}
+                    for node, row in enumerate(archives)
+                ]
         summaries.append(case)
     status = None
     for path in sorted((RESULT / "occupancy").glob("*/status.json"),
