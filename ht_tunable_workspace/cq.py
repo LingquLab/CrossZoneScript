@@ -2,6 +2,23 @@
 import json
 
 
+def trace_events(path, actions):
+    """Read complete flat BA argument objects without imposing a file-size limit."""
+    markers = tuple(f'"{action}"'.encode() for action in actions)
+    tail = b''
+    with path.open('rb') as stream:
+        while chunk := stream.read(4 * 1024 * 1024):
+            data = tail + chunk
+            end = data.rfind(b'}') + 1
+            complete, tail = data[:end], data[end:]
+            for match in TRACE_ARGS.finditer(complete):
+                raw = match[0]
+                if any(marker in raw for marker in markers):
+                    args = json.loads(raw)
+                    if args.get('busPayloadType_') in actions:
+                        yield args
+
+
 def expected_cq_slots(rank, tokens, mode=None):
     queues = {}
     steps = len(sync_steps(tokens, mode))
@@ -48,18 +65,13 @@ def count_candidate_cq(case, tokens, expected_for_rank=None, mode=None):
         path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
         if not path.is_file():
             continue
-        with path.open('rb') as stream:
-            raw = stream.read(trace_limit(tokens, mode))
-            totals['truncated_hosts'] += bool(stream.read(1))
+        totals['truncated_hosts'] += 0
         totals['hosts'] += 1
         expected = expected_for_rank[rank] if expected_for_rank is not None else expected_cq_slots(rank, tokens, mode)
         cq, fetch, bells = defaultdict(set), defaultdict(set), Counter()
         db_rings = {0x1C00000000 + physical // 20 * 0x100000000 + (peer * 20 + physical % 20) * 64: ring
                     for ring in expected for peer, physical in (divmod(ring, 40),)}
-        for match in TRACE_ARGS.finditer(raw):
-            if b'"WR_REQ"' not in match[0] and b'"RD_REQ"' not in match[0]:
-                continue
-            args = json.loads(match[0])
+        for args in trace_events(path, ('WR_REQ', 'RD_REQ')):
             value = args['oriAddr_']
             address = int(value, 0) if isinstance(value, str) else int(value)
             host, local = divmod(address, GM_BYTES)
@@ -131,27 +143,16 @@ def pipeline_missing_arrivals(case, tokens, mode, missing):
         addresses = {entry[2] for entry in inspected}
         observed = set()
         file = case / 'OUTPUT/stat_trace' / f'Host{peer}_ba_layer_trace.json'
-        if file.is_file():
-            with file.open('rb') as stream:
-                raw = stream.read(trace_limit(tokens, mode))
-                truncated = bool(stream.read(1))
-            for match in TRACE_ARGS.finditer(raw):
-                if b'"WR_DATA"' not in match[0]:
-                    continue
-                args = json.loads(match[0])
+        unavailable = not file.is_file()
+        if not unavailable:
+            for args in trace_events(file, ('WR_DATA',)):
                 address = args['oriAddr_']
                 address = int(address, 0) if isinstance(address, str) else int(address)
                 if address in addresses:
                     observed.add(address)
-        else:
-            truncated = True
-        result.append([sender, peer, physical, stage, truncated,
+        result.append([sender, peer, physical, stage, unavailable,
                        [[kind, index, address in observed] for kind, index, address in inspected]])
     return result
-
-
-def trace_limit(tokens, mode):
-    return MAX_TRACE_BYTES * (8 if tokens == 1024 or mode == 'physical' else 1)
 
 
 def direct_activity(case):
@@ -163,7 +164,7 @@ def direct_activity(case):
         gather_cq = {address - 0x1900000000 + CQ_BASE for address in bindings['gather']}
         path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
         with path.open('rb') as stream:
-            raw = stream.read(trace_limit(32, None))
+            raw = stream.read(MAX_TRACE_BYTES)
             if stream.read(1):
                 totals['truncated'] += 1
                 continue
