@@ -181,6 +181,9 @@ def status(root, args):
                     fields = proc.stdout.decode().rsplit(')', 1)[1].split()
                     row.update(process_state=fields[0], cpu_ticks=int(fields[11]) + int(fields[12]))
             reports.append(row)
+    resource_update = root / 'container-memory.json'
+    if resource_update.is_file():
+        report['container_memory'] = json_file(resource_update)
     report['cases'] = reports
     return report
 
@@ -232,6 +235,25 @@ def verify_prerequisite(root, revision, args):
         assert row['profiling_lanes'] == 64 * row['blocks'] and row['profiling_dropped_records'] == 0
 
 
+def set_container_memory(cid, gib):
+    assert gib == 64
+    desired = gib * 2**30
+    free_kib = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
+                    if line.startswith('MemAvailable:'))
+    assert free_kib * 1024 > 4 * desired
+    def limit():
+        return int(subprocess.check_output(
+            ['docker', 'inspect', '--format', '{{.HostConfig.Memory}}', cid], timeout=10))
+    previous = limit()
+    if previous != desired:
+        assert previous == 32 * 2**30
+        subprocess.run(['docker', 'update', '--memory', f'{gib}g', '--memory-swap', f'{gib}g', cid],
+                       capture_output=True, check=True, timeout=20)
+    actual = limit()
+    assert actual == desired
+    return dict(before_bytes=previous, after_bytes=actual, host_available_bytes=free_kib * 1024)
+
+
 def profile_build(root, cid, tools, timeout):
     log = root / 'profile-build.log'
     script = str(Path('/work') / tools.relative_to(root) / 'build_profile.py')
@@ -263,15 +285,20 @@ def main(args):
         verify_prerequisite(root, revision, args)
         with (root / 'sst.lock').open('a') as lock:
             # The predecessor can still be returning its journal after writing a case result.
-            deadline = time.monotonic() + 30
+            wait_seconds = args.get('wait_for_idle_seconds', 30)
+            deadline = time.monotonic() + wait_seconds
             while True:
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
-                    if not args.get('after') or time.monotonic() >= deadline:
+                    if (not args.get('after') and 'wait_for_idle_seconds' not in args) or time.monotonic() >= deadline:
                         raise
                     time.sleep(1)
+            memory = None
+            if 'memory_gib' in args:
+                memory = set_container_memory(cid, args['memory_gib'])
+                (root / 'container-memory.json').write_text(json.dumps(memory))
             tools, platform_hashes = stage_tools(root, args['files'])
             if action == 'profile-build':
                 return profile_build(root, cid, tools, timeout)
@@ -287,6 +314,8 @@ def main(args):
                 config['diagnostic_stop_us'] = args.get('stop_at_us')
                 results = [run_case(root, cid, tools, config)]
                 report = results[0]
+        if memory is not None:
+            report['container_memory'] = memory
         print(json.dumps(report, separators=(',', ':')))
         last = results[-1]
         expected = 'diagnostic_snapshot' if 'stop_at_us' in args else 'sst_and_checker_passed'

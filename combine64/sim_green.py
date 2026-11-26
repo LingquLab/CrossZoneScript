@@ -55,6 +55,11 @@ def main():
         wait_seconds = args['after']['max_wait_seconds']
         assert type(wait_seconds) is int and 60 <= wait_seconds <= 7200
         remote_seconds += wait_seconds + 30
+    if 'memory_gib' in args or 'wait_for_idle_seconds' in args:
+        wait = args['wait_for_idle_seconds']
+        assert type(wait) is int and 30 <= wait <= 600
+        assert args['memory_gib'] == 64 and action == 'batch'
+        remote_seconds += wait + 45
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / candidate
     logs.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).parent
