@@ -331,6 +331,8 @@ assert len(cmd) == 3 and cmd[1].endswith(b'/sim_case.py')
 args = json.loads(cmd[2])
 assert tuple(args[key] for key in ('revision', 'tokens', 'action', 'attempt')) == (
     expected, 4, stage, attempt)
+if attempt == 5:
+    assert args['profiling'] is False and run['profiling_enabled'] is False
 os.kill(parent, signal.SIGTERM)
 """
 
@@ -564,6 +566,18 @@ def main(args):
         verify_prerequisite(root, revision, args)
         if args.get('replace_legacy_batch'):
             wait_or_interrupt_legacy(root, cid, revision)
+        if action == 'interrupt-unprofiled':
+            case = root / 'cases/t4-joint-final-a5'
+            assert (case / 'run.json').is_file() or (case / 'phase-result.json').is_file()
+            subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_CASE,
+                            revision, 'joint-final', '5'], capture_output=True, timeout=20, check=True)
+            result = case / 'phase-result.json'
+            deadline = time.monotonic() + 90
+            while not result.is_file():
+                assert time.monotonic() < deadline, 'unprofiled_interrupt_pending'
+                time.sleep(2)
+            print(json.dumps(status(root, args), separators=(',', ':')))
+            return 0
         if args.get('ready_probe') and not retry_failed(root, revision, args['wait_for_idle_seconds']):
             return 0
         with (root / 'sst.lock').open('a') as lock:

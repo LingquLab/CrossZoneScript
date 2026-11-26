@@ -29,7 +29,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'interrupt-stalled-joint', 'profile-build', 'batch', 'matrix',
+    assert action in ('status', 'interrupt-stalled-joint', 'interrupt-unprofiled', 'profile-build', 'batch', 'matrix',
                       'bs4-remainder', 'joint-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
@@ -71,6 +71,10 @@ def main():
         remote_seconds = 95 if args.get('all_variants') else 35
     if action == 'interrupt-stalled-joint':
         assert tokens == 4 and 'stalled_cq_cycle' in args
+        remote_seconds = 140
+    if action == 'interrupt-unprofiled':
+        assert (candidate, tokens, attempt) == ('85d4b8d', 4, 5)
+        assert (args.get('intra_cores'), args.get('peer_slots')) == (4, 2)
         remote_seconds = 140
     if action == 'profile-build':
         remote_seconds = timeout + 45
