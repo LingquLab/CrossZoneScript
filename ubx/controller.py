@@ -59,11 +59,12 @@ def main():
     deadline = time.monotonic() + settings.get('hours', 8) * 3600
     smoke = settings.get('mode', 'smoke') == 'smoke'
     validated = False
+    paused = False
     queue = [(64, 2)] if smoke else [(bs, mt) for bs in [64, 128] for mt in [1, 2, 3, 4]]
     while queue and time.monotonic() < deadline:
         checks = both({'action': 'check'})
         emit({'event': 'resource_check', 'results': checks})
-        if not all(r.get('ready') for r in checks):
+        if paused or not all(r.get('ready') for r in checks):
             if smoke:
                 emit({'event': 'STOP', 'reason': 'resources_unavailable'})
                 return 1
@@ -72,15 +73,17 @@ def main():
                 time.sleep(min(30, max(0, wake - time.monotonic())))
             continue
         if not smoke and not validated:
-            if not run(64, 2, True):
-                emit({'event': 'STOP', 'reason': 'smoke_validation_failed', 'remaining': queue})
-                return 1
+            if not run(settings.get('smoke_bs', 32), 2, True):
+                emit({'event': 'EXPERIMENTS_PAUSED', 'reason': 'smoke_validation_failed', 'remaining': queue})
+                paused = True
+                continue
             validated = True
             continue
         bs, mt = queue[0]
         if not run(bs, mt, smoke):
-            emit({'event': 'STOP', 'reason': 'validation_failed_or_incomplete', 'remaining': queue})
-            return 1
+            emit({'event': 'EXPERIMENTS_PAUSED', 'reason': 'validation_failed_or_incomplete', 'remaining': queue})
+            paused = True
+            continue
         queue.pop(0)
     emit({'event': 'DONE' if not queue else 'WINDOW_EXPIRED', 'remaining': queue})
     return 0 if not queue else 1
