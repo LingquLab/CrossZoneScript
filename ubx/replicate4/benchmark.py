@@ -9,6 +9,7 @@ import statistics
 import subprocess
 import tarfile
 import tempfile
+import time
 
 from build import HOSTS, SSH
 from round_count import load_clock_results
@@ -24,6 +25,23 @@ def ssh(host, command, *, payload=None, timeout=60):
     if result.returncode:
         raise RuntimeError(f"{host}: command exited {result.returncode}")
     return result.stdout
+
+
+def wait_for_build(pool):
+    command = (
+        f"if test -f {ROOT}/first-build-status.txt && test -f {ROOT}/build-status.txt; "
+        f"then cat {ROOT}/build-status.txt; else printf pending; fi"
+    )
+    deadline = time.monotonic() + 330
+    while time.monotonic() < deadline:
+        states = list(pool.map(lambda host: ssh(host, command, timeout=20).decode().strip(), HOSTS))
+        for host, state in zip(HOSTS, states):
+            if state not in {"pending", "", "complete 0"}:
+                raise RuntimeError(f"{host}: prerequisite build status {state}")
+        if states == ["complete 0", "complete 0"]:
+            return
+        time.sleep(10)
+    raise TimeoutError("Staged builds did not finish before the benchmark readiness deadline")
 
 
 def controller(index, action, payload):
@@ -126,9 +144,10 @@ def main():
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (here / "run_remote.py").read_text()
     payload = (rounds_script + "\n" + remote).encode()
-    verifier_source = ssh(HOSTS[0], shlex.join(["cat", str(HARDWARE / "clock_results.py")])).decode()
-    verifier = load_clock_results(verifier_source)
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        wait_for_build(pool)
+        verifier_source = ssh(HOSTS[0], shlex.join(["cat", str(HARDWARE / "clock_results.py")])).decode()
+        verifier = load_clock_results(verifier_source)
         readiness = list(pool.map(lambda i: controller(i, "preflight", payload), range(2)))
         assert all(item["ready"] for item in readiness)
         results = list(pool.map(lambda i: controller(i, "run", payload), range(2)))
