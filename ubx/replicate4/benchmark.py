@@ -1,4 +1,4 @@
-"""Run and analyze the two-host EP32 BS32 replicate4 benchmark."""
+"""Run and analyze the two-host EP32 BS32 route benchmark."""
 import concurrent.futures
 import hashlib
 import io
@@ -20,6 +20,7 @@ OUTPUT = ROOT / "full-bs32-f50"
 RUNTIME_INSTALL = ROOT / "runtime-install"
 RUNTIME_REVISION = None
 ROUTE_MODE = "replicate4"
+ROUTE_QPS_PER_RANK = {"same_lane": 1, "replicate4": 4, "replicate16": 16}
 
 
 def ssh(host, command, *, payload=None, timeout=60, stage="SSH"):
@@ -100,11 +101,25 @@ def timings(values):
                 min_us=ordered[0], max_us=ordered[-1], p90_us=p90, p95_us=p95)
 
 
+def route_load_path(rank, core):
+    source_lane = core - 40
+    reader_lane = rank % 16
+    if ROUTE_MODE == "replicate16":
+        return "own_gm"
+    if ROUTE_MODE == "replicate4":
+        return "own_gm" if source_lane % 4 == reader_lane % 4 else "group_peer_gm"
+    if source_lane == reader_lane:
+        return "own_gm"
+    return "group_peer_gm" if source_lane // 4 == reader_lane // 4 else "cross_group_gm"
+
+
 def extra_metrics(collection):
     all_rank_rounds = []
-    loads = {"own_gm": [], "group_peer_gm": []}
-    flag_observations = {"own_gm": [], "group_peer_gm": []}
-    routes_ready = {"own_gm": [], "group_peer_gm": []}
+    paths = ("own_gm", "group_peer_gm", "cross_group_gm")
+    loads = {path: [] for path in paths}
+    flag_observations = {path: [] for path in paths}
+    routes_ready = {path: [] for path in paths}
+    detail_version = {"same_lane": 2, "replicate4": 4, "replicate16": 3}[ROUTE_MODE]
     worst_route_load = None
     for rank in range(32):
         directory = collection / f"rank{rank}"
@@ -112,8 +127,8 @@ def extra_metrics(collection):
         for row in rows[10:]:
             all_rank_rounds.append((rank, [c["end"] - c["start"] for c in row["cores"]]))
         trace = json.loads((directory / "dispatch.last.trace.json").read_text())
-        assert trace["metadata"]["route_distribution"] == ROUTE_MODE
-        assert trace["metadata"]["route_sync_detail_version"] == (3 if ROUTE_MODE == "replicate16" else 4)
+        assert trace["metadata"].get("route_distribution", "same_lane") == ROUTE_MODE
+        assert trace["metadata"]["route_sync_detail_version"] == detail_version
         windows = {(e["tid"], e["name"]): e for e in trace["traceEvents"]
                    if e.get("ph") == "X" and 40 <= e["tid"] < 56}
         observed = {e["tid"]: e["args"]["core_entry_us"] for e in trace["traceEvents"]
@@ -121,8 +136,7 @@ def extra_metrics(collection):
                     and 40 <= e["tid"] < 56}
         assert set(observed) == set(range(40, 56))
         for core in range(40, 56):
-            own_gm = ROUTE_MODE == "replicate16" or (core - 40) % 4 == rank % 4
-            path = "own_gm" if own_gm else "group_peer_gm"
+            path = route_load_path(rank, core)
             load = windows[core, "route_remote_load"]
             sync = windows[core, "route_sync"]
             route_ready = sync["ts"] + sync["dur"] - windows[core, "core_total"]["ts"]
@@ -163,7 +177,7 @@ def summarize(pool, verifier):
             "aligned_entry_spread_stats", "route_sha256", "missed_targets", "physical_hosts_by_logical_group")
     return {
         "passed": True, "route_distribution": ROUTE_MODE,
-        "route_qps_verified": 512 if ROUTE_MODE == "replicate16" else 128,
+        "route_qps_verified": 32 * ROUTE_QPS_PER_RANK[ROUTE_MODE],
         "profile_mode": "full", "stage_details_enabled": True, "clock_aligned": True,
         **{key: verified[key] for key in keys}, **summary,
     }
@@ -195,6 +209,7 @@ def main(ports=(43000,), cleanup=False):
             raise RuntimeError("The available coordination port ranges are occupied")
         results = list(pool.map(lambda i: controller(i, "run", payload, port), range(2)))
         assert all(result["passed"] for result in results)
+        assert sum(result["route_qps_verified"] for result in results) == 32 * ROUTE_QPS_PER_RANK[ROUTE_MODE]
         summary = summarize(pool, verifier)
     summary["coordinator_port"] = port
     if RUNTIME_REVISION:

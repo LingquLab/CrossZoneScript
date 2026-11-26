@@ -30,7 +30,7 @@ def main(task=TASK, revision=REVISION, work=WORK, mode="replicate4"):
         report = json.loads((folder / "stdout.log").read_text(encoding="utf-8"))
         assert report["passed"] and report["revision"] == revision
         assert report["route_distribution"] == mode
-        assert report["route_qps_verified"] == (512 if mode == "replicate16" else 128)
+        assert report["route_qps_verified"] == 32 * benchmark.ROUTE_QPS_PER_RANK[mode]
         assert report["core_total_samples"] == 89600 and report["last_trace_round"] == 59
         print(json.dumps(dict(read_only=True, benchmark=report), separators=(",", ":")))
         return
