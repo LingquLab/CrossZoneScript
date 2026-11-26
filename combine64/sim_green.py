@@ -40,8 +40,11 @@ def main():
     assert type(timeout) is int and 30 <= timeout <= 7200
     if 'stop_at_us' in args:
         expected_attempt = 4 if args.get('ready_probe') else 2
-        assert (action, tokens, attempt, args.get('profiling')) == ('local-return', 4, expected_attempt, True)
-        assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 200
+        assert action in ('local-return', 'joint-final') and tokens == 4
+        assert attempt == expected_attempt and args.get('profiling') is True
+        assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 300
+    if 'sst_threads' in args:
+        assert action == 'joint-final' and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if action == 'status':
         remote_seconds = 95 if args.get('all_variants') else 35

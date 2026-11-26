@@ -134,7 +134,8 @@ REPORT_FIELDS = (
     'profiling_enabled', 'profiling_operator_us', 'profiling_max_lane_ticks',
     'profiling_lanes', 'profiling_dropped_records', 'profiling_clock_receipt',
     'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
-    'probe_histograms', 'probe_missing_ranks', 'readiness_trace',
+    'probe_histograms', 'probe_missing_ranks', 'readiness_trace', 'sst_threads',
+    'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples',
 )
 
 
@@ -343,6 +344,14 @@ def wait_or_interrupt_legacy(root, cid, revision):
         time.sleep(2)
 
 
+def set_container_cpus(cid, count):
+    assert count in (16, 32) and len(os.sched_getaffinity(0)) >= 4 * count
+    subprocess.run(['docker', 'update', '--cpus', str(count), cid],
+                   capture_output=True, check=True, timeout=20)
+    actual = subprocess.check_output(['docker', 'inspect', '--format', '{{.HostConfig.NanoCpus}}', cid], timeout=10)
+    assert int(actual) == count * 1_000_000_000
+
+
 def set_container_memory(cid, gib):
     assert gib == 64
     desired = gib * 2**30
@@ -483,12 +492,15 @@ def main(args):
             if 'memory_gib' in args:
                 memory = set_container_memory(cid, args['memory_gib'])
                 (root / 'container-memory.json').write_text(json.dumps(memory))
+            threads = args.get('sst_threads', 8)
+            if threads != 8:
+                set_container_cpus(cid, threads)
             tools, platform_hashes = stage_tools(root, args['files'])
             if action == 'profile-build':
                 return profile_build(root, cid, tools, timeout)
             config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout, revision=revision,
                           platform_sha256=platform_hashes, profiling=args.get('profiling', True),
-                          intra_cores=args.get('intra_cores', 8), peer_slots=args.get('peer_slots', 1))
+                          intra_cores=args.get('intra_cores', 8), peer_slots=args.get('peer_slots', 1), sst_threads=threads)
             if config['profiling']:
                 assert json_file(origin / 'profile-build/build-summary.json')['all_compiled']
             if args.get('ready_probe'):

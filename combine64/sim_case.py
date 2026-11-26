@@ -163,11 +163,11 @@ def stage_platform(case, expected):
     return environment
 
 
-def run_sst(case, environment, timeout, record, stop_at_us=None):
+def run_sst(case, environment, timeout, record, stop_at_us=None, threads=8):
     command = [
         'bash', '-c', 'set -e; source "$1"; shift; exec "$@"',
         'bash', environment['env_script'], environment['sst_bin'],
-        '-n', '8',
+        '-n', str(threads),
     ]
     if stop_at_us is not None:
         command.append(f'--stop-at={stop_at_us}us')
@@ -291,6 +291,58 @@ def observe_local_return(case, environment, ready_probe):
     return report
 
 
+def observe_joint(case, environment, intra_cores):
+    from addressed_exports import reconstruct_die_output
+    from collections import Counter
+    layout = read_json(case / 'export-layout.json')
+    decoder = Path(environment['decoder_library'])
+    missing = Counter()
+    status = {role: Counter() for role in ('intra', 'return', 'inter', 'gateway', 'final')}
+    flags = {name: Counter() for name in ('gateway_ready', 'completed', 'local_ready')}
+    pending = Counter()
+    samples = []
+    for row in layout['ranks']:
+        rank = row['rank']
+        base = row['sys_va_base_addr']
+        data = {}
+        for name in (*flags, 'sq_head', 'sq_tail', 'status'):
+            segment = row['exports'][name]
+            paths = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
+            try:
+                data[name] = reconstruct_die_output(paths, segment['addr'] - base, segment['size'], decoder)
+            except (FileNotFoundError, ValueError):
+                missing[name] += 1
+        if 'status' in data:
+            for role, offset, count, stride in (
+                ('intra', 0, intra_cores, 4), ('return', STRIPE, 8, 32),
+                ('inter', 2 * STRIPE, 16, 32), ('gateway', (intra_cores + 16) * 4, REDUCERS, 4),
+                ('final', 3 * STRIPE, FINAL_CORES, 32),
+            ):
+                status[role].update(struct.unpack_from('<I', data['status'], offset + lane * stride)[0]
+                                    for lane in range(count))
+        for name, histogram in flags.items():
+            if name not in data:
+                continue
+            want = (case / 'fixture-data' / f'rank{rank:02}' / f'golden-{name}.bin').read_bytes()
+            for offset, (expected,) in enumerate(struct.iter_unpack('<q', want)):
+                if expected == MAGIC:
+                    actual, = struct.unpack_from('<q', data[name], offset * 8)
+                    histogram['matched' if actual == MAGIC else 'missing'] += 1
+        if 'sq_head' not in data or 'sq_tail' not in data:
+            continue
+        for flat in range(len(data['sq_head']) // 64):
+            head, = struct.unpack_from('<I', data['sq_head'], flat * 64)
+            tail, = struct.unpack_from('<I', data['sq_tail'], flat * 64)
+            if head > tail:
+                peer, slot = divmod(flat, 40)
+                domain = 'local' if peer // 8 == rank // 8 else 'inter'
+                pending[domain] += 1
+                if len(samples) < 12:
+                    samples.append(dict(rank=rank, peer=peer, slot=slot, head=head, tail=tail))
+    return dict(joint_status=status, ready_markers=flags, outstanding_sq=pending,
+                outstanding_sq_examples=samples, probe_missing_ranks=missing)
+
+
 def main(config):
     action, tokens, attempt, timeout = (config[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     revision = config['revision']
@@ -330,8 +382,9 @@ def main(config):
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], kernel_build))
         if stop_at_us is not None:
-            assert action == 'local-return'
-            original = read_json(case.parent / 't4-local-return-a1/phase-result.json')
+            assert action in ('local-return', 'joint-final')
+            origin = f't4-{action}-a1'
+            original = read_json(case.parent / origin / 'phase-result.json')
             assert original['status'] in ('timed_out', 'interrupted') or (
                 original['status'] == 'failed' and original.get('returncode') == -9)
             keys = ('candidate_commit', 'tokens', 'stage', 'routes_sha256')
@@ -339,7 +392,7 @@ def main(config):
                 keys += ('kernel_sha256', 'source_object_sha256')
             for key in keys:
                 assert original[key] == record[key], key
-            record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source='t4-local-return-a1')
+            record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source=origin)
             bind_return_probe(case)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
@@ -350,7 +403,9 @@ def main(config):
         record['model_config'] = dict(component=component, lsu_level=int(level), sha256=digest(model_config))
         record['environment_sha256'] = digest(case / 'sst-environment.json')
         write_json(ROOT / 'progress.json', {'stage': 'sst', 'case': case.name, 'updated_unix': time.time()})
-        run_sst(case, env, timeout, record, stop_at_us)
+        threads = config.get('sst_threads', 8)
+        record['sst_threads'] = threads
+        run_sst(case, env, timeout, record, stop_at_us, threads)
         if stop_at_us is None:
             check_outputs(case, env, record)
             if use_profile:
@@ -358,7 +413,10 @@ def main(config):
                 record.update(summarize(case, WORLD, blocks))
             record['status'] = 'sst_and_checker_passed'
         else:
-            record.update(observe_local_return(case, env, ready_probe))
+            if action == 'joint-final':
+                record.update(observe_joint(case, env, intra_cores))
+            else:
+                record.update(observe_local_return(case, env, ready_probe))
             record['status'] = 'diagnostic_snapshot'
     except BaseException as error:
         if record.get('status') not in ('timed_out', 'interrupted'):
