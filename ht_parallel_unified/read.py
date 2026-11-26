@@ -192,6 +192,28 @@ from pathlib import Path
 case=Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native') / {CASE!r}
 print(json.dumps(summarize_saved_overlap(case),separators=(',',':')))
 '''
+if options.get('bs32_log_inventory'):
+    cases = (T32_CASE, T32_LONG_CASE, T32_CROSS_STRIPE_CASE, T32_CQ_ORDERED_CASE, T32_FP32_INIT_CASE)
+    source = f'cases = {cases!r}\n' + '''
+import json
+from pathlib import Path
+
+root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native')
+inventory = []
+for name in cases:
+    case = root / name
+    files = {}
+    for filename in ('sim.log', 'native-runner.log', 'run.json', 'check.log'):
+        path = case / filename
+        if path.is_file():
+            files[filename] = path.stat().st_size
+    trace = case / 'OUTPUT/stat_trace'
+    counts = {layer: len(list(trace.glob(f'Host*_{layer}_layer_trace.json')))
+              for layer in ('ba', 'dl')}
+    sample = [rank for rank in (0, 5, 8, 13) if (trace / f'Host{rank}_ba_layer_trace.json').is_file()]
+    inventory.append(dict(case=name, exists=case.is_dir(), files=files, trace_counts=counts, ba_sample=sample))
+print(json.dumps(inventory, separators=(',', ':')))
+'''
 compile(source, '<unified-status>', 'exec')
 ssh=['ssh','-T','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','-o',
      'BatchMode=no','-o','NumberOfPasswordPrompts=1','-o','PreferredAuthentications=password',
