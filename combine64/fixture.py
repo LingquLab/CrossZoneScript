@@ -154,7 +154,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         addresses=dict(runtime.BASES,input=(0x440000000 if len(inp)>0x1000000 else 0x404000000),prefill=0x405000000,masks=0x406000000,
                        backward=0x407000000,backward_counts=0x408000000,backward_ranges=0x409000000)
         images.update(workspace=ws,input=inp,forward=fwd.tobytes(),counts=struct.pack('<%di'%world,*counts),
-                      ranges=struct.pack('<%di'%len(ranges),*ranges),masks=struct.pack('<%di'%chunks,*masks),
+                      ranges=struct.pack('<%di'%len(ranges),*ranges),masks=struct.pack('<%di'%len(masks),*masks),
                       backward=Path(str(meta)+'.backward').read_bytes(),backward_counts=struct.pack('<8i',*backward_counts),
                       backward_ranges=Path(str(meta)+'.backward_ranges').read_bytes(),status=b'\xa5'*512,
                       prefill=Path(str(meta)+'.prefill').read_bytes())
