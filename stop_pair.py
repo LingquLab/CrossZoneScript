@@ -19,14 +19,26 @@ def stop(directory, capture):
     children = json.loads((root / "children.json").read_text())
     for child in children:
         pid = child["pid"]
+        proc = Path(f"/proc/{pid}")
         try:
-            with os.fdopen(os.pidfd_open(pid), "rb") as process:
-                command = (Path(f"/proc/{pid}") / "cmdline").read_bytes()
-                if str(root / f"rank-{child['rank']}").encode() not in command or capture.encode() not in command:
+            stat = (proc / "stat").read_text().rsplit(")", 1)[1].split()
+            command = (proc / "cmdline").read_bytes()
+            if str(root / f"rank-{child['rank']}").encode() not in command or capture.encode() not in command:
+                continue
+            if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"):
+                descriptor = os.pidfd_open(pid)
+                try:
+                    if (proc / "stat").read_text().rsplit(")", 1)[1].split()[19] != stat[19]:
+                        continue
+                    signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+                finally:
+                    os.close(descriptor)
+            else:
+                if int(stat[2]) != pid or (proc / "stat").read_text().rsplit(")", 1)[1].split()[19] != stat[19]:
                     continue
-                signal.pidfd_send_signal(process.fileno(), signal.SIGTERM)
-                return {"status": "signaled_one_own_rank"}
-        except ProcessLookupError:
+                os.kill(pid, signal.SIGTERM)
+            return {"status": "signaled_one_own_rank"}
+        except (FileNotFoundError, ProcessLookupError):
             continue
     return {"status": "no_matching_rank"}
 
