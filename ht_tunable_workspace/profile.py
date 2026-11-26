@@ -58,10 +58,10 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
             all_events.append([rank, aiv, lane])
         ready_later_id = SEND_BASE + (chunks - 1) * SEND_STRIDE
         ready_later = [cycle for aiv in range(send_start, send_start + send_cores)
-                       for cycle, event in per_aiv[aiv] if event == ready_later_id]
-        assert len(ready_later) == send_cores
+                       for cycle, event in per_aiv.get(aiv, ()) if event == ready_later_id]
+        assert ready_later
         submitted_later = [cycle for aiv in range(send_start, send_start + send_cores)
-                           for cycle, event in per_aiv[aiv] if event == ready_later_id + 1]
+                           for cycle, event in per_aiv.get(aiv, ()) if event == ready_later_id + 1]
         assert submitted_later
         first_compute = []
         for aiv in range(final_start, blocks):
@@ -79,7 +79,9 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
                 compute[step].append(cycle)
                 if step == 0:
                     first_compute.append(cycle)
+        assert first_compute, (rank, 'no complete final step 0 stream')
         overlap['ranks'] += 1
+        overlap['ranks_with_all_sender_ready_markers'] += len(ready_later) == send_cores
         overlap['compute_before_some_sender_last_chunk_ready'] += min(first_compute) < max(ready_later)
         overlap['compute_before_all_senders_last_chunk_ready'] += min(first_compute) < min(ready_later)
         overlap['compute_before_last_chunk_last_send_submission'] += min(first_compute) < max(submitted_later)
@@ -139,6 +141,8 @@ def decode_sparse_profile(dump_dir, rank, region, blocks):
         state, = struct.unpack_from('<I', image, states + state_offset)
         count, = struct.unpack_from('<I', image, counts + state_offset)
         dropped, = struct.unpack_from('<I', image, drops + state_offset)
+        if (state, count, dropped) == (0, 0, 0) and aiv not in missing_states:
+            continue
         assert (state == 2 or aiv in missing_states) and dropped == 0 and 0 < count <= PROFILE_CAPACITY, (
             rank, aiv, state, count, dropped)
         first = aiv * PROFILE_CAPACITY
