@@ -38,7 +38,8 @@ def main():
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     if 'stop_at_us' in args:
-        assert (action, tokens, attempt, args.get('profiling')) == ('local-return', 4, 2, True)
+        expected_attempt = 4 if args.get('ready_probe') else 2
+        assert (action, tokens, attempt, args.get('profiling')) == ('local-return', 4, expected_attempt, True)
         assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 200
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if action == 'status':
@@ -55,7 +56,10 @@ def main():
         wait_seconds = args['after']['max_wait_seconds']
         assert type(wait_seconds) is int and 60 <= wait_seconds <= 7200
         remote_seconds += wait_seconds + 30
-    if 'memory_gib' in args or 'wait_for_idle_seconds' in args:
+    if args.get('ready_probe'):
+        assert 'stop_at_us' in args and 30 <= args['wait_for_idle_seconds'] <= 800
+        remote_seconds += 215 + args['wait_for_idle_seconds']
+    elif 'memory_gib' in args or 'wait_for_idle_seconds' in args:
         wait = args['wait_for_idle_seconds']
         assert type(wait) is int and 30 <= wait <= 600
         assert args['memory_gib'] == 64 and action == 'batch'

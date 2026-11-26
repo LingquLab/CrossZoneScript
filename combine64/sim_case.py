@@ -240,13 +240,14 @@ def bind_return_probe(case):
     write_json(case / 'workload.yml', workload)
 
 
-def observe_local_return(case, environment):
+def observe_local_return(case, environment, ready_probe):
     from addressed_exports import reconstruct_die_output
     from return_case import local_slot
     from collections import Counter
     layout = read_json(case / 'export-layout.json')
     observations = {name: Counter() for name in ('status', 'local_ready', 'gateway_ready', 'sq_head', 'sq_tail')}
     missing = Counter()
+    trace = {key: Counter() for key in ('ctor', 'stage', 'raw', 'mask', 'step')}
     decoder = Path(environment['decoder_library'])
     for row in layout['ranks']:
         rank = row['rank']
@@ -264,11 +265,17 @@ def observe_local_return(case, environment):
                            for peer in range(rank // 8 * 8, rank // 8 * 8 + 8) if peer != rank]
             elif name == 'status':
                 offsets = [lane * 32 for lane in range(8)]
+                if ready_probe:
+                    for index, histogram in enumerate(trace.values(), 1):
+                        histogram.update(struct.unpack_from('<I', data, offset + index * 4)[0] for offset in offsets)
             else:
                 offsets = [i for i in range(0, len(data), 8)]
             size = '<q' if name.endswith('ready') else '<I'
             histogram.update(struct.unpack_from(size, data, offset)[0] for offset in offsets)
-    return dict(probe_histograms=observations, probe_missing_ranks=missing)
+    report = dict(probe_histograms=observations, probe_missing_ranks=missing)
+    if ready_probe:
+        report['readiness_trace'] = trace
+    return report
 
 
 def main(config):
@@ -277,9 +284,11 @@ def main(config):
     assert read_json(ROOT / 'identity.json')['revision'] == revision
     use_profile = config.get('profiling', False)
     stop_at_us = config.get('diagnostic_stop_us')
+    ready_probe = config.get('ready_probe', False)
     build_file = 'profile-build/build-summary.json' if use_profile else 'build-summary.json'
     build = read_json(ROOT / build_file)
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
+    kernel_build = read_json(ROOT / 'ready-probe-build/build-summary.json') if ready_probe else build
     case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
     assert not case.exists(), 'case_already_exists'
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
@@ -294,7 +303,7 @@ def main(config):
             local_phase(case, asset, action)
         else:
             from return_case import prepare_return_case
-            record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], build), config.get('source_case'), revision))
+            record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], kernel_build), config.get('source_case'), revision))
         if use_profile:
             from profile_case import bind
             if action in ('local-send', 'gateway-reduce'):
@@ -302,14 +311,16 @@ def main(config):
                 (case / 'kernel/inter_server_send.o').write_bytes(linked + bytes(10485760 - len(linked)))
             bind(case, BLOCKS[action])
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
-        record['source_object_sha256'] = digest(object_for(ENTRIES[action], build))
+        record['source_object_sha256'] = digest(object_for(ENTRIES[action], kernel_build))
         if stop_at_us is not None:
             assert action == 'local-return'
             original = read_json(case.parent / 't4-local-return-a1/phase-result.json')
             assert original['status'] in ('timed_out', 'interrupted') or (
                 original['status'] == 'failed' and original.get('returncode') == -9)
-            for key in ('candidate_commit', 'tokens', 'stage', 'routes_sha256',
-                        'kernel_sha256', 'source_object_sha256'):
+            keys = ('candidate_commit', 'tokens', 'stage', 'routes_sha256')
+            if not ready_probe:
+                keys += ('kernel_sha256', 'source_object_sha256')
+            for key in keys:
                 assert original[key] == record[key], key
             record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source='t4-local-return-a1')
             bind_return_probe(case)
@@ -330,7 +341,7 @@ def main(config):
                 record.update(summarize(case, WORLD, BLOCKS[action]))
             record['status'] = 'sst_and_checker_passed'
         else:
-            record.update(observe_local_return(case, env))
+            record.update(observe_local_return(case, env, ready_probe))
             record['status'] = 'diagnostic_snapshot'
     except BaseException as error:
         if record.get('status') not in ('timed_out', 'interrupted'):

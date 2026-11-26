@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 WORK = Path('/work')
 SOURCE = WORK / 'source'
@@ -47,9 +48,42 @@ def run(argv, log):
     return code
 
 
+def stage_ready_probe(target):
+    path = SOURCE / 'src/ep/combine_ht/local_return_worker.h'
+    text = path.read_text()
+    original = '        return WaitGatewayReady(workspace_, a.config, chunk, ready_.Get<int64_t>(), readyThrough_);'
+    assert text.count(original) == 1
+    text = text.replace(original, """        const auto trace = a.status + uint64_t(localPeer_) * 32;
+        Store<uint32_t>(trace + 8, chunk + 1);
+        const auto work = ready_.Get<int64_t>();
+        const auto mask = ReadMagicMask(workspace_ + ReadyOffset(a.config, 0, chunk),
+            a.config.reducerCount, ReadyStride(a.config), a.config.magic, work);
+        Store<uint32_t>(trace + 12, uint32_t(work.GetValue(0)));
+        Store<uint32_t>(trace + 16, uint32_t(mask));
+        return WaitGatewayReady(workspace_, a.config, chunk, work, readyThrough_);""")
+    markers = (
+        ('        SelectLocalPeer(localPeer);', '        Store<uint32_t>(a.status + uint64_t(localPeer_) * 32 + 4, 1);'),
+        ('    __aicore__ Range LoadRange(uint32_t peer, uint32_t, uint32_t chunk)\n    {',
+         '        Store<uint32_t>(a.status + uint64_t(localPeer_) * 32 + 20, 1);'),
+        ('    __aicore__ uint32_t NotifyLocal(uint32_t, uint32_t window)\n    {',
+         '        Store<uint32_t>(a.status + uint64_t(localPeer_) * 32 + 20, 2);'),
+        ('    __aicore__ uint32_t Drain()\n    {',
+         '        Store<uint32_t>(a.status + uint64_t(localPeer_) * 32 + 20, 3);'),
+    )
+    for anchor, marker in markers:
+        assert text.count(anchor) == 1
+        text = text.replace(anchor, anchor + '\n' + marker)
+    (target / path.name).write_text(text)
+
+
 def main():
-    target = WORK / 'profile-build'
+    ready_probe = sys.argv[1:] == ['ready-probe']
+    assert ready_probe or len(sys.argv) == 1
+    target = WORK / ('ready-probe-build' if ready_probe else 'profile-build')
     target.mkdir()
+    if ready_probe:
+        stage_ready_probe(target)
+    entries = {key: value for key, value in ENTRIES.items() if not ready_probe or 'local_return' in key}
     summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
     options = [
         '-xcce', '-O2', '-DCATLASS_ARCH=3510', '--cce-auto-sync', '--cce-aicore-arch=dav-c310-vec',
@@ -69,7 +103,7 @@ def main():
                 SOURCE/'src/moonep/combine_ht/common', SOURCE/'src/moonep/combine_ht/kernels',
                 *(CANN / name for name in tool_include)]
     flags = [*options, *('-I' + str(folder) for folder in includes)]
-    for entry, relative in ENTRIES.items():
+    for entry, relative in entries.items():
         key = entry + '_kernel' if entry == 'tilexr_ht_pipeline_sst' else entry
         original = SOURCE / relative
         wrapper = target / (entry + '.cpp')
@@ -91,7 +125,7 @@ def main():
                              if re.search(r'error:|Error:', line)][:5]
             break
         row.update(sha256=digest(binary), path=str(binary.relative_to(WORK)), bytes=binary.stat().st_size)
-    summary['all_compiled'] = len(summary['targets']) == len(ENTRIES) and all(
+    summary['all_compiled'] = len(summary['targets']) == len(entries) and all(
         row['exit_code'] == 0 for row in summary['targets'].values())
     (target/'build-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     return 0 if summary['all_compiled'] else 1
