@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from decimal import Decimal
@@ -369,12 +369,11 @@ def main(batch, probe_only=False, wait_seconds=120, min_idle_seconds=0):
                 return True
             if idle and consecutive_idle >= min_idle_seconds:
                 return True
-            if time.monotonic() >= deadline or any(
-                row["status"] != "PASS" or row["indeterminate"] for row in brief
-            ):
+            unavailable = any(row["status"] != "PASS" or row["indeterminate"] for row in brief)
+            if now >= deadline or unavailable:
                 print(json.dumps({"status": "BLOCKED", "bs": batch, "package": package,
                                   "reason": "device_preflight", "nodes": brief}, separators=(",", ":")))
-                return False
+                return False if unavailable else None
             time.sleep(min(15, max(0, deadline - time.monotonic())))
 
     # Run a batch as one transaction with four separately archived configurations.
@@ -479,8 +478,9 @@ def main(batch, probe_only=False, wait_seconds=120, min_idle_seconds=0):
             for step in steps:
                 if step == "run":
                     while True:
-                        if not wait_idle(batch, package, deadline):
-                            return False
+                        ready = wait_idle(batch, package, deadline)
+                        if ready is not True:
+                            return "retry" if ready is None else False
                         update_status(package, step, run_id=run_id)
                         in_flight = outcome / "run.in-flight"
                         in_flight.touch(exist_ok=False)
@@ -531,15 +531,31 @@ if __name__ == "__main__":
         assert 1 <= wait_seconds <= 3600
         min_idle_seconds = int(arguments.get("min_idle_seconds", 0))
         assert 0 <= min_idle_seconds < wait_seconds
-        ok = True
-        for batch in batches:
-            for attempt in range(4):
-                result = main(int(batch), arguments.get("probe_only", False), wait_seconds, min_idle_seconds)
-                if result != "retry":
+        monitoring_seconds = int(arguments.get("monitoring_seconds", 0))
+        if monitoring_seconds:
+            assert wait_seconds <= monitoring_seconds <= 14400
+            deadline = time.monotonic() + monitoring_seconds
+            pending = deque(batches)
+            while pending and time.monotonic() < deadline:
+                batch = pending.popleft()
+                result = main(int(batch), False, wait_seconds, min_idle_seconds)
+                if result is False:
+                    pending.appendleft(batch)
                     break
-            if result is not True:
-                ok = False
-                break
+                if result == "retry":
+                    pending.append(batch)
+                    time.sleep(45)
+            ok = not pending
+        else:
+            ok = True
+            for batch in batches:
+                for attempt in range(4):
+                    result = main(int(batch), arguments.get("probe_only", False), wait_seconds, min_idle_seconds)
+                    if result != "retry":
+                        break
+                if result is not True:
+                    ok = False
+                    break
     except Exception as error:
         (RESULT / f"matrix-error-{time.time_ns()}.log").write_text(traceback.format_exc(), encoding="utf-8")
         frame = traceback.extract_tb(error.__traceback__)[-1]
