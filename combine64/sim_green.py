@@ -11,8 +11,7 @@ SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
 SCRIPT_FILES = ('fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py',
                 'profile_capture.h', 'profile_case.py', 'clock_evidence.json', 'inter_snapshot.py')
 STAGES = ('local-send', 'gateway-reduce', 'local-return',
-           'inter-server-send', 'final-independent', 'joint-producer',
-           'final-from-producer', 'joint-final')
+           'inter-server-send', 'final-independent', 'joint-final')
 
 
 
@@ -39,6 +38,8 @@ def main():
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
+    if action == 'status':
+        remote_seconds = 35
     if action == 'profile-build':
         remote_seconds = timeout + 45
     if action == 'batch':
@@ -60,7 +61,8 @@ def main():
         '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3',
         'root@141.61.94.26', f'timeout --kill-after=30 {remote_seconds} python3 -',
     ]
-    stem = logs / f'{action}-t{tokens}-a{attempt}'
+    variant = args.get('start_stage', action) if action == 'batch' else action
+    stem = logs / f'{variant}-t{tokens}-a{attempt}'
     try:
         proc = subprocess.run(ssh, input=code.encode(), capture_output=True, timeout=remote_seconds + 50)
         stem.with_suffix('.stdout').write_bytes(proc.stdout)

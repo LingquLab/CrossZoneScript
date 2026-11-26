@@ -132,32 +132,40 @@ def run_case(root, cid, tools, config):
 
 
 def status(root, args):
-    report = {'root': str(root), 'exists': root.is_dir()}
-    for name in ('progress.json', 'build-summary.json'):
-        path = root / name
-        if path.is_file():
-            report[path.stem] = json_file(path)
+    now = time.time()
+    report = {'root': str(root), 'exists': root.is_dir(), 'unix': now}
+    progress = root / 'progress.json'
+    if progress.is_file():
+        state = json_file(progress)
+        state['age_seconds'] = round(now - state['updated_unix'], 1)
+        report['progress'] = state
     tokens, attempt = args['tokens'], args['attempt']
-    batch = root / 'hapi-logs' / f't{tokens}-batch-a{attempt}.json'
-    if batch.is_file():
-        report['batch'] = json_file(batch)
-    stage = args.get('status_for')
-    if stage in STAGES:
+    reports = []
+    for stage in STAGES:
         case = root / 'cases' / f't{tokens}-{stage}-a{attempt}'
-        for name in ('phase-result.json', 'run.json'):
-            path = case / name
-            if path.is_file():
-                run = json_file(path)
-                report[path.stem] = {key: run[key] for key in REPORT_FIELDS if key in run}
+        path = case / 'phase-result.json'
+        if path.is_file():
+            run = json_file(path)
+            reports.append({key: run[key] for key in REPORT_FIELDS if key in run})
+        elif (case / 'run.json').is_file():
+            run = json_file(case / 'run.json')
+            row = {key: run[key] for key in REPORT_FIELDS if key in run}
+            row['sst_elapsed_seconds'] = round(now - run['started_unix'], 1)
+            log = case / 'sim.log'
+            if log.is_file():
+                st = log.stat()
+                row.update(log_bytes=st.st_size, log_age_seconds=round(now - st.st_mtime, 1))
+            row['sst_has_exited'] = run.get('returncode') is not None
+            reports.append(row)
+    report['cases'] = reports
     return report
-
 
 def run_batch(root, cid, tools, config, args):
     tokens, attempt = config['tokens'], config['attempt']
     logs = root / 'hapi-logs'
     logs.mkdir(exist_ok=True)
-    journal = logs / f't{tokens}-batch-a{attempt}.json'
     start = STAGES.index(args.get('start_stage', STAGES[0]))
+    journal = logs / f't{tokens}-batch-{STAGES[start]}-a{attempt}.json'
     end = STAGES.index(args.get('end_stage', STAGES[-1]))
     assert start <= end, 'invalid_stage_interval'
     reports = []
@@ -166,8 +174,6 @@ def run_batch(root, cid, tools, config, args):
     stage_timeouts = args.get('stage_timeouts', {})
     for action in STAGES[start:end + 1]:
         point = dict(config, action=action, timeout=stage_timeouts.get(action, config['timeout']))
-        if action == 'final-from-producer':
-            point['source_case'] = args.get('source_case') or f't{tokens}-joint-producer-a{attempt}'
         reports.append(run_case(root, cid, tools, point))
         pending = journal.with_suffix('.tmp')
         pending.write_text(json.dumps(reports, indent=2) + '\n')

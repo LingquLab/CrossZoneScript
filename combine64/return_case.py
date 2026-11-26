@@ -11,13 +11,13 @@ import sys
 from fixture import DiskImages, GUARD
 from sim_case import BLOCKS, ENTRIES, FINAL_CORES, MAGIC, REDUCERS, SOURCE, STRIPE, SUPPORT, WORLD
 
-LOCAL_WS, RETURN_WS = 0x200000000, 0x220000000
+WORKSPACE = 0x200000000
 LOCAL_RESOURCES = {
     'localComm': 0x2FF100000, 'localInfo': 0x300080000, 'localRegistry': 0x3000A0000,
     'localSq': 0x317000000, 'localCq': 0x318000000, 'localMem': 0x319000000,
 }
 EXTRA = {
-    'localWorkspace': 0x470000000, 'localStatus': 0x40B000000, 'serverMask': 0x40C000000,
+    'serverMask': 0x40C000000,
     'returnForward': 0x40D000000, 'output': 0x40E000000, 'prefill': 0x405000000,
     'masks': 0x406000000, 'backward': 0x407000000, 'backward_counts': 0x408000000,
     'backward_ranges': 0x409000000,
@@ -36,7 +36,7 @@ def send_config(abi):
     fields = [dict(field, name=field['name'].split('.', 1)[1], offset=field['offset'] - 48)
               for field in abi['fields'][6:]]
     from loader import pack_arguments
-    return {field['name']: field['value'] for field in fields}, pack_arguments(fields, 112)[0]
+    return {field['name']: field['value'] for field in fields}, pack_arguments(fields, abi['config_size'])[0]
 
 
 def station_gold(routes, rank, tokens, local_only):
@@ -80,7 +80,7 @@ def local_communication(runtime, images, abi, local_bytes, base):
             at = slot * width
             entry = model_memory[at:at + width]
             struct.pack_into('<I', entry, 16, (local_bytes + 2097151) // 2097152 * 2097152)
-            struct.pack_into('<Q', entry, 24, peer * runtime.GM_BYTES + LOCAL_WS)
+            struct.pack_into('<Q', entry, 24, peer * runtime.GM_BYTES + WORKSPACE)
             model_memory[at:at + width] = entry
             for output, name, size in ((sq, 'sq_ctx', control['sq_bytes']), (cq, 'cq_ctx', control['cq_bytes'])):
                 output.extend(images[name][slot * size:(slot + 1) * size])
@@ -91,7 +91,7 @@ def local_communication(runtime, images, abi, local_bytes, base):
     struct.pack_into('<I', comm, 16, 0x400 | 0x1000)
     registry = bytearray(images['registry'])
     for peer in range(WORLD):
-        address = peer * runtime.GM_BYTES + LOCAL_WS
+        address = peer * runtime.GM_BYTES + WORKSPACE
         struct.pack_into('<Q', comm, control['comm_peer_mems'] + peer * 8, address)
         struct.pack_into('<QQ', registry, control['registry_regions'] + peer * 16, address, local_bytes)
     struct.pack_into('<Q', comm, control['comm_peer_bytes'], local_bytes)
@@ -129,7 +129,8 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
     local = action == 'local-return'
     remote = action == 'inter-server-send'
     from_producer = action == 'final-from-producer'
-    tokens = read_json(asset / 'identity.json')['tokens']
+    identity = read_json(asset / 'identity.json')
+    tokens, chunks, groups = (identity[key] for key in ('tokens', 'chunks', 'groups'))
     routes = read_json(asset / 'routes.json')
     assert len(routes) == WORLD * tokens
     if from_producer:
@@ -159,53 +160,63 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
         rows = WORLD * tokens * 6
         abi = json.loads(subprocess.check_output([
             str(asset / 'abi-probe'), str(rank), str(tokens), '128', '6', str(rows), str(rows),
-            str(MAGIC), '-', '64', str(REDUCERS),
+            str(MAGIC), '-', '64', str(REDUCERS), str(tokens // chunks), '1', '16', '1', '1',
         ]))
         cfg, config_bytes = send_config(abi)
-        assert (cfg['rank'], cfg['chunks'], cfg['reducerCount'], abi['forward_record_words']) == (rank, 4, REDUCERS, 8)
+        assert (cfg['rank'], cfg['chunks'], cfg['groups'], cfg['reducerCount'], abi['forward_record_words']) == (
+            rank, chunks, groups, REDUCERS, 8)
         base = rank * runtime.GM_BYTES
         addresses = dict(runtime.BASES, **EXTRA)
-        local_ready = cfg['workspaceBytes']
-        return_bytes = local_ready + (8 + WORLD) * STRIPE
-        ret_address = RETURN_WS if joint else runtime.BASES['workspace']
-        if joint:
-            addresses.update(LOCAL_RESOURCES, returnWorkspace=RETURN_WS)
-            runtime.BASES['workspace'] = RETURN_WS
-        try:
-            images = runtime.runtime_images(abi, rank, return_bytes, world=WORLD)
-        finally:
-            runtime.BASES['workspace'] = LOCAL_WS
+        local_ready, local_signal, _, local_offset, joint_bytes = struct.unpack_from(
+            '<5Q', (asset / 'metadata' / f'{rank_name}.pipeline_layout').read_bytes(), 72 + len(config_bytes))
+        assert local_ready == cfg['workspaceBytes']
+        ready_stride = (groups * chunks * 8 + STRIPE - 1) // STRIPE * STRIPE
+        local_stride = (chunks * 8 + STRIPE - 1) // STRIPE * STRIPE
+        assert local_signal == local_ready + 8 * local_stride
+        return_bytes = joint_bytes if joint else local_signal + 8 * STRIPE
+        ret_address = addresses['workspace']
+        images = runtime.runtime_images(abi, rank, return_bytes, world=WORLD)
+        if joint or local:
+            addresses.update(LOCAL_RESOURCES)
+            helper_memory = local_communication(runtime, images, abi, return_bytes, base)
         initial = bytearray(return_bytes)
         inp = (local_input / 'input.bin').read_bytes()
         partial = (local_golden / 'golden-output.bin').read_bytes()
         assert len(inp) == len(partial) == rows * STRIPE
         initial[:len(inp)] = inp
-        initial_partial = GUARD * (len(partial) // 4)
-        initial[cfg['partialOffset']:cfg['readyOffset']] = initial_partial if joint else partial
+        initial[cfg['partialOffset']:cfg['readyOffset']] = GUARD * (len(partial) // 4) if joint else partial
         returned, mask, final_output = station_gold(routes, rank, tokens, local)
-        initial_returned = GUARD * (len(returned) // 4)
-        initial[cfg['returnOffset']:cfg['signalOffset']] = initial_returned
-        completion = bytearray(cfg['returnOffset'] - cfg['readyOffset'])
+        initial[cfg['returnOffset']:cfg['signalOffset']] = GUARD * (len(returned) // 4)
+        ready = bytearray(REDUCERS * ready_stride)
         for reducer in range(REDUCERS):
-            struct.pack_into('<qq', completion, reducer * STRIPE, MAGIC, cfg['chunks'])
+            for stage in range(chunks * groups):
+                struct.pack_into('<q', ready, reducer * ready_stride + stage * 8, MAGIC)
+        assert len(ready) == cfg['completionOffset'] - cfg['readyOffset']
+        completion = bytearray(cfg['returnOffset'] - cfg['completionOffset'])
         if not local:
             for gateway in range(WORLD):
                 if gateway // 8 != rank // 8:
-                    slot = REDUCERS + (gateway * cfg['chunks'] + cfg['chunks'] - 1) * 2
-                    for lane in range(2):
-                        struct.pack_into('<q', completion, (slot + lane) * STRIPE, MAGIC)
-        flags = bytearray(8 * STRIPE)
+                    for chunk in range(chunks):
+                        for lane in range(2):
+                            slot = (gateway * chunks + chunk) * 2 + lane
+                            struct.pack_into('<q', completion, slot * STRIPE, MAGIC)
+        flags = bytearray(8 * local_stride)
         for gateway in range(8):
-            struct.pack_into('<q', flags, gateway * STRIPE, MAGIC)
+            for chunk in range(chunks):
+                struct.pack_into('<q', flags, gateway * local_stride + chunk * 8, MAGIC)
+        schedule = (asset / 'metadata' / f'{rank_name}.schedule').read_bytes()
+        assert len(schedule) == cfg['workspaceBytes'] - cfg['scheduleOffset']
+        initial[cfg['scheduleOffset']:cfg['workspaceBytes']] = schedule
+        if local or remote or final:
+            initial[cfg['readyOffset']:cfg['completionOffset']] = ready
         if remote:
-            initial[cfg['readyOffset']:cfg['completionOffset']] = completion[:REDUCERS * STRIPE]
             for token in range(tokens):
                 start = (token * 8 + rank // 8) * STRIPE
                 initial[cfg['returnOffset'] + start:cfg['returnOffset'] + start + STRIPE] = returned[start:start + STRIPE]
             initial[local_ready:local_ready + len(flags)] = flags
         if final:
             for field, offset, reference in (('returned', cfg['returnOffset'], returned),
-                                              ('completed', cfg['readyOffset'], completion),
+                                              ('completed', cfg['completionOffset'], completion),
                                               ('local_ready', local_ready, flags)):
                 payload = (predecessor / 'actual' / rank_name / f'{field}.bin').read_bytes() if from_producer else reference
                 assert payload == reference, (rank, field, 'predecessor_mismatch')
@@ -220,7 +231,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
             exports[name] = {'addr': base + address, 'size': len(expected)}
 
         images.update(serverMask=mask, output=b'\xa5' * len(final_output))
-        images['returnWorkspace' if joint else 'workspace'] = initial
+        images['workspace'] = initial
         for name in ('counts', 'ranges'):
             images[name] = (local_input / (name + '.bin')).read_bytes()
         forward = (local_input / 'forward.bin').read_bytes()
@@ -228,61 +239,61 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
         images['returnForward' if joint else 'forward'] = return_forward
         pointer = lambda name: base + addresses[name]
         export('returned', ret_address + cfg['returnOffset'], returned)
-        export('completed', ret_address + cfg['readyOffset'], completion)
+        export('gateway_ready', ret_address + cfg['readyOffset'], ready)
+        export('completed', ret_address + cfg['completionOffset'], completion)
         export('local_ready', ret_address + local_ready, flags)
-        regions = {'returnWorkspace' if joint else 'workspace': return_bytes}
+        regions = {'workspace': return_bytes}
         out_status = None if joint else success_status(512, BLOCKS[action])
         args = None
         if joint:
             local_ws = (local_input / 'workspace.bin').read_bytes()
-            helper_memory = local_communication(runtime, images, abi, len(local_ws), base)
-            old_args = (local_input / 'kernel_args.bin').read_bytes()
+            raw_local = bytearray((local_input / 'kernel_args.bin').read_bytes())
+            gather_offset, partial_offset, _, _, schedule_offset = struct.unpack_from('<5Q', raw_local, 208)
+            assert return_bytes == local_offset + partial_offset
+            initial[local_offset:] = local_ws[:partial_offset]
             helper_file = temporary / rank_name
-            config = bytearray(old_args[112:164])
-            struct.pack_into('<I', config, 36, 24)
-            Path(str(helper_file) + '.config').write_bytes(config)
+            Path(str(helper_file) + '.config').write_bytes(raw_local[112:180])
             Path(str(helper_file) + '.native_mem_info').write_bytes(helper_memory)
             for name in ('masks', 'backward', 'backward_counts', 'backward_ranges'):
                 images[name] = (local_input / (name + '.bin')).read_bytes()
                 if name in ('backward', 'backward_counts'):
                     Path(str(helper_file) + '.' + name).write_bytes(images[name])
-            subprocess.run([str(asset / 'prefill-tool'), str(helper_file), str(RETURN_WS)], check=True)
-            images.update(workspace=local_ws, forward=forward, prefill=Path(str(helper_file) + '.prefill').read_bytes())
-            raw_local = bytearray(Path(str(helper_file) + '.args').read_bytes())
-            for offset, name in ((88, 'localComm'), (96, 'localInfo'), (104, 'localRegistry')):
-                struct.pack_into('<Q', raw_local, offset, pointer(name))
-            send_args = struct.pack('<6Q', pointer('commArgs'), pointer('returnWorkspace'),
+            subprocess.run([str(asset / 'prefill-tool'), str(helper_file)], check=True)
+            images.update(forward=forward, prefill=Path(str(helper_file) + '.joint_prefill').read_bytes())
+            for offset, value in ((0, pointer('workspace') + local_offset),
+                                  (8, pointer('workspace') + cfg['inputOffset']),
+                                  (88, pointer('localComm')), (96, pointer('localInfo')),
+                                  (104, pointer('localRegistry')), (280, local_offset)):
+                struct.pack_into('<Q', raw_local, offset, value)
+            bound_config = bytearray(config_bytes)
+            struct.pack_into('<Q', bound_config, 64, local_offset + schedule_offset)
+            send_args = struct.pack('<6Q', pointer('commArgs'), pointer('workspace'),
                                     pointer('returnForward'), pointer('counts'), pointer('ranges'),
-                                    base + status_addr + 2 * STRIPE) + config_bytes
-            args = raw_local + send_args + struct.pack('<5Q2I', base + status_addr + STRIPE, pointer('serverMask'),
-                pointer('output'), base + status_addr + 3 * STRIPE, local_ready, FINAL_CORES, int(not producer))
-            assert len(args) == 456
+                                    base + status_addr + 2 * STRIPE) + bound_config
+            args = raw_local + send_args + struct.pack('<6Q4I', base + status_addr + STRIPE, pointer('serverMask'),
+                pointer('output'), base + status_addr + 3 * STRIPE, local_ready, local_signal,
+                0, 1, FINAL_CORES, int(not producer))
+            assert len(args) == 544
             local_status = success_status(512, 8, 4)
             local_status[24 * 4:32 * 4] = bytes(8 * 4)
             out_status = local_status + success_status(512, 8) + success_status(512, 16) + success_status(512, 0 if producer else FINAL_CORES)
-            gather_offset = struct.unpack_from('<Q', old_args, 192)[0]
-            export('gather', LOCAL_WS + gather_offset, (local_golden / 'golden-returned.bin').read_bytes())
-            export('partial', RETURN_WS + cfg['partialOffset'], partial)
+            export('gather', WORKSPACE + local_offset + gather_offset, (local_golden / 'golden-returned.bin').read_bytes())
+            export('partial', WORKSPACE + cfg['partialOffset'], partial)
             export('output', addresses['output'], images['output'] if producer else final_output)
-            regions.update(workspace=len(local_ws), output=len(final_output))
+            regions['output'] = len(final_output)
         elif local:
-            local_ws = bytearray((local_input / 'workspace.bin').read_bytes())
-            progress_offset = (3 * WORLD + 96 + cfg['chunks'] * 8) * STRIPE
-            for reducer in range(REDUCERS):
-                struct.pack_into('<I', local_ws, progress_offset + reducer * STRIPE, cfg['chunks'])
-            images.update(localWorkspace=local_ws, localStatus=success_status(512, 8, 4))
-            args = struct.pack('<8Q', *(pointer(name) for name in ('commArgs', 'workspace', 'localWorkspace',
-                'forward', 'counts', 'ranges', 'localStatus', 'status'))) + config_bytes
-            args += struct.pack('<2Q2I', progress_offset, local_ready, cfg['chunks'], REDUCERS)
-            assert len(args) == 200
+            args = struct.pack('<7Q', *(pointer(name) for name in ('localInfo', 'localRegistry', 'workspace',
+                'forward', 'counts', 'ranges', 'status'))) + config_bytes
+            args += struct.pack('<2Q4I', local_ready, local_signal, rank // 8 * 8, 0, 1, 0)
+            assert len(args) == 232
         elif remote:
             args = struct.pack('<6Q', *(pointer(name) for name in ('commArgs', 'workspace', 'forward',
                 'counts', 'ranges', 'status'))) + config_bytes
-            assert len(args) == 160
+            assert len(args) == 192
         else:
             args = struct.pack('<5Q', pointer('workspace'), pointer('serverMask'), pointer('workspace') + local_ready,
                                pointer('output'), pointer('status')) + config_bytes
-            assert len(args) == 152
+            assert len(args) == 184
             export('output', addresses['output'], final_output)
             regions['output'] = len(final_output)
         images['status'] = b'\xa5' * len(out_status)
