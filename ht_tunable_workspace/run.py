@@ -30,7 +30,9 @@ assert not (profile and mode == 'direct')
 case = f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32' + (f'-{mode}' if mode else '') + ('-profile' if profile else '')
 ends = chunk_ends(tokens)
 step_ends = [ends[index] for index in sync_steps(tokens, mode)]
-timeout = {4: 1200, 32: 6000, 1024: 54000}[tokens]
+timeout = {4: 1200, 32: 6000, 1024: 108000}[tokens]
+adapter_margin = 1800 if tokens == 1024 else 90
+transport_margin = 3600 if tokens == 1024 else 250
 prefix = (root / 'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
 if options.get('cq') or options.get('direct_activity'):
     evidence = (shared / 'queue_trace.py').read_text().split('\ndef queue_trace(', 1)[0]
@@ -60,6 +62,14 @@ elif options.get('recover_profile'):
                         "    frame = traceback.extract_tb(error.__traceback__)[-1]",
                         "    result = dict(status='recovery_failed', error_type=type(error).__name__, detail=str(error), function=frame.name, line=frame.lineno)",
                         "print(json.dumps(result, separators=(',', ':')))"))
+elif options.get('capacity'):
+    source = prefix + r'''
+import os
+memory = Path('/proc/meminfo').read_text()
+available_kib = next(int(line.split()[1]) for line in memory.splitlines() if line.startswith('MemAvailable:'))
+print(json.dumps(dict(available_cpu_count=len(os.sched_getaffinity(0)), available_memory_kib=available_kib,
+                      available_storage_bytes=shutil.disk_usage(MOUNT).free)))
+'''
 elif options.get('suite_status'):
     assert profile
     suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile'
@@ -163,7 +173,7 @@ else:
             compile(runner, '<timed-sst-adapter>', 'exec')
             target.write_text(runner)''')
     phase = (root / 'ht_four_stage/local_phases.py').read_text().replace('"--timeout", "540"', f'"--timeout", "{timeout}"').replace(
-        'timeout=600)', f'timeout={timeout + 90})')
+        'timeout=600)', f'timeout={timeout + adapter_margin})')
     modules = {'config': (shared / 'config.py').read_text(), 'route': (shared / 'route.py').read_text(),
                'shared_fixture': (shared / 'fixture.py').read_text(),
                'runtime': (here / 'runtime.py').read_text()}
@@ -237,9 +247,9 @@ if options.get('check_only'):
 ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o',
        'BatchMode=no', '-o', 'NumberOfPasswordPrompts=1', '-o',
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
-transport_timeout = 700 if options.get('recover_profile') else timeout + 250
-if any(options.get(key) for key in ('status', 'suite_status', 'cq', 'direct_activity', 'read_profile')):
-    transport_timeout = 120
+transport_timeout = 700 if options.get('recover_profile') else timeout + transport_margin
+if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'cq', 'direct_activity', 'read_profile')):
+    transport_timeout = 900 if tokens == 1024 and (options.get('cq') or options.get('read_profile')) else 120
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
                             timeout=transport_timeout)
