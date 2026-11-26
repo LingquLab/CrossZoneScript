@@ -164,6 +164,26 @@ def run_case(root, cid, tools, config):
     return summary
 
 
+def log_state(log):
+    if not log.is_file():
+        return {}
+    summary = {}
+    st = log.stat()
+    summary.update(log_bytes=st.st_size, log_age_seconds=round(time.time() - st.st_mtime, 1))
+    with log.open('rb') as feed:
+        feed.seek(max(0, st.st_size - 524288))
+        tail = feed.read(524288).decode(errors='replace')
+    for key, pattern in (
+        ('last_sim_cycle', r'Sim: ([0-9]+)[(]cycle[)]'),
+        ('last_cq_cycle', r'Sim: ([0-9]+)[(]cycle[)][^\n]*WrCQEResp'),
+    ):
+        observed = re.findall(pattern, tail)
+        if observed:
+            summary[key] = int(observed[-1])
+    summary['simulation_complete_marker'] = 'Simulation is complete, simulated time:' in tail
+    return summary
+
+
 def status(root, args):
     report = {'root': str(root), 'exists': root.is_dir(), 'unix': time.time()}
     progress = root / 'progress.json'
@@ -185,25 +205,15 @@ def status(root, args):
         path = case / 'phase-result.json'
         if path.is_file():
             run = json_file(path)
-            reports.append({key: run[key] for key in REPORT_FIELDS if key in run})
+            row = {key: run[key] for key in REPORT_FIELDS if key in run}
+            if run['status'] != 'sst_and_checker_passed':
+                row.update(log_state(case / 'sim.log'))
+            reports.append(row)
         elif (case / 'run.json').is_file():
             run = json_file(case / 'run.json')
             row = {key: run[key] for key in REPORT_FIELDS if key in run}
             row['sst_elapsed_seconds'] = round(time.time() - run['started_unix'], 1)
-            log = case / 'sim.log'
-            if log.is_file():
-                st = log.stat()
-                row.update(log_bytes=st.st_size, log_age_seconds=round(time.time() - st.st_mtime, 1))
-                with log.open('rb') as feed:
-                    feed.seek(max(0, st.st_size - 524288))
-                    tail = feed.read(524288).decode(errors='replace')
-                for key, pattern in (
-                    ('last_sim_cycle', r'Sim: ([0-9]+)[(]cycle[)]'),
-                    ('last_cq_cycle', r'Sim: ([0-9]+)[(]cycle[)][^\n]*WrCQEResp'),
-                ):
-                    observed = re.findall(pattern, tail)
-                    if observed:
-                        row[key] = int(observed[-1])
+            row.update(log_state(case / 'sim.log'))
             row['sst_has_exited'] = run.get('returncode') is not None
             pid = run.get('pid')
             if cid and type(pid) is int and not row['sst_has_exited']:
@@ -437,7 +447,8 @@ def main(args):
             variants = [(8, 1, origin)]
             variants.extend((i, p, SESSION_ROOT / f'run-{candidate}-i{i}-p{p}') for i, p in ((4, 1), (4, 2), (8, 2)))
             reports = [dict(status(path, args), intra_cores=i, peer_slots=p) for i, p, path in variants]
-            result = dict(variants=reports)
+            result = dict(variants=reports, available_cpus=len(os.sched_getaffinity(0)),
+                          load_average=os.getloadavg())
         else:
             result = status(root, args)
         print(json.dumps(result, separators=(',', ':')))
