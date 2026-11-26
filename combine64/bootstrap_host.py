@@ -21,6 +21,7 @@ REVISIONS = {
     'b6b968a': 'b6b968a562ab5a3a762ecedfd3e4c45b545f5b55',
     'e30fad2': 'e30fad2e8f01c90d4d0aa5cfa5d2cf6e4c881ac1',
     '1369e1b': '1369e1b5762b7054e6b12cb29fbccebe4193e2cd',
+    '5143097': '51430979624668e1100f2a00ee6c8413746612a5',
 }
 
 
