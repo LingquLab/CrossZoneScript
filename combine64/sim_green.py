@@ -46,6 +46,8 @@ def main():
     if args.get('cq_probe'):
         assert (action, args['intra_cores'], args['peer_slots']) == ('joint-final', 4, 2)
         assert 'stop_at_us' in args
+    if args.get('all_local_cq'):
+        assert args.get('cq_probe')
     if args.get('joint_probe'):
         assert action == 'joint-final' and 'stop_at_us' in args
     if 'stalled_cq_cycle' in args:

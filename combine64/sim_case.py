@@ -241,7 +241,15 @@ CQ_PROBE_QUEUES = ((2, 0, 16), (2, 1, 36), (4, 0, 16), (4, 1, 36), (1, 2, 17), (
                    (5, 2, 17), (5, 3, 37), (8, 9, 36), (11, 8, 16), (11, 9, 36))
 
 
-def bind_return_probe(case, cq_probe=False, joint_probe=False):
+def cq_probe_queues(rank, all_local):
+    if not all_local:
+        return [(peer, slot) for sender, peer, slot in CQ_PROBE_QUEUES if sender == rank]
+    from return_case import local_slot
+    begin = rank // 8 * 8
+    return [(peer, local_slot(peer - begin)) for peer in range(begin, begin + 8) if peer != rank]
+
+
+def bind_return_probe(case, cq_probe=False, joint_probe=False, all_local_cq=False):
     from runtime import BASES, WORLD, PHYSICAL_QPS, physical_queue_addresses
     layout = read_json(case / 'export-layout.json')
     workload = read_json(case / 'workload.yml')
@@ -264,10 +272,8 @@ def bind_return_probe(case, cq_probe=False, joint_probe=False):
             row['exports'][name] = segment
             chip['output_param'][name] = segment
         if cq_probe:
-            for rank, peer, slot in CQ_PROBE_QUEUES:
-                if rank != row['rank']:
-                    continue
-                physical = physical_queue_addresses(rank, peer, slot)
+            for peer, slot in cq_probe_queues(row['rank'], all_local_cq):
+                physical = physical_queue_addresses(row['rank'], peer, slot)
                 for prefix in ('sq', 'cq'):
                     name = f'{prefix}-{peer}-{slot}'
                     segment = dict(addr=physical[prefix], size=1536)
@@ -395,7 +401,8 @@ def observe_joint(case, environment, intra_cores, joint_probe=False):
     return result
 
 
-def observe_cq(case, environment):
+def observe_cq(case, environment, all_local=False):
+    from collections import Counter
     from addressed_exports import read_die_stripe, reconstruct_die_output
     layout = read_json(case / 'export-layout.json')
     decoder = Path(environment['decoder_library'])
@@ -415,28 +422,40 @@ def observe_cq(case, environment):
         return read_die_stripe(sources, address, 64, decoder)
 
     samples = []
-    for rank, peer, slot in CQ_PROBE_QUEUES:
-        sample = dict(rank=rank, peer=peer, slot=slot)
-        offset = (peer * 40 + slot) * 64
-        for name in ('sq_head', 'sq_tail', 'cq_tail'):
-            sample[name] = struct.unpack_from('<I', read(rank, name), offset)[0]
-        try:
-            index = sample['cq_tail']
-            if index < 1536 // 64:
-                words = struct.unpack_from('<2I', entry(rank, f'cq-{peer}-{slot}', index))
-                sample.update(cq_next_owner=(words[0] >> 2) & 1, cq_next_status=words[0] >> 16,
-                              cq_next_sq_index=words[1] & 0xFFFF)
-        except (FileNotFoundError, ValueError):
-            sample['cq_dump_missing'] = True
-        try:
-            index = sample['sq_head'] - 1
-            if 0 <= index < 1536 // 64:
-                payload = entry(rank, f'sq-{peer}-{slot}', index)
-                sample.update(sq_last_nonzero=any(payload))
-        except (FileNotFoundError, ValueError):
-            sample['sq_dump_missing'] = True
-        samples.append(sample)
-    return dict(cq_samples=samples)
+    counts = Counter()
+    for rank in range(len(layout['ranks'])):
+        selected = cq_probe_queues(rank, all_local)
+        if not selected:
+            continue
+        names = ('sq_head', 'sq_tail', 'cq_tail')
+        state = [read(rank, name) for name in names]
+        for peer, slot in selected:
+            offset = (peer * 40 + slot) * 64
+            head, tail, completion = [struct.unpack_from('<I', data, offset)[0] for data in state]
+            if all_local and head == tail:
+                counts['drained'] += 1
+                continue
+            sample = dict(rank=rank, peer=peer, slot=slot, sq_head=head, sq_tail=tail, cq_tail=completion)
+            if completion >= 1536 // 64:
+                counts['next_entry_outside_export'] += 1
+            else:
+                try:
+                    words = struct.unpack_from('<2I', entry(rank, f'cq-{peer}-{slot}', completion))
+                    owner, error, entry_idx = (words[0] >> 2) & 1, words[0] >> 16, words[1] & 0xFFFF
+                    sample.update(cq_next_owner=owner, cq_next_status=error, cq_next_sq_index=entry_idx)
+                    counts['cq_present' if owner else 'cq_old_owner'] += 1
+                except (FileNotFoundError, ValueError):
+                    counts['cq_dump_missing'] += 1
+                    sample['cq_dump_missing'] = True
+            if 0 < head <= 1536 // 64:
+                try:
+                    payload = entry(rank, f'sq-{peer}-{slot}', head - 1)
+                    sample.update(sq_last_nonzero=any(payload), sq_last_length=struct.unpack_from('<I', payload, 48)[0])
+                except (FileNotFoundError, ValueError):
+                    sample['sq_dump_missing'] = True
+            if len(samples) < 16:
+                samples.append(sample)
+    return dict(cq_samples=samples, cq_frontiers=counts)
 
 
 def main(config):
@@ -448,6 +467,7 @@ def main(config):
     ready_probe = config.get('ready_probe', False)
     joint_probe = config.get('joint_probe', False)
     cq_probe = config.get('cq_probe', False)
+    all_local_cq = config.get('all_local_cq', False)
     intra_cores = config.get('intra_cores', 8)
     peer_slots = config.get('peer_slots', 1)
     blocks = block_count(action, intra_cores)
@@ -493,7 +513,7 @@ def main(config):
             for key in keys:
                 assert original[key] == record[key], key
             record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source=origin)
-            bind_return_probe(case, cq_probe, joint_probe)
+            bind_return_probe(case, cq_probe, joint_probe, all_local_cq)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
         model_config = case / 'v310_config/davidV100_simulator_config.yml'
@@ -516,7 +536,7 @@ def main(config):
             if action == 'joint-final':
                 record.update(observe_joint(case, env, intra_cores, joint_probe))
                 if cq_probe:
-                    record.update(observe_cq(case, env))
+                    record.update(observe_cq(case, env, all_local_cq))
             else:
                 record.update(observe_local_return(case, env, ready_probe))
             record['status'] = 'diagnostic_snapshot'

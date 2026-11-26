@@ -137,7 +137,8 @@ REPORT_FIELDS = (
     'profiling_lanes', 'profiling_dropped_records', 'profiling_clock_receipt',
     'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
     'probe_histograms', 'probe_missing_ranks', 'readiness_trace', 'sst_threads',
-    'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples', 'cq_samples', 'joint_trace',
+    'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples', 'cq_samples', 'cq_frontiers',
+    'joint_trace',
 )
 
 
@@ -592,6 +593,7 @@ def main(args):
                 config['source_case'] = args.get('source_case')
                 config['diagnostic_stop_us'] = args.get('stop_at_us')
                 config['cq_probe'] = args.get('cq_probe', False)
+                config['all_local_cq'] = args.get('all_local_cq', False)
                 results = [run_case(root, cid, tools, config)]
                 report = results[0]
         if memory is not None:
