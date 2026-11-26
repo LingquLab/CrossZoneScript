@@ -93,6 +93,37 @@ summary = [{'action': item['Action'], 'delta_seconds': item['time'] - end,
 print(json.dumps(dict(status=state.get('status'), returncode=state.get('returncode'), error=state.get('error'),
                       timeout_seconds=state.get('timeout_seconds'), model_events=summary), separators=(',', ':')))
 '''
+elif options.get('raise_live_limit'):
+    assert tokens == 1024 and profile and mode in (None, 'logical') and not memory_retry
+    source = prefix + f'\ncase = MOUNT / {case!r}\n' + r'''
+model = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+expected = '/work/inter-server-native/' + case.name + '/adapter/run.py'
+current = json.loads((case / 'run.json').read_text())
+if current['status'] != 'running':
+    result = {'status': current['status'], 'updated': False}
+else:
+    active = docker('ps', '--filter', 'ancestor=' + model, '--no-trunc', '-q').stdout.split()
+    rows = json.loads(docker('inspect', *[item.decode() for item in active]).stdout) if active else []
+    matched = [row for row in rows if row['Image'] == model and row['State']['Running'] and
+               expected in row['Config']['Cmd'] and any(mount['Destination'] == '/work' and
+                  Path(mount['Source']) == MOUNT.parent for mount in row['Mounts'])]
+    assert len(matched) <= 1
+    if not matched:
+        result = {'status': 'case_container_no_longer_running', 'updated': False}
+    else:
+        row, = matched
+        previous = row['HostConfig']['Memory']
+        assert previous in (32 * 1024**3, 256 * 1024**3)
+        if previous == 32 * 1024**3:
+            docker('update', '--memory=256g', '--memory-swap=512g', row['Id'])
+        updated = json.loads(docker('inspect', row['Id']).stdout)[0]
+        assert updated['HostConfig']['Memory'] == 256 * 1024**3
+        result = {'status': 'running', 'updated': previous != updated['HostConfig']['Memory'],
+                  'old_memory_gib': previous // 1024**3, 'new_memory_gib': updated['HostConfig']['Memory'] // 1024**3,
+                  'running': updated['State']['Running'], 'case': case.name}
+        write_json(case / 'container-memory-update.json', result)
+print(json.dumps(result, separators=(',', ':')))
+'''
 elif options.get('suite_status'):
     assert profile
     suffix_memory = '-mem256' if memory_retry else ''
@@ -277,7 +308,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'BatchMode=no', '-o', 'NumberOfPasswordPrompts=1', '-o',
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 transport_timeout = 700 if options.get('recover_profile') else timeout + transport_margin
-if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'cq', 'direct_activity', 'read_profile')):
+if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'raise_live_limit', 'cq', 'direct_activity', 'read_profile')):
     transport_timeout = 900 if tokens == 1024 and (options.get('cq') or options.get('read_profile')) else 120
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
