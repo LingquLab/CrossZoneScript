@@ -149,7 +149,7 @@ def analyze(output, profile, record_reader):
     return result
 
 
-def main(batch):
+def main(batch, probe_only=False):
     build = json.loads((OUTPUT / "result.private.json").read_text())
     assert len(build) == 2 and all(row["status"] == "PASS" for row in build), "build incomplete"
     assert build[0]["cann"] == build[1]["cann"]
@@ -185,7 +185,7 @@ def main(batch):
         return False
 
     def wait_idle(batch, package):
-        deadline = time.monotonic() + 120
+        deadline = time.monotonic() + (0 if probe_only else 120)
         poll = 0
         while True:
             poll += 1
@@ -208,6 +208,10 @@ def main(batch):
                           not d.get("usable") and not d.get("pids")],
                       "usable": sum(bool(d.get("usable")) for d in row.get("rows", []))}
                      for node, row in enumerate(values)]
+            if probe_only:
+                print(json.dumps({"status": "READY" if all(row["usable"] == 16 for row in brief)
+                                  else "BLOCKED", "nodes": brief}, separators=(",", ":")))
+                return True
             if all(row["usable"] == 16 for row in brief):
                 return True
             if time.monotonic() >= deadline or any(
@@ -220,6 +224,8 @@ def main(batch):
 
     # Run a batch as one transaction with four separately archived configurations.
     assert batch in (32, 64, 128)
+    if probe_only:
+        return wait_idle(batch, "readiness")
     summaries = []
     for mode in ("off", "on"):
         for variant in ("baseline", "candidate"):
@@ -283,7 +289,7 @@ if __name__ == "__main__":
         if batches is None:
             batches = [arguments["batch"]]
         assert sorted(set(batches)) == sorted(batches) and set(batches) <= {32, 64, 128}
-        ok = all(main(int(batch)) for batch in batches)
+        ok = all(main(int(batch), arguments.get("probe_only", False)) for batch in batches)
     except Exception as error:
         print(json.dumps({"status": "FAILED", "error_type": type(error).__name__, "output": str(RESULT)},
                          ensure_ascii=True))
