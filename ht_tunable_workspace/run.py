@@ -23,7 +23,14 @@ assert tokens in (4, 32)
 case = f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32'
 timeout = 1200 if tokens == 4 else 6000
 prefix = (root / 'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
-if options.get('status'):
+if options.get('cq'):
+    evidence = (shared / 'queue_trace.py').read_text().replace('range(32)', f'range({tokens})').replace(
+        'range(24,32)', f'range({tokens * 3 // 4},{tokens})')
+    source = '\n'.join((prefix, (shared / 'config.py').read_text(), evidence, (here / 'cq.py').read_text(),
+                        f'case = MOUNT / {case!r}\nresult = count_candidate_cq(case, {tokens})',
+                        "if result['first_missing']: result['arrival'] = cross_so_arrival(case)",
+                        "print(json.dumps(result, separators=(',', ':')))"))
+elif options.get('status'):
     source = prefix + f'\ncase = MOUNT / {case!r}\n' + r'''
 report = {'exists': case.is_dir()}
 for name in ('run.json', 'unified-result.json', 'phase-summary.json'):
@@ -133,7 +140,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
-                            timeout=90 if options.get('status') else timeout + 250)
+                            timeout=120 if options.get('status') or options.get('cq') else timeout + 250)
 if result.returncode:
     print(json.dumps({'ssh_exit': result.returncode, 'stderr_bytes': len(result.stderr)}))
 else:
