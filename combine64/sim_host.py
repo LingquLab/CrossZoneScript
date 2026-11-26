@@ -409,6 +409,52 @@ def verify_completed(row, revision, tokens, stage, intra_cores, peer_slots):
     assert row['profiling_lanes'] == 64 * row['blocks'] and row['profiling_dropped_records'] == 0
 
 
+def run_variant_cases(origin, revision, variant, tokens, args):
+    intra, slots, root, stages = variant
+    if root != origin and not root.exists():
+        cid = prepare_variant(root, origin, revision, intra, slots)
+    else:
+        cid = task_container(root, revision)
+    point = dict(args, tokens=tokens, stages=stages)
+    threads = args.get('sst_threads', 8)
+    with (root / 'sst.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if threads != 8:
+            set_container_cpus(cid, threads)
+        tools, platform = stage_tools(root, args['files'])
+        config = dict(tokens=tokens, attempt=1, timeout=args['timeout'], revision=revision,
+                      profiling=True, intra_cores=intra, peer_slots=slots, platform_sha256=platform,
+                      sst_threads=threads)
+        rows = run_batch(root, cid, tools, config, point)
+    assert len(rows) == len(stages)
+    for stage, row in zip(stages, rows):
+        assert row['container_exit'] == 0
+        verify_completed(row, revision, tokens, stage, intra, slots)
+    return rows
+
+
+def run_bs4_joint_remainder(origin, revision, args):
+    base, intra4, known, inter2 = validation_variants(origin, args['candidate'])
+    intra, slots, root, stages = known
+    verify_completed(json_file(root / 'cases/t4-joint-final-a1/phase-result.json'),
+                     revision, 4, stages[0], intra, slots)
+
+    def run_base_joint():
+        gate = dict(args, after=dict(tokens=4, stages={stage: 1 for stage in STAGES[:-1]},
+                                    max_wait_seconds=args['independent_wait_seconds']))
+        verify_prerequisite(origin, revision, gate)
+        time.sleep(2)
+        return run_variant_cases(origin, revision, (*base[:3], ('joint-final',)), 4, args)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        pending = [pool.submit(run_base_joint)]
+        pending.extend(pool.submit(run_variant_cases, origin, revision, variant, 4, args)
+                       for variant in (intra4, inter2))
+        rows = [row for future in pending for row in future.result()]
+    print(json.dumps(dict(batch=rows, revision=revision), separators=(',', ':')))
+    return 0
+
+
 def run_large_matrix(origin, revision, args):
     variants = validation_variants(origin, args['candidate'])
     for intra, slots, root, stages in variants:
@@ -416,30 +462,13 @@ def run_large_matrix(origin, revision, args):
             report = json_file(root / 'cases' / f't4-{stage}-a1' / 'phase-result.json')
             verify_completed(report, revision, 4, stage, intra, slots)
 
-    def run_variant(variant, tokens):
-        intra, slots, root, stages = variant
-        cid = task_container(root, revision)
-        point = dict(args, tokens=tokens, stages=stages, stage_timeouts=args['matrix_timeouts'][str(tokens)])
-        with (root / 'sst.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            tools, platform = stage_tools(root, args['files'])
-            config = dict(tokens=tokens, attempt=1, timeout=args['timeout'], revision=revision,
-                          profiling=True, intra_cores=intra, peer_slots=slots, platform_sha256=platform)
-            rows = run_batch(root, cid, tools, config, point)
-        return rows
-
     results = []
     for tokens in (32, 128):
+        point = dict(args, stage_timeouts=args['matrix_timeouts'][str(tokens)])
         with ThreadPoolExecutor(max_workers=len(variants)) as pool:
-            pending = [pool.submit(run_variant, variant, tokens) for variant in variants]
-            completed = [future.result() for future in pending]
-        for variant, rows in zip(variants, completed):
-            intra, slots, _, stages = variant
-            assert len(rows) == len(stages)
-            for stage, row in zip(stages, rows):
-                assert row['container_exit'] == 0
-                verify_completed(row, revision, tokens, stage, intra, slots)
-                results.append(row)
+            pending = [pool.submit(run_variant_cases, origin, revision, variant, tokens, point)
+                       for variant in variants]
+            results.extend(row for future in pending for row in future.result())
     print(json.dumps(dict(batch=results, revision=revision), separators=(',', ':')))
     return 0
 
@@ -476,6 +505,8 @@ def main(args):
         print(json.dumps(result, separators=(',', ':')))
         return 0
     try:
+        if action == 'bs4-remainder':
+            return run_bs4_joint_remainder(origin, revision, args)
         if action == 'matrix':
             return run_large_matrix(origin, revision, args)
         if root != origin and not root.exists():

@@ -29,7 +29,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'profile-build', 'batch', 'matrix', 'joint-evidence', *STAGES)
+    assert action in ('status', 'profile-build', 'batch', 'matrix', 'bs4-remainder', 'joint-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args['candidate']
@@ -47,7 +47,7 @@ def main():
         assert (candidate, action, args['intra_cores'], args['peer_slots']) == ('d04fde0', 'joint-final', 4, 2)
         assert 'stop_at_us' in args
     if 'sst_threads' in args:
-        assert action == 'joint-final' and args['sst_threads'] in (8, 16, 32)
+        assert action in ('joint-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if action == 'joint-evidence':
         assert tokens == 4 and attempt == 2 and args['peer_slots'] == 2
@@ -62,6 +62,12 @@ def main():
         stages = args.get('stages', STAGES[start:end + 1])
         assert stages and list(stages) == [stage for stage in STAGES if stage in stages]
         remote_seconds = 100 + stage_budget(stages, args.get('stage_timeouts', {}), timeout, tokens)
+    if action == 'bs4-remainder':
+        assert tokens == 4 and attempt == 1 and args.get('profiling') is True
+        assert 60 <= args['independent_wait_seconds'] <= 3000
+        remote_seconds = (150 + args['independent_wait_seconds'] +
+                          max(stage_budget((stage, 'joint-final'), args.get('stage_timeouts', {}), timeout, 4)
+                              for stage in ('local-send', 'inter-server-send')))
     if action == 'matrix':
         assert tokens == 32 and attempt == 1 and args.get('profiling') is True
         assert set(args['matrix_timeouts']) == {'32', '128'}
