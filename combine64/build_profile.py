@@ -148,8 +148,8 @@ def stage_inter_probe(target):
          '        Trace(8, peer, qp);'),
     )
     for anchor, prefix in anchors:
-        assert text.count(anchor) == 1
-        text = text.replace(anchor, prefix + '\n' + anchor)
+        assert text.count('\n' + anchor) == 1, anchor
+        text = text.replace('\n' + anchor, '\n' + prefix + '\n' + anchor)
     notify_wait = '        if (TileXR::UDMAPollCQUntilSqTail(info, peer, qp, queue_.Load(sq->headAddr), observer, queue_)) {'
     assert text.count(notify_wait) == 1
     text = text.replace(notify_wait, '        Trace(2, peer, qp);\n' + notify_wait)
