@@ -276,7 +276,7 @@ def analyze(output, profile, record_reader):
     return result
 
 
-def main(batch, probe_only=False, wait_seconds=120):
+def main(batch, probe_only=False, wait_seconds=120, min_idle_seconds=0):
     build = json.loads((OUTPUT / "result.private.json").read_text())
     assert len(build) == 2 and all(row["status"] == "PASS" for row in build), "build incomplete"
     assert build[0]["cann"] == build[1]["cann"]
@@ -319,6 +319,7 @@ def main(batch, probe_only=False, wait_seconds=120):
 
     def wait_idle(batch, package, deadline):
         poll = 0
+        idle_since = None
         while True:
             poll += 1
 
@@ -340,12 +341,20 @@ def main(batch, probe_only=False, wait_seconds=120):
                           not d.get("usable") and not d.get("pids")],
                       "usable": sum(bool(d.get("usable")) for d in row.get("rows", []))}
                      for node, row in enumerate(values)]
-            update_status(package, "waiting_for_devices", nodes=brief, polls=poll)
+            now = time.monotonic()
+            idle = all(row["usable"] == 16 for row in brief)
+            if idle:
+                idle_since = now if idle_since is None else idle_since
+            else:
+                idle_since = None
+            consecutive_idle = 0 if idle_since is None else now - idle_since
+            update_status(package, "waiting_for_devices", nodes=brief, polls=poll,
+                          consecutive_idle_seconds=round(consecutive_idle, 1))
             if probe_only:
                 print(json.dumps({"status": "READY" if all(row["usable"] == 16 for row in brief)
                                   else "BLOCKED", "nodes": brief}, separators=(",", ":")))
                 return True
-            if all(row["usable"] == 16 for row in brief):
+            if idle and consecutive_idle >= min_idle_seconds:
                 return True
             if time.monotonic() >= deadline or any(
                 row["status"] != "PASS" or row["indeterminate"] for row in brief
@@ -507,10 +516,12 @@ if __name__ == "__main__":
         assert sorted(set(batches)) == sorted(batches) and set(batches) <= {32, 64, 128}
         wait_seconds = int(arguments.get("wait_seconds", 120))
         assert 1 <= wait_seconds <= 3600
+        min_idle_seconds = int(arguments.get("min_idle_seconds", 0))
+        assert 0 <= min_idle_seconds < wait_seconds
         ok = True
         for batch in batches:
             for attempt in range(4):
-                result = main(int(batch), arguments.get("probe_only", False), wait_seconds)
+                result = main(int(batch), arguments.get("probe_only", False), wait_seconds, min_idle_seconds)
                 if result != "retry":
                     break
             if result is not True:
