@@ -12,6 +12,27 @@ def load(path):
         return None
 
 
+def host_receipt(host):
+    brief = {key: host[key] for key in ("node", "status", "reason",
+        "hardware_launched", "performance_valid", "rank_rounds") if key in host}
+    error = host.get("error", "")
+    for message in ("Prepared request changed: profile", "Prepared request changed: port",
+                    "Prepared candidate changed", "Prepared package changed",
+                    "Configured rendezvous port range is occupied", "A local rank failed",
+                    "Case deadline exceeded", "Foreign workload detected",
+                    "Summary contract mismatch", "Packet limit or capture mode mismatch"):
+        if message in error:
+            brief["error_detail"] = message
+            break
+    if error:
+        brief["error_type"] = error.split(":", 1)[0]
+    rows = host.get("before_occupancy", host.get("occupancy", []))
+    if rows:
+        brief["busy"] = [row["device"] for row in rows if row.get("pids")]
+        brief["unusable"] = [row["device"] for row in rows if not row.get("usable")]
+    return brief
+
+
 def snapshots():
     latest = []
     for node in (0, 1):
@@ -41,8 +62,7 @@ def main(args):
         for name in ("prepare", "run", "collect"):
             receipt = load(directory / (name + ".private.json"))
             if receipt:
-                case[name] = [{key: host[key] for key in ("node", "status", "reason",
-                    "hardware_launched", "performance_valid", "rank_rounds") if key in host} for host in receipt]
+                case[name] = [host_receipt(host) for host in receipt]
         summary = load(directory / "summary.json")
         if summary:
             case["summary"] = summary
