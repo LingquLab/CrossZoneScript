@@ -49,6 +49,30 @@ elif options.get('read_profile'):
     source = '\n'.join((prefix, (here / 'profile.py').read_text(), f'case = MOUNT / {case!r}',
                         f'result = extract_pipeline_profile(case, 48, 8, 16, {step_ends!r}, {len(ends)})',
                         "print(json.dumps(result, separators=(',', ':')))"))
+elif options.get('suite_status'):
+    assert profile
+    suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile'
+             for label, suffix in (('Window', ''), ('LogicalChunk', '-logical'), ('PhysicalChunk', '-physical'))}
+    source = prefix + f'\nsuite = {suite!r}\n' + r'''
+report = {}
+for mode, case_name in suite.items():
+    case = MOUNT / case_name
+    record = case / 'run.json'
+    summary = case / 'unified-result.json'
+    entry = {'exists': case.is_dir()}
+    for path in (record, summary):
+        if path.is_file():
+            data = json.loads(path.read_text())
+            entry.update({key: data[key] for key in ('status', 'kernel_sha256', 'returncode', 'runner_exit_code',
+                         'sim_us', 'sst_wall_seconds', 'runner_wall_seconds', 'guards', 'cqe') if key in data})
+    log = case / 'sim.log'
+    if log.is_file():
+        raw = log.read_bytes()
+        stamps = [int(match) for match in re.findall(rb'Sim:\s*(\d+)[^\n]*WrCQEResp', raw)]
+        entry.update(observed_log_cqe=raw.count(b'WrCQEResp'), last_cqe_stamp=max(stamps, default=None))
+    report[mode] = entry
+print(json.dumps(report, separators=(',', ':')))
+'''
 elif options.get('status'):
     source = prefix + f'\ncase = MOUNT / {case!r}\n' + r'''
 report = {'exists': case.is_dir()}
@@ -190,7 +214,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
-                            timeout=120 if any(options.get(key) for key in ('status', 'cq', 'direct_activity', 'read_profile')) else timeout + 250)
+                            timeout=120 if any(options.get(key) for key in ('status', 'suite_status', 'cq', 'direct_activity', 'read_profile')) else timeout + 250)
 if result.returncode:
     print(json.dumps({'ssh_exit': result.returncode, 'stderr_bytes': len(result.stderr)}))
 else:
