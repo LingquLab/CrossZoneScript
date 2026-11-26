@@ -40,7 +40,7 @@ def main():
             for candidate in (pc,pc-0x40000000):
                 found.extend(name for start,end,name in functions if start<=candidate<end)
             if found:
-                row['function']=min(found,key=len)[:200]
+                row['function']=min(found,key=len).split('(',1)[0][:120]
                 counts[row['function']]+=1
             else:counts['unmapped_pc']+=1
             line=tail[matches[-1].start():].splitlines()[0]
@@ -52,7 +52,7 @@ def main():
     full=dict(status='live_scalar_trace_read',elf_sha256=hashlib.sha256(obj.read_bytes()).hexdigest(),
               function_histogram=dict(counts),samples=samples)
     (CASE/'live-trace-read.json').write_text(json.dumps(full,indent=2)+'\n')
-    compact=dict(status=full['status'],trace_files=len(samples),function_histogram=dict(counts),samples=samples[:8])
+    compact=dict(status=full['status'],trace_files=len(samples),function_histogram=dict(counts.most_common(12)),samples=samples[:8])
     raw=json.dumps(compact,separators=(',',':'))
     if len(raw.encode())>4096:
         compact['samples']=samples[:4]
