@@ -26,6 +26,9 @@ def host_receipt(host):
             break
     if error:
         brief["error_type"] = error.split(":", 1)[0]
+    if host.get("hardware_launched"):
+        brief["network_restored"] = host.get("network_restored")
+        brief["exited_ranks"] = sum(isinstance(code, int) for code in host.get("exit_codes", {}).values())
     rows = host.get("before_occupancy", host.get("occupancy", []))
     if rows:
         brief["busy"] = [row["device"] for row in rows if row.get("pids")]

@@ -43,12 +43,12 @@ def stats(values):
     return [round(f(values), 4) for f in (min, statistics.median, max)]
 
 
-def route_profile(profile, generator, outcome, batch, mode, package, artifact_hashes, cann):
+def route_profile(profile, generator, outcome, batch, mode, package, artifact_hashes, cann, attempt):
     profile = deepcopy(profile)
     case = profile["case"]
     batch_offset = (32, 64, 128).index(batch) * 4
     package_offset = ("baseline-off", "candidate-off", "baseline-on", "candidate-on").index(package)
-    port = profile["network"]["ports"][0] + 4 * (batch_offset + package_offset)
+    port = profile["network"]["ports"][0] + 4 * (batch_offset + package_offset + 12 * attempt)
     assert 1024 <= port <= 65532
     profile["network"]["ports"] = [port]
     routes = RESULT / f"routes-bs{batch}.bin"
@@ -115,6 +115,15 @@ def blocked_before_launch(result):
         result.get("status") == "BLOCKED" and result.get("hardware_launched") is False
         and result.get("reason") == "ports_busy"
     )
+
+
+def interrupted_by_foreign_workload(hosts):
+    if len(hosts) != 2 or not any("Foreign workload detected" in host.get("error", "") for host in hosts):
+        return False
+    return all(host.get("hardware_launched") is True and host.get("network_restored") is True
+               and host.get("termination_confirmed") is not False and not host.get("cleanup_error")
+               and len(host.get("exit_codes", {})) == 16
+               and all(isinstance(code, int) for code in host["exit_codes"].values()) for host in hosts)
 
 
 def read_receipts(outcome, phase):
@@ -355,8 +364,9 @@ def main(batch, probe_only=False, wait_seconds=120):
                 prepared = read_receipts(outcome, "prepare")
                 if (outcome / "run.in-flight").exists():
                     raise RuntimeError("Case launch outcome is unknown: " + package)
-                if len(prior_run) == 2 and all(blocked_before_launch(host) for host in prior_run):
-                    archived = RESULT / "prelaunch-attempts"
+                if len(prior_run) == 2 and (all(blocked_before_launch(host) for host in prior_run)
+                                            or interrupted_by_foreign_workload(prior_run)):
+                    archived = RESULT / "previous-attempts"
                     archived.mkdir(exist_ok=True)
                     outcome.rename(archived / f"{outcome.name}-{time.time_ns()}")
                 elif prior_run and (len(prior_run) != 2 or any(
@@ -378,8 +388,10 @@ def main(batch, probe_only=False, wait_seconds=120):
                 if not helper.is_file():
                     (outcome / "ssh-askpass.sh").write_bytes((OUTPUT / "ssh-askpass.sh").read_bytes())
                     (outcome / "ssh-askpass.sh").chmod(0o700)
+                attempt = len(list((RESULT / "previous-attempts").glob(outcome.name + "-*")))
                 profile, routes = route_profile(template, generator, outcome, batch, mode, package,
-                                                 {k: v for k, v in hashes.items() if k != KERNEL}, build[0]["cann"])
+                                                 {k: v for k, v in hashes.items() if k != KERNEL},
+                                                 build[0]["cann"], attempt)
                 run_id = "topk-bs" + str(batch) + "-" + package + "-" + uuid.uuid4().hex[:10]
                 capture = uuid.uuid4().hex
                 write_json(outcome / "run-identity.json", {"run_id": run_id, "capture": capture})
@@ -424,11 +436,13 @@ def main(batch, probe_only=False, wait_seconds=120):
                     hosts = phase(step)
                 if not all(row.get("status") == "PASS" and
                            (step != "run" or row.get("performance_valid")) for row in hosts):
-                    print(json.dumps({"status": "BLOCKED", "step": step, "bs": batch, "package": package,
+                    retry = step == "run" and interrupted_by_foreign_workload(hosts)
+                    print(json.dumps({"status": "RETRY" if retry else "BLOCKED", "step": step,
+                        "bs": batch, "package": package,
                         "run_id": run_id, "remote_root": profile["workspace"], "windows_output": str(outcome),
                         "hosts": [{k: row[k] for k in ("status", "reason", "hardware_launched", "performance_valid")
                                    if k in row} for row in hosts]}, ensure_ascii=True))
-                    return False
+                    return "retry" if retry else False
             update_status(package, "transfer", run_id=run_id)
             with ThreadPoolExecutor(max_workers=2) as pool:
                 transfers = [pool.submit(archive_capture, runner, profile, node, row, outcome, run_id)
@@ -455,7 +469,15 @@ if __name__ == "__main__":
         assert sorted(set(batches)) == sorted(batches) and set(batches) <= {32, 64, 128}
         wait_seconds = int(arguments.get("wait_seconds", 120))
         assert 1 <= wait_seconds <= 3600
-        ok = all(main(int(batch), arguments.get("probe_only", False), wait_seconds) for batch in batches)
+        ok = True
+        for batch in batches:
+            for attempt in range(4):
+                result = main(int(batch), arguments.get("probe_only", False), wait_seconds)
+                if result != "retry":
+                    break
+            if result is not True:
+                ok = False
+                break
     except Exception as error:
         (RESULT / f"matrix-error-{time.time_ns()}.log").write_text(traceback.format_exc(), encoding="utf-8")
         frame = traceback.extract_tb(error.__traceback__)[-1]
