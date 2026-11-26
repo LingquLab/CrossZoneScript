@@ -149,7 +149,7 @@ def analyze(output, profile, record_reader):
     return result
 
 
-def main():
+def main(batch):
     build = json.loads((OUTPUT / "result.private.json").read_text())
     assert len(build) == 2 and all(row["status"] == "PASS" for row in build), "build incomplete"
     assert build[0]["cann"] == build[1]["cann"]
@@ -219,8 +219,6 @@ def main():
             time.sleep(5)
 
     # Run a batch as one transaction with four separately archived configurations.
-    assert sys.argv[1] == "--args-file"
-    batch = int(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))["batch"])
     assert batch in (32, 64, 128)
     summaries = []
     for mode in ("off", "on"):
@@ -279,7 +277,13 @@ def main():
 
 if __name__ == "__main__":
     try:
-        ok = main()
+        assert sys.argv[1] == "--args-file"
+        arguments = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+        batches = arguments.get("batches")
+        if batches is None:
+            batches = [arguments["batch"]]
+        assert sorted(set(batches)) == sorted(batches) and set(batches) <= {32, 64, 128}
+        ok = all(main(int(batch)) for batch in batches)
     except Exception as error:
         print(json.dumps({"status": "FAILED", "error_type": type(error).__name__, "output": str(RESULT)},
                          ensure_ascii=True))
