@@ -184,6 +184,30 @@ def run_batch(root, cid, tools, config, args):
 
 
 
+def verify_prerequisite(root, revision, args):
+    predecessor = args.get('after')
+    if not predecessor:
+        return
+    assert set(predecessor) == {'tokens', 'stages', 'max_wait_seconds'}
+    tokens = predecessor['tokens']
+    assert tokens in (4, 32)
+    assert predecessor['stages'].keys() <= set(STAGES)
+    assert 60 <= predecessor['max_wait_seconds'] <= 7200
+    deadline = time.monotonic() + predecessor['max_wait_seconds']
+    for stage, attempt in predecessor['stages'].items():
+        assert type(attempt) is int and 1 <= attempt <= 20
+        path = root / 'cases' / f't{tokens}-{stage}-a{attempt}' / 'phase-result.json'
+        while not path.is_file():
+            assert time.monotonic() < deadline, f'prerequisite_missing_{tokens}_{stage}'
+            time.sleep(5)
+        row = json_file(path)
+        assert (row['tokens'], row['stage'], row['attempt'], row['candidate_commit']) == (
+            tokens, stage, attempt, revision)
+        assert row['status'] == 'sst_and_checker_passed', f'prerequisite_failed_{tokens}_{stage}'
+        assert row['checked_ranks'] == 64 and row['guards'] > 0
+        assert row['profiling_lanes'] == 64 * row['blocks'] and row['profiling_dropped_records'] == 0
+
+
 def profile_build(root, cid, tools, timeout):
     log = root / 'profile-build.log'
     script = str(Path('/work') / tools.relative_to(root) / 'build_profile.py')
@@ -212,8 +236,18 @@ def main(args):
     try:
         cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
+        verify_prerequisite(root, revision, args)
         with (root / 'sst.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # The predecessor can still be returning its journal after writing a case result.
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if not args.get('after') or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(1)
             tools, platform_hashes = stage_tools(root, args['files'])
             if action == 'profile-build':
                 return profile_build(root, cid, tools, timeout)

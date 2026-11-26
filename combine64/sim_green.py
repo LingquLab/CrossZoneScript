@@ -47,6 +47,11 @@ def main():
         end = STAGES.index(args.get('end_stage', STAGES[-1]))
         assert start <= end
         remote_seconds = 90 + stage_budget(STAGES[start:end + 1], args.get('stage_timeouts', {}), timeout, tokens)
+    if 'after' in args:
+        assert action == 'batch'
+        wait_seconds = args['after']['max_wait_seconds']
+        assert type(wait_seconds) is int and 60 <= wait_seconds <= 7200
+        remote_seconds += wait_seconds + 30
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone/tilexr' / SESSION / candidate
     logs.mkdir(parents=True, exist_ok=True)
     here = Path(__file__).parent
