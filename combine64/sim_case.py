@@ -308,7 +308,7 @@ def observe_local_return(case, environment, ready_probe):
     return report
 
 
-def observe_joint(case, environment, intra_cores):
+def observe_joint(case, environment, intra_cores, joint_probe=False):
     from addressed_exports import reconstruct_die_output
     from collections import Counter
     layout = read_json(case / 'export-layout.json')
@@ -318,6 +318,8 @@ def observe_joint(case, environment, intra_cores):
     flags = {name: Counter() for name in ('gateway_ready', 'completed', 'local_ready')}
     pending = Counter()
     samples = []
+    phases = Counter()
+    lanes = []
     for row in layout['ranks']:
         rank = row['rank']
         base = row['sys_va_base_addr']
@@ -337,6 +339,18 @@ def observe_joint(case, environment, intra_cores):
             ):
                 status[role].update(struct.unpack_from('<I', data['status'], offset + lane * stride)[0]
                                     for lane in range(count))
+            if joint_probe:
+                for peer in range(0, 8, 8 // intra_cores):
+                    trace, = struct.unpack_from('<I', data['status'], STRIPE + peer * 32 + 4)
+                    phase, chunk, target = trace >> 24, (trace >> 16) & 255, (trace >> 8) & 255
+                    if phase == 2 and target < 8:
+                        wait, step = struct.unpack_from('<2I', data['status'], STRIPE + target * 32 + 8)
+                    else:
+                        wait, step = None, None
+                    phases[f'{phase}/{chunk}'] += 1
+                    if rank < 4:
+                        lanes.append(dict(rank=rank, peer=peer, phase=phase, chunk=chunk, target=target,
+                                          gateway_stage=wait, return_step=step))
         for name, histogram in flags.items():
             if name not in data:
                 continue
@@ -356,8 +370,11 @@ def observe_joint(case, environment, intra_cores):
                 pending[domain] += 1
                 if len(samples) < 12:
                     samples.append(dict(rank=rank, peer=peer, slot=slot, head=head, tail=tail))
-    return dict(joint_status=status, ready_markers=flags, outstanding_sq=pending,
-                outstanding_sq_examples=samples, probe_missing_ranks=missing)
+    result = dict(joint_status=status, ready_markers=flags, outstanding_sq=pending,
+                  outstanding_sq_examples=samples, probe_missing_ranks=missing)
+    if joint_probe:
+        result['joint_trace'] = dict(phases=phases, lanes=lanes)
+    return result
 
 
 def observe_cq(case, environment):
@@ -411,6 +428,7 @@ def main(config):
     use_profile = config.get('profiling', False)
     stop_at_us = config.get('diagnostic_stop_us')
     ready_probe = config.get('ready_probe', False)
+    joint_probe = config.get('joint_probe', False)
     cq_probe = config.get('cq_probe', False)
     intra_cores = config.get('intra_cores', 8)
     peer_slots = config.get('peer_slots', 1)
@@ -419,6 +437,8 @@ def main(config):
     build = read_json(ROOT / build_file)
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
     kernel_build = read_json(ROOT / 'ready-probe-build/build-summary.json') if ready_probe else build
+    if joint_probe:
+        kernel_build = read_json(ROOT / 'joint-probe-build/build-summary.json')
     case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
     assert not case.exists(), 'case_already_exists'
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
@@ -450,7 +470,7 @@ def main(config):
             assert original['status'] in ('timed_out', 'interrupted') or (
                 original['status'] == 'failed' and original.get('returncode') == -9)
             keys = ('candidate_commit', 'tokens', 'stage', 'routes_sha256')
-            if not ready_probe:
+            if not ready_probe and not joint_probe:
                 keys += ('kernel_sha256', 'source_object_sha256')
             for key in keys:
                 assert original[key] == record[key], key
@@ -476,7 +496,7 @@ def main(config):
             record['status'] = 'sst_and_checker_passed'
         else:
             if action == 'joint-final':
-                record.update(observe_joint(case, env, intra_cores))
+                record.update(observe_joint(case, env, intra_cores, joint_probe))
                 if cq_probe:
                     record.update(observe_cq(case, env))
             else:

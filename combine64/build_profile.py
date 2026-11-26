@@ -76,14 +76,52 @@ def stage_ready_probe(target):
     (target / path.name).write_text(text)
 
 
+def stage_joint_probe(target):
+    pipeline = SOURCE / 'src/moonep/combine_ht/kernels/combine_ht_kernel.h'
+    text = pipeline.read_text()
+    for phase, anchor in enumerate((
+        '                result = gather.Step(view, chunk, writer, local.profiling != nullptr);',
+        '                result = TileXREpHt::ReturnLocalChunk(send.config, peer, chunk, back);',
+        '            const uint32_t sent = gather.Drain(view);',
+        '            const uint32_t drained = back.Drain();',
+    ), start=1):
+        assert text.count(anchor) == 1
+        indent = anchor[:len(anchor) - len(anchor.lstrip())]
+        chunk = 'chunk' if phase <= 2 else '0xffU'
+        marker = (f'{indent}back.Store<uint32_t>(args.returnStatus + uint64_t(begin) * 32 + 4, '
+                  f'({phase}U << 24) | ({chunk} << 16) | (peer << 8));')
+        text = text.replace(anchor, marker + '\n' + anchor)
+    (target / pipeline.name).write_text(text)
+
+    worker = SOURCE / 'src/ep/combine_ht/local_return_worker.h'
+    text = worker.read_text()
+    wait = '        return WaitGatewayReady(workspace_'
+    assert text.count(wait) == 1
+    text = text.replace(wait, '        Store<uint32_t>(a.status + uint64_t(localPeer_) * 32 + 12, 0U);\n' + wait)
+    for offset, value, anchor in (
+        (8, 'chunk + 1U', wait),
+        (12, '1U', '        const auto range = Read<int32_t>('),
+        (12, '2U', '        const uint32_t flushed = Flush();'),
+        (12, '3U', '        auto *remote = TileXR::UDMARegisteredRemoteAddr(registry_, commPeer_, target);'),
+    ):
+        assert anchor in text
+        marker = f'        Store<uint32_t>(a.status + uint64_t(localPeer_) * 32 + {offset}, {value});'
+        text = text.replace(anchor, marker + '\n' + anchor, 1)
+    (target / worker.name).write_text(text)
+
+
 def main():
-    ready_probe = sys.argv[1:] == ['ready-probe']
-    assert ready_probe or len(sys.argv) == 1
-    target = WORK / ('ready-probe-build' if ready_probe else 'profile-build')
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'profile'
+    assert mode in ('profile', 'ready-probe', 'joint-probe') and len(sys.argv) <= 2
+    target = WORK / (mode + '-build')
     target.mkdir()
-    if ready_probe:
+    entries = ENTRIES
+    if mode == 'ready-probe':
         stage_ready_probe(target)
-    entries = {key: value for key, value in ENTRIES.items() if not ready_probe or 'local_return' in key}
+        entries = {key: value for key, value in ENTRIES.items() if 'local_return' in key}
+    elif mode == 'joint-probe':
+        stage_joint_probe(target)
+        entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
     summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
     options = [
         '-xcce', '-O2', '-DCATLASS_ARCH=3510', '--cce-auto-sync', '--cce-aicore-arch=dav-c310-vec',

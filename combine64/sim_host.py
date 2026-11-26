@@ -137,7 +137,7 @@ REPORT_FIELDS = (
     'profiling_lanes', 'profiling_dropped_records', 'profiling_clock_receipt',
     'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
     'probe_histograms', 'probe_missing_ranks', 'readiness_trace', 'sst_threads',
-    'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples', 'cq_samples',
+    'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples', 'cq_samples', 'joint_trace',
 )
 
 
@@ -395,22 +395,22 @@ def set_container_memory(cid, gib):
     return dict(before_bytes=previous, after_bytes=actual, host_available_bytes=free_kib * 1024)
 
 
-def profile_build(root, cid, tools, timeout, ready_probe=False):
-    mode = 'ready-probe-build' if ready_probe else 'profile-build'
-    log = root / (mode + '.log')
+def profile_build(root, cid, tools, timeout, probe=None):
+    folder = (probe or 'profile') + '-build'
+    log = root / (folder + '.log')
     script = str(Path('/work') / tools.relative_to(root) / 'build_profile.py')
     argv = ['docker', 'exec', cid, 'timeout', '--kill-after=15', str(timeout),
             'bash', '-c', 'source /opt/sim/cann-env.sh; '
             'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
             '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; exec python3 "$@"', 'bash', script]
-    if ready_probe:
-        argv.append('ready-probe')
+    if probe:
+        argv.append(probe)
     with log.open('xb') as stream:
         code = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout + 25).returncode
-    summary = root / mode / 'build-summary.json'
+    summary = root / folder / 'build-summary.json'
     report = json_file(summary) if summary.is_file() else {'all_compiled': False}
     report.update(stage='profile-build', container_exit=code, log=str(log))
-    if not ready_probe or code:
+    if not probe or code:
         print(json.dumps(report, separators=(',', ':')))
     return 0 if report['all_compiled'] and code == 0 else 1
 
@@ -576,10 +576,15 @@ def main(args):
             if config['profiling']:
                 assert json_file(origin / 'profile-build/build-summary.json')['all_compiled']
             if args.get('ready_probe'):
-                built = profile_build(root, cid, tools, 180, ready_probe=True)
+                built = profile_build(root, cid, tools, 180, 'ready-probe')
                 if built:
                     return built
                 config['ready_probe'] = True
+            if args.get('joint_probe'):
+                built = profile_build(root, cid, tools, 180, 'joint-probe')
+                if built:
+                    return built
+                config['joint_probe'] = True
             if action == 'batch':
                 results = run_batch(root, cid, tools, config, args)
                 report = dict(batch=results, tokens=tokens, revision=revision)
