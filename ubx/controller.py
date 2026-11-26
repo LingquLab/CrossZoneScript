@@ -27,12 +27,12 @@ def main():
 
     def remote(node, config):
         config = dict(config, node=node, root=roots[node])
-        command = 'python3 -c ' + shlex.quote(worker) + ' ' + shlex.quote(json.dumps(config))
+        command = 'python3 - ' + shlex.quote(json.dumps(config))
         args = ['ssh', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=NUL']
         for key in keys:
             args += ['-i', str(key)]
         try:
-            p = subprocess.run(args + ['root@' + hosts[node], command], capture_output=True, text=True, timeout=config.get('timeout', 30) + 90)
+            p = subprocess.run(args + ['root@' + hosts[node], command], input=worker, capture_output=True, text=True, timeout=config.get('timeout', 30) + 90)
             (logdir / (config.get('run_id', 'check') + '-node%d.stderr' % node)).write_text(p.stderr)
             r = json.loads(p.stdout) if p.returncode == 0 else {'status': 'ERROR', 'reason': 'ssh_failed'}
         except Exception as e:
