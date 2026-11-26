@@ -15,7 +15,8 @@ SESSION = '59af0a93-b62f-4211-927e-a44f047667cf'
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 SESSION_ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION
 REVISIONS = {'71b62db': '71b62db945c23268df029ecb6a4e8809a7579222',
-             '2dfd2b4': '2dfd2b47394d013164f9270b445aa0bd39321755'}
+             '2dfd2b4': '2dfd2b47394d013164f9270b445aa0bd39321755',
+             'b61cb53': 'b61cb530b0d25d1e9ad18748ee7aeb7a7962740e'}
 
 
 def execute(argv, timeout=20):

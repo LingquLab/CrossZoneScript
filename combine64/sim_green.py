@@ -22,7 +22,7 @@ def main():
     tokens,attempt,timeout=args.get('tokens',32),args.get('attempt',1),args.get('timeout',2400)
     assert tokens in (32,128) and type(attempt) is int and 1<=attempt<=20
     assert type(timeout) is int and 30<=timeout<=7200
-    assert args.get('candidate','71b62db') in ('71b62db','2dfd2b4')
+    assert args.get('candidate','71b62db') in ('71b62db','2dfd2b4','b61cb53')
     args.update(tokens=tokens,attempt=attempt,timeout=timeout)
     here=Path(__file__).parent
     args['files']={name:(here/name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
