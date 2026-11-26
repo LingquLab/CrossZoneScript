@@ -166,7 +166,7 @@ def stage_platform(case, expected):
 def run_sst(case, environment, timeout, record, stop_at_us=None, threads=8):
     command = [
         'bash', '-c', 'set -e; source "$1"; shift; exec "$@"',
-        'bash', environment['env_script'], environment['sst_bin'],
+        'bash', environment['env_script'], 'stdbuf', '-oL', '-eL', environment['sst_bin'],
         '-n', str(threads),
     ]
     if stop_at_us is not None:
