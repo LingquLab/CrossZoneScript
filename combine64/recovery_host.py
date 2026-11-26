@@ -38,8 +38,8 @@ print(json.dumps({key:result[key] for key in ('status','sst_wall_seconds','runne
 
 def main(request):
     action=request['action']
-    assert action in ('stop-joint','snapshot-send','read-cq','snapshot-joint')
-    candidate='b61cb53' if action=='snapshot-joint' else ('2dfd2b4' if action=='stop-joint' else '71b62db')
+    assert action in ('stop-joint','snapshot-send','read-cq','snapshot-joint','read-joint-trace')
+    candidate='b61cb53' if action in ('snapshot-joint','read-joint-trace') else ('2dfd2b4' if action=='stop-joint' else '71b62db')
     root=BASE/f'run-{candidate}-a1'
     identity=json.loads((root/'identity.json').read_text())
     assert identity['revision'].startswith(candidate)
@@ -66,7 +66,7 @@ def main(request):
         if action=='snapshot-joint':
             argv[argv.index('1400')]='1750'
             timeout=1800
-        if action=='read-cq':
+        if action in ('read-cq','read-joint-trace'):
             argv=['docker','exec',cid,'python3',str(Path('/work')/target.relative_to(root))]
             timeout=50
     stem=action+'-'+hashlib.sha256((STOP if action=='stop-joint' else request['snapshot_script']).encode()).hexdigest()[:12]
