@@ -38,8 +38,8 @@ print(json.dumps({key:result[key] for key in ('status','sst_wall_seconds','runne
 
 def main(request):
     action=request['action']
-    assert action in ('stop-joint','snapshot-send','read-cq','snapshot-joint','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state')
-    candidate='b61cb53' if action in ('snapshot-joint','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state') else ('2dfd2b4' if action=='stop-joint' else '71b62db')
+    assert action in ('stop-joint','snapshot-send','read-cq','snapshot-joint','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state','snapshot-joint-early')
+    candidate='b61cb53' if action in ('snapshot-joint','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state','snapshot-joint-early') else ('2dfd2b4' if action=='stop-joint' else '71b62db')
     root=BASE/f'run-{candidate}-a1'
     identity=json.loads((root/'identity.json').read_text())
     assert identity['revision'].startswith(candidate)
@@ -55,6 +55,9 @@ def main(request):
     if action=='snapshot-joint-state':
         previous=json.loads((root/'cases/t32-joint-reuse-snapshot-a1/diagnostic-result.json').read_text())
         assert previous['status']=='diagnostic_failed' and previous.get('stop_reason')=='wall_limit'
+    if action=='snapshot-joint-early':
+        previous=json.loads((root/'cases/t32-joint-reuse-state-snapshot-a1/diagnostic-result.json').read_text())
+        assert previous['status']=='diagnostic_failed' and previous.get('stop_reason')=='wall_limit'
     if action=='stop-joint':
         argv=['docker','exec',cid,'python3','-c',STOP]
         timeout=50
@@ -69,6 +72,9 @@ def main(request):
         if action=='snapshot-joint':
             argv[argv.index('1400')]='1750'
             timeout=1800
+        if action=='snapshot-joint-early':
+            argv[argv.index('1400')]='1100'
+            timeout=1140
         if action in ('read-cq','read-joint-trace','read-joint-waits','read-joint-mte'):
             argv=['docker','exec',cid,'python3',str(Path('/work')/target.relative_to(root))]
             timeout=50

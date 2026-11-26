@@ -12,7 +12,7 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--args-file',required=True,type=Path)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-    assert set(args)=={'action'} and args['action'] in ('stop-joint','snapshot-send','read-cq','snapshot-joint','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state')
+    assert set(args)=={'action'} and args['action'] in ('stop-joint','snapshot-send','read-cq','snapshot-joint','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state','snapshot-joint-early')
     here=Path(__file__).parent
     args['snapshot_script']=(here/'snapshot_case.py').read_text()
     if args['action']=='read-cq':
@@ -27,11 +27,14 @@ def main():
         args['snapshot_script']=(here/'joint_mte_read_case.py').read_text()
     if args['action']=='snapshot-joint-state':
         args['snapshot_script']=(here/'joint_state_snapshot_case.py').read_text()
+    if args['action']=='snapshot-joint-early':
+        args['snapshot_script']=(here/'joint_early_snapshot_case.py').read_text()
     from sim_green import SCRIPT_FILES
     files={name:(here/name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
     args['tool_key']=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()[:16]
     code=(here/'recovery_host.py').read_text()+'\nraise SystemExit(main('+repr(args)+'))\n'
     budget=2150 if args['action']=='snapshot-joint' else (1470 if args['action'] in ('snapshot-send','snapshot-joint-state') else 65)
+    if args['action']=='snapshot-joint-early':budget=1170
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     cmd=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
          '-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12','-o','ServerAliveInterval=20',
