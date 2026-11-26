@@ -46,6 +46,11 @@ def stats(values):
 def route_profile(profile, generator, outcome, batch, mode, package, artifact_hashes, cann):
     profile = deepcopy(profile)
     case = profile["case"]
+    batch_offset = (32, 64, 128).index(batch) * 4
+    package_offset = ("baseline-off", "candidate-off", "baseline-on", "candidate-on").index(package)
+    port = profile["network"]["ports"][0] + 4 * (batch_offset + package_offset)
+    assert 1024 <= port <= 65532
+    profile["network"]["ports"] = [port]
     routes = RESULT / f"routes-bs{batch}.bin"
     if not routes.exists():
         generator(32, batch, 12, 8, 261011, routes)
@@ -103,6 +108,13 @@ def worker_source():
 def retryable_occupancy(result):
     return (result.get("status") == "BLOCKED" and result.get("hardware_launched") is False
             and any(row.get("pids") for row in result.get("before_occupancy", ())))
+
+
+def blocked_before_launch(result):
+    return retryable_occupancy(result) or (
+        result.get("status") == "BLOCKED" and result.get("hardware_launched") is False
+        and result.get("reason") == "ports_busy"
+    )
 
 
 def read_receipts(outcome, phase):
@@ -343,7 +355,7 @@ def main(batch, probe_only=False, wait_seconds=120):
                 prepared = read_receipts(outcome, "prepare")
                 if (outcome / "run.in-flight").exists():
                     raise RuntimeError("Case launch outcome is unknown: " + package)
-                if len(prior_run) == 2 and all(retryable_occupancy(host) for host in prior_run):
+                if len(prior_run) == 2 and all(blocked_before_launch(host) for host in prior_run):
                     archived = RESULT / "prelaunch-attempts"
                     archived.mkdir(exist_ok=True)
                     outcome.rename(archived / f"{outcome.name}-{time.time_ns()}")
