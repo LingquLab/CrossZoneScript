@@ -1,0 +1,115 @@
+{
+  "execution": {
+    "task_id": "ht-tunable-direct-bs32",
+    "event_id": "green-ac704b2105744a02b0c8fa5f14ec9289",
+    "iteration": 2,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs32-fp32-direct",
+      "status": "sst_and_checker_passed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 27584,
+      "sim_us": 229.62,
+      "errors": [],
+      "checked": {
+        "ranks": 64,
+        "bytes_checked": {
+          "gather": 8388608,
+          "gather_ready": 1048576,
+          "partial": 2097152,
+          "ready": 262144,
+          "local_ready": 262144,
+          "returned": 8388608,
+          "completed": 16777216,
+          "output": 1048576,
+          "status": 98304
+        },
+        "phase_status": {
+          "gather": {
+            "0": 512
+          },
+          "reduce": {
+            "0": 512
+          },
+          "local_return": {
+            "0": 512
+          },
+          "cross_return": {
+            "0": 512
+          },
+          "final": {
+            "0": 1024
+          }
+        },
+        "mismatched_ranks": {},
+        "first_mismatches": {}
+      },
+      "exports_sha256": {
+        "returned": "f0624d2e4b5c2bf4ee43ee235eee390c46dc026c0ac79258bde215575b2043b5",
+        "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+        "output": "40af7fc58fb38325eae3368856709486549167d8bb9620fab8cbb9f01b648327",
+        "status": "ea1ea7e05bc317471ac5d0c1b61b4150c9911f24499b0acc1d5303f4efe7094d"
+      },
+      "runner_exit_code": 0,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 32,
+      "blocks": 48,
+      "hidden": 128,
+      "chunks": 4,
+      "send_cores": 8,
+      "qp_counts": [
+        8,
+        8
+      ],
+      "sync": "Window",
+      "rotation": "ServerStaggered",
+      "reuse_gather": false,
+      "profiling": false,
+      "sq_binding_counts": {
+        "gather": 448,
+        "local_return": 448,
+        "cross_return": 57344
+      },
+      "sq_address_overlap": 0,
+      "runner_wall_seconds": 3323.419,
+      "sst_wall_seconds": 3292.181
+    }
+  },
+  "cq_slots": {
+    "task_id": "ht-tunable-direct-bs32-cq",
+    "event_id": "green-24c228b759744b41a5f27c618c494723",
+    "iteration": 4,
+    "result": {
+      "totals": {
+        "truncated_hosts": 0,
+        "hosts": 64,
+        "unexpected_slots": 0
+      },
+      "stages": {
+        "gather": {
+          "expected": 16128,
+          "observed": 16128,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "local_return": {
+          "expected": 1472,
+          "observed": 1472,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "cross_return": {
+          "expected": 9216,
+          "observed": 9216,
+          "qps": 7168,
+          "qps_missing": 0
+        }
+      },
+      "first_missing": []
+    }
+  }
+}
