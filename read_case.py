@@ -11,7 +11,7 @@ from key_transport import install
 from run_matrix import RESULT
 
 
-def observe(directory):
+def observe(directory, port):
     from collections import Counter
     from pathlib import Path
     import json
@@ -50,9 +50,19 @@ def observe(directory):
                 failures[message] += 1
     result_path = run / "run-result.json"
     result = json.loads(result_path.read_text()) if result_path.is_file() else {}
+    reasons = ("A local rank failed", "Rank exit failure", "Case deadline exceeded",
+               "Foreign workload detected", "Occupancy observation unavailable")
+    sockets = Counter()
+    for row in Path("/proc/net/tcp").read_text().splitlines()[1:]:
+        fields = row.split()
+        if any(port <= int(endpoint.rsplit(":", 1)[1], 16) < port + 4 for endpoint in fields[1:3]):
+            sockets[fields[3]] += 1
     return {"process_states": states, "rounds_per_rank": rounds, "last_barrier_round": barriers,
             "markers": failures, "result": result.get("status"), "network_restored": result.get("network_restored"),
-            "interference": bool(result.get("interference"))}
+            "interference": bool(result.get("interference")), "socket_states": sockets,
+            "exit_codes": Counter(str(code) for code in result.get("exit_codes", {}).values()),
+            "seconds": result.get("seconds"),
+            "reason": next((label for label in reasons if label in result.get("error", "")), None)}
 
 
 def main(case):
@@ -73,7 +83,8 @@ def main(case):
         runpy.run_path(str(helper))["install"](runner)
     transport = install(runner, profile, runner.transport if helper.is_file() else None)
     directory = f"{REMOTE}/runs/{run_id}"
-    script = "import json\n" + inspect.getsource(observe) + f"\nprint(json.dumps(observe({directory!r})))\n"
+    port = profile["network"]["ports"][0]
+    script = "import json\n" + inspect.getsource(observe) + f"\nprint(json.dumps(observe({directory!r}, {port})))\n"
 
     def run(node):
         reply = transport(profile, node, script, outcome, "observe", 20)
