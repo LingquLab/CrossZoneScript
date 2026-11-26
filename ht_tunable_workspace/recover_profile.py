@@ -50,12 +50,14 @@ def recover_profile(case, step_ends, chunks):
             return dict(status='numeric_check_failed', checked=parsed)
         assert parsed['ranks'] == 64 and not parsed['mismatched_ranks']
         sectors = 0
+        missing_states = 0
         for rank in original['ranks']:
             region = rank['exports']['profile'].copy()
             region['addr'] -= rank['sys_va_base_addr']
-            profile, count = decode_sparse_profile(case / 'bin', rank['rank'], region, 48)
+            profile, count, missing = decode_sparse_profile(case / 'bin', rank['rank'], region, 48)
             (temp / 'actual' / f"rank{rank['rank']:02d}" / 'profile.bin').write_bytes(profile)
             sectors += count
+            missing_states += len(missing)
         parent = str((temp / 'actual').relative_to(case))
         report = extract_pipeline_profile(case, 48, 8, 16, step_ends, chunks, parent)
         hashes = {}
@@ -65,7 +67,8 @@ def recover_profile(case, step_ends, chunks):
                 digest.update((temp / 'actual' / f'rank{rank:02d}' / (name + '.bin')).read_bytes())
             hashes[name] = digest.hexdigest()
         result = dict(phase, status='sst_and_checker_passed', checked=parsed, exports_sha256=hashes,
-                      profile=report, observed_profile_sectors=sectors, recovered_without_sst=True,
+                      profile=report, observed_profile_sectors=sectors, unavailable_profile_state_words=missing_states,
+                      recovered_without_sst=True,
                       original_runner_exit_code=phase['runner_exit_code'])
         (case / 'profile-recovered-result.json').write_text(json.dumps(result, separators=(',', ':')))
         return result

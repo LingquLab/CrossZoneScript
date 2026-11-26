@@ -22,7 +22,7 @@ def profile_binding(address, blocks):
     descriptor = struct.pack('<8I7Q', 2, 88, 1, blocks, PROFILE_CAPACITY, PROFILE_CAPACITY,
                              PROFILE_STATE_STRIDE, 0, address + timestamps, address + events,
                              address + counts, address + drops, address + states, 0, 1)
-    return descriptor.ljust(size, b'\0')
+    return descriptor.ljust((size + 511) // 512 * 512, b'\0')
 
 
 def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, chunks, directory='actual'):
@@ -65,6 +65,8 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
         assert submitted_later
         first_compute = []
         for aiv in range(final_start, blocks):
+            if aiv not in per_aiv:
+                continue
             lane = per_aiv[aiv]
             final_events = [(cycle, event) for cycle, event in lane if FINAL_BASE <= event < FINAL_BASE + steps * FINAL_STRIDE]
             local = aiv - final_start
@@ -125,15 +127,21 @@ def decode_sparse_profile(dump_dir, rank, region, blocks):
     assert base % (0x2000000000) == address
     assert image[:88] == profile_binding(base, blocks)[:88]
     timestamps, events, counts, drops, states = (pointer - base for pointer in view[8:13])
+    missing_states = []
     for aiv in range(blocks):
         state_offset = aiv * PROFILE_STATE_STRIDE * 4
         for field in (counts, drops, states):
+            if field == states and size % 512 and (field + state_offset) // 512 * 512 == size // 512 * 512:
+                if size // 512 * 512 not in sectors:
+                    missing_states.append(aiv)
+                    continue
             require(field + state_offset, 4)
         state, = struct.unpack_from('<I', image, states + state_offset)
         count, = struct.unpack_from('<I', image, counts + state_offset)
         dropped, = struct.unpack_from('<I', image, drops + state_offset)
-        assert state == 2 and dropped == 0 and 0 < count <= PROFILE_CAPACITY, (rank, aiv, state, count, dropped)
+        assert (state == 2 or aiv in missing_states) and dropped == 0 and 0 < count <= PROFILE_CAPACITY, (
+            rank, aiv, state, count, dropped)
         first = aiv * PROFILE_CAPACITY
         require(timestamps + first * 8, count * 8)
         require(events + first * 4, count * 4)
-    return image, len(sectors)
+    return image, len(sectors), missing_states
