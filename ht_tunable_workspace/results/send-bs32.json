@@ -1,0 +1,470 @@
+[
+  {
+    "execution": {
+      "task_id": "ht-tunable-send-8-8-stagger",
+      "event_id": "green-cae1cb15a3ae4942bb3fb6898db0cd79",
+      "iteration": 1,
+      "result": {
+        "case": "ht-tunable-send-186dfa18-bs32-8-8-ServerStaggered",
+        "status": "sst_and_checker_passed",
+        "returncode": 0,
+        "guards": {
+          "status": "guards_verified",
+          "count": 256
+        },
+        "kernel_sha256": "b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec",
+        "cqe": 15132,
+        "sim_us": 208.241,
+        "errors": [],
+        "checked": {
+          "ranks": 64,
+          "returned": 2097152,
+          "completed": 32768,
+          "output": 8192,
+          "status": 512
+        },
+        "exports_sha256": {
+          "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+          "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+          "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+          "status": "c68ffe9eccc74dc4b90b4b20e4bf067a797fa70426f67aa09844f4d4160400aa"
+        },
+        "runner_exit_code": 0,
+        "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+        "payload_by_lane": [
+          7314,
+          650
+        ],
+        "plans_sha256": "dcb2e21a356206a1b22b70e51bf4e67a57a98e7e3c657da28ccc6d10b2b838fd",
+        "tokens": 32,
+        "hidden": 128,
+        "chunks": 4,
+        "entry": "tilexr_ep_ht_inter_server_send_kernel",
+        "runtime_root": "/work/inter-server-native/ht-tunable-send-186dfa18-bs32-8-8-ServerStaggered",
+        "phase": 3,
+        "blocks": 8,
+        "seed": 20261124,
+        "six": 8,
+        "two": 8,
+        "policy": "ServerStaggered",
+        "source_commit": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "profiling": false,
+        "runner_wall_seconds": 335.353,
+        "sst_wall_seconds": 315.045
+      }
+    },
+    "cq_slots": {
+      "task_id": "ht-tunable-send-8-8-cq",
+      "event_id": "green-ac489569bb744b8d8d888c10cfdfd373",
+      "iteration": 1,
+      "result": {
+        "totals": {
+          "truncated_hosts": 0,
+          "hosts": 64,
+          "unexpected_slots": 0
+        },
+        "stages": {
+          "gather": {},
+          "local_return": {},
+          "cross_return": {
+            "expected": 15132,
+            "observed": 15132,
+            "qps": 7168,
+            "qps_missing": 0
+          }
+        },
+        "first_missing": []
+      }
+    }
+  },
+  {
+    "execution": {
+      "task_id": "ht-tunable-send-16-8-stagger",
+      "event_id": "green-c715ec5dd6bf474f80f9b69f157c5a53",
+      "iteration": 1,
+      "result": {
+        "case": "ht-tunable-send-186dfa18-bs32-16-8-ServerStaggered",
+        "status": "sst_and_checker_passed",
+        "returncode": 0,
+        "guards": {
+          "status": "guards_verified",
+          "count": 256
+        },
+        "kernel_sha256": "b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec",
+        "cqe": 15132,
+        "sim_us": 202.456,
+        "errors": [],
+        "checked": {
+          "ranks": 64,
+          "returned": 2097152,
+          "completed": 32768,
+          "output": 8192,
+          "status": 512
+        },
+        "exports_sha256": {
+          "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+          "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+          "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+          "status": "c68ffe9eccc74dc4b90b4b20e4bf067a797fa70426f67aa09844f4d4160400aa"
+        },
+        "runner_exit_code": 0,
+        "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+        "payload_by_lane": [
+          7314,
+          650
+        ],
+        "plans_sha256": "653d49d7bf54402e8e5d1101370457cc93e4134536c21f7154fddff1b3cfab65",
+        "tokens": 32,
+        "hidden": 128,
+        "chunks": 4,
+        "entry": "tilexr_ep_ht_inter_server_send_kernel",
+        "runtime_root": "/work/inter-server-native/ht-tunable-send-186dfa18-bs32-16-8-ServerStaggered",
+        "phase": 3,
+        "blocks": 8,
+        "seed": 20261124,
+        "six": 16,
+        "two": 8,
+        "policy": "ServerStaggered",
+        "source_commit": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "profiling": false,
+        "runner_wall_seconds": 328.59,
+        "sst_wall_seconds": 308.638
+      }
+    },
+    "cq_slots": {
+      "task_id": "ht-tunable-send-16-8-cq",
+      "event_id": "green-e9e86d0bcd174fbb9477b8321df90a83",
+      "iteration": 1,
+      "result": {
+        "totals": {
+          "truncated_hosts": 0,
+          "hosts": 64,
+          "unexpected_slots": 0
+        },
+        "stages": {
+          "gather": {},
+          "local_return": {},
+          "cross_return": {
+            "expected": 15132,
+            "observed": 15132,
+            "qps": 7168,
+            "qps_missing": 0
+          }
+        },
+        "first_missing": []
+      }
+    }
+  },
+  {
+    "execution": {
+      "task_id": "ht-tunable-send-8-16-stagger",
+      "event_id": "green-ca3eca432965480693bd3b771734299d",
+      "iteration": 1,
+      "result": {
+        "case": "ht-tunable-send-186dfa18-bs32-8-16-ServerStaggered",
+        "status": "sst_and_checker_passed",
+        "returncode": 0,
+        "guards": {
+          "status": "guards_verified",
+          "count": 256
+        },
+        "kernel_sha256": "b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec",
+        "cqe": 15132,
+        "sim_us": 196.628,
+        "errors": [],
+        "checked": {
+          "ranks": 64,
+          "returned": 2097152,
+          "completed": 32768,
+          "output": 8192,
+          "status": 512
+        },
+        "exports_sha256": {
+          "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+          "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+          "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+          "status": "c68ffe9eccc74dc4b90b4b20e4bf067a797fa70426f67aa09844f4d4160400aa"
+        },
+        "runner_exit_code": 0,
+        "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+        "payload_by_lane": [
+          7314,
+          650
+        ],
+        "plans_sha256": "90d1f66c6a9780211d7b2f081fc411dadf92cc5322b9f53a75040f7d5b5eb4b1",
+        "tokens": 32,
+        "hidden": 128,
+        "chunks": 4,
+        "entry": "tilexr_ep_ht_inter_server_send_kernel",
+        "runtime_root": "/work/inter-server-native/ht-tunable-send-186dfa18-bs32-8-16-ServerStaggered",
+        "phase": 3,
+        "blocks": 8,
+        "seed": 20261124,
+        "six": 8,
+        "two": 16,
+        "policy": "ServerStaggered",
+        "source_commit": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "profiling": false,
+        "runner_wall_seconds": 333.517,
+        "sst_wall_seconds": 312.802
+      }
+    },
+    "cq_slots": {
+      "task_id": "ht-tunable-send-8-16-cq",
+      "event_id": "green-f4aefc8a5b5545ad8d88a99bd4814d0f",
+      "iteration": 1,
+      "result": {
+        "totals": {
+          "truncated_hosts": 0,
+          "hosts": 64,
+          "unexpected_slots": 0
+        },
+        "stages": {
+          "gather": {},
+          "local_return": {},
+          "cross_return": {
+            "expected": 15132,
+            "observed": 15132,
+            "qps": 7168,
+            "qps_missing": 0
+          }
+        },
+        "first_missing": []
+      }
+    }
+  },
+  {
+    "execution": {
+      "task_id": "ht-tunable-send-16-16-stagger",
+      "event_id": "green-b6a05bd5ef254377bc39accd4a43fb31",
+      "iteration": 1,
+      "result": {
+        "case": "ht-tunable-send-186dfa18-bs32-16-16-ServerStaggered",
+        "status": "sst_and_checker_passed",
+        "returncode": 0,
+        "guards": {
+          "status": "guards_verified",
+          "count": 256
+        },
+        "kernel_sha256": "b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec",
+        "cqe": 15132,
+        "sim_us": 239.421,
+        "errors": [],
+        "checked": {
+          "ranks": 64,
+          "returned": 2097152,
+          "completed": 32768,
+          "output": 8192,
+          "status": 512
+        },
+        "exports_sha256": {
+          "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+          "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+          "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+          "status": "c68ffe9eccc74dc4b90b4b20e4bf067a797fa70426f67aa09844f4d4160400aa"
+        },
+        "runner_exit_code": 0,
+        "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+        "payload_by_lane": [
+          7314,
+          650
+        ],
+        "plans_sha256": "ecdcd60bb098444b64d4f2e0d5dd4134e906cb09b2a802b63579bb51df07eaf8",
+        "tokens": 32,
+        "hidden": 128,
+        "chunks": 4,
+        "entry": "tilexr_ep_ht_inter_server_send_kernel",
+        "runtime_root": "/work/inter-server-native/ht-tunable-send-186dfa18-bs32-16-16-ServerStaggered",
+        "phase": 3,
+        "blocks": 8,
+        "seed": 20261124,
+        "six": 16,
+        "two": 16,
+        "policy": "ServerStaggered",
+        "source_commit": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "profiling": false,
+        "runner_wall_seconds": 370.379,
+        "sst_wall_seconds": 350.562
+      }
+    },
+    "cq_slots": {
+      "task_id": "ht-tunable-send-16-16-cq",
+      "event_id": "green-7560ec07c72745c0a5b7293c9fc294cb",
+      "iteration": 1,
+      "result": {
+        "totals": {
+          "truncated_hosts": 0,
+          "hosts": 64,
+          "unexpected_slots": 0
+        },
+        "stages": {
+          "gather": {},
+          "local_return": {},
+          "cross_return": {
+            "expected": 15132,
+            "observed": 15132,
+            "qps": 7168,
+            "qps_missing": 0
+          }
+        },
+        "first_missing": []
+      }
+    }
+  },
+  {
+    "execution": {
+      "task_id": "ht-tunable-send-16-16-ring",
+      "event_id": "green-0d2593dc969d49d5bec95dd87cf5b4b6",
+      "iteration": 1,
+      "result": {
+        "case": "ht-tunable-send-186dfa18-bs32-16-16-RankOffsetRing",
+        "status": "sst_and_checker_passed",
+        "returncode": 0,
+        "guards": {
+          "status": "guards_verified",
+          "count": 256
+        },
+        "kernel_sha256": "b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec",
+        "cqe": 15132,
+        "sim_us": 224.965,
+        "errors": [],
+        "checked": {
+          "ranks": 64,
+          "returned": 2097152,
+          "completed": 32768,
+          "output": 8192,
+          "status": 512
+        },
+        "exports_sha256": {
+          "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+          "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+          "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+          "status": "c68ffe9eccc74dc4b90b4b20e4bf067a797fa70426f67aa09844f4d4160400aa"
+        },
+        "runner_exit_code": 0,
+        "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+        "payload_by_lane": [
+          7314,
+          650
+        ],
+        "plans_sha256": "83cee7f869176f097c75bc205b7dc77a8f528619b1cff2a892db9695aac2306f",
+        "tokens": 32,
+        "hidden": 128,
+        "chunks": 4,
+        "entry": "tilexr_ep_ht_inter_server_send_kernel",
+        "runtime_root": "/work/inter-server-native/ht-tunable-send-186dfa18-bs32-16-16-RankOffsetRing",
+        "phase": 3,
+        "blocks": 8,
+        "seed": 20261124,
+        "six": 16,
+        "two": 16,
+        "policy": "RankOffsetRing",
+        "source_commit": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "profiling": false,
+        "runner_wall_seconds": 348.216,
+        "sst_wall_seconds": 328.899
+      }
+    },
+    "cq_slots": {
+      "task_id": "ht-tunable-send-16-16-ring-cq",
+      "event_id": "green-347df5e9528c4262a9202866e65c7004",
+      "iteration": 1,
+      "result": {
+        "totals": {
+          "truncated_hosts": 0,
+          "hosts": 64,
+          "unexpected_slots": 0
+        },
+        "stages": {
+          "gather": {},
+          "local_return": {},
+          "cross_return": {
+            "expected": 15132,
+            "observed": 15132,
+            "qps": 7168,
+            "qps_missing": 0
+          }
+        },
+        "first_missing": []
+      }
+    }
+  },
+  {
+    "execution": {
+      "task_id": "ht-tunable-send-16-16-custom",
+      "event_id": "green-dd5787a504bc4331aaefc3d9666f800d",
+      "iteration": 1,
+      "result": {
+        "case": "ht-tunable-send-186dfa18-bs32-16-16-CustomOrder",
+        "status": "sst_and_checker_passed",
+        "returncode": 0,
+        "guards": {
+          "status": "guards_verified",
+          "count": 256
+        },
+        "kernel_sha256": "b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec",
+        "cqe": 15132,
+        "sim_us": 193.465,
+        "errors": [],
+        "checked": {
+          "ranks": 64,
+          "returned": 2097152,
+          "completed": 32768,
+          "output": 8192,
+          "status": 512
+        },
+        "exports_sha256": {
+          "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+          "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+          "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+          "status": "c68ffe9eccc74dc4b90b4b20e4bf067a797fa70426f67aa09844f4d4160400aa"
+        },
+        "runner_exit_code": 0,
+        "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+        "payload_by_lane": [
+          7314,
+          650
+        ],
+        "plans_sha256": "b741b93b56aacc8ba6cd7caed8b46949a012471f50d0a1ea688aac737bb801bd",
+        "tokens": 32,
+        "hidden": 128,
+        "chunks": 4,
+        "entry": "tilexr_ep_ht_inter_server_send_kernel",
+        "runtime_root": "/work/inter-server-native/ht-tunable-send-186dfa18-bs32-16-16-CustomOrder",
+        "phase": 3,
+        "blocks": 8,
+        "seed": 20261124,
+        "six": 16,
+        "two": 16,
+        "policy": "CustomOrder",
+        "source_commit": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "profiling": false,
+        "runner_wall_seconds": 326.492,
+        "sst_wall_seconds": 305.575
+      }
+    },
+    "cq_slots": {
+      "task_id": "ht-tunable-send-16-16-custom-cq",
+      "event_id": "green-cc1b1bbdedd5418886832847ef86be6d",
+      "iteration": 1,
+      "result": {
+        "totals": {
+          "truncated_hosts": 0,
+          "hosts": 64,
+          "unexpected_slots": 0
+        },
+        "stages": {
+          "gather": {},
+          "local_return": {},
+          "cross_return": {
+            "expected": 15132,
+            "observed": 15132,
+            "qps": 7168,
+            "qps_missing": 0
+          }
+        },
+        "first_missing": []
+      }
+    }
+  }
+]
