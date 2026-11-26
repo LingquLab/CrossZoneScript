@@ -1,0 +1,53 @@
+import inspect
+import json
+from pathlib import Path
+import sys
+
+from controller import REMOTE
+from read_case import case_transport
+
+
+def stop(directory, capture):
+    import json
+    import os
+    from pathlib import Path
+    import signal
+
+    root = Path(directory)
+    if (root / "run-result.json").is_file():
+        return {"status": "already_exited"}
+    children = json.loads((root / "children.json").read_text())
+    for child in children:
+        pid = child["pid"]
+        try:
+            with os.fdopen(os.pidfd_open(pid), "rb") as process:
+                command = (Path(f"/proc/{pid}") / "cmdline").read_bytes()
+                if str(root / f"rank-{child['rank']}").encode() not in command or capture.encode() not in command:
+                    continue
+                signal.pidfd_send_signal(process.fileno(), signal.SIGTERM)
+                return {"status": "signaled_one_own_rank"}
+        except ProcessLookupError:
+            continue
+    return {"status": "no_matching_rank"}
+
+
+def main(args):
+    outcome, profile, run_id, capture, transport = case_transport(args["case"])
+    if run_id != args["run_id"]:
+        print(json.dumps({"status": "case_already_advanced"}))
+        return
+    directory = f"{REMOTE}/runs/{run_id}"
+    peer = ("import json\nfrom pathlib import Path\n"
+            f"receipt=Path({directory!r})/'run-result.json'\n"
+            "result=json.loads(receipt.read_text()) if receipt.is_file() else {}\n"
+            "print(json.dumps({'failed': result.get('status') == 'FAIL' and result.get('network_restored') is True}))\n")
+    if not transport(profile, 1, peer, outcome, "confirm-peer-exit", 20).get("failed"):
+        print(json.dumps({"status": "peer_failure_unconfirmed"}))
+        return
+    command = "import json\n" + inspect.getsource(stop) + f"\nprint(json.dumps(stop({directory!r}, {capture!r})))\n"
+    print(json.dumps(transport(profile, 0, command, outcome, "end-owned-rank", 20)))
+
+
+if __name__ == "__main__":
+    assert sys.argv[1] == "--args-file"
+    main(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")))

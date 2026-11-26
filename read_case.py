@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 import re
@@ -65,9 +66,7 @@ def observe(directory, port):
             "reason": next((label for label in reasons if label in result.get("error", "")), None)}
 
 
-def main(case):
-    import inspect
-
+def case_transport(case):
     assert re.fullmatch(r"bs(?:32|64|128)-(?:baseline|candidate)-(?:off|on)", case)
     outcome = RESULT / case
     profile = json.loads((outcome / "profile.private.json").read_text(encoding="utf-8"))
@@ -82,6 +81,11 @@ def main(case):
         assert runner.digest(helper) == "847b4a4801b6ddc63315aacbb092f4c0336241cb276bd96c1f954284276d129a"
         runpy.run_path(str(helper))["install"](runner)
     transport = install(runner, profile, runner.transport if helper.is_file() else None)
+    return outcome, profile, run_id, identity["capture"], transport
+
+
+def main(case):
+    outcome, profile, run_id, _, transport = case_transport(case)
     directory = f"{REMOTE}/runs/{run_id}"
     port = profile["network"]["ports"][0]
     script = "import json\n" + inspect.getsource(observe) + f"\nprint(json.dumps(observe({directory!r}, {port})))\n"
