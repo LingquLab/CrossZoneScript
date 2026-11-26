@@ -110,10 +110,23 @@ def worker_source():
                             executable = (Path('/proc') / str(pid) / 'exe').resolve(strict=True)
                             kind = ('current_fixture' if executable == package / 'bin/ubx_full_intra' else
                                     'other_fixture' if executable.name == 'ubx_full_intra' else
-                                    'profiler' if executable.name.startswith('msprof') else 'other')
+                                    'profiler' if executable.name.startswith('msprof') else
+                                    'python' if executable.name.startswith('python') else
+                                    'shell' if executable.name in ('sh', 'bash', 'zsh') else 'other')
                         except OSError:
                             kind = 'unavailable'
                         report['interference'] = {'device': row['device'], 'kind': kind}
+                        try:
+                            report['interference']['own_session'] = os.getsid(pid) in groups
+                            parent = pid
+                            for _ in range(16):
+                                proc = (Path('/proc') / str(parent) / 'stat').read_text()
+                                parent = int(proc.rsplit(')', 1)[1].split()[1])
+                                if parent in groups or parent <= 1:
+                                    break
+                            report['interference']['own_parent'] = parent in groups
+                        except (OSError, ValueError, IndexError):
+                            pass
                         save(directory / 'unexpected-process.json', report['interference'])
                         raise ValueError('Foreign workload detected; performance invalid')"""
     source = source.replace(bare_interference, detailed_interference)
