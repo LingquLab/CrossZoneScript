@@ -58,6 +58,7 @@ def main():
 
     deadline = time.monotonic() + settings.get('hours', 8) * 3600
     smoke = settings.get('mode', 'smoke') == 'smoke'
+    validated = False
     queue = [(64, 2)] if smoke else [(bs, mt) for bs in [64, 128] for mt in [1, 2, 3, 4]]
     while queue and time.monotonic() < deadline:
         checks = both({'action': 'check'})
@@ -66,7 +67,15 @@ def main():
             if smoke:
                 emit({'event': 'STOP', 'reason': 'resources_unavailable'})
                 return 1
-            time.sleep(min(600, max(0, deadline - time.monotonic())))
+            wake = min(time.monotonic() + 600, deadline)
+            while time.monotonic() < wake:
+                time.sleep(min(30, max(0, wake - time.monotonic())))
+            continue
+        if not smoke and not validated:
+            if not run(64, 2, True):
+                emit({'event': 'STOP', 'reason': 'smoke_validation_failed', 'remaining': queue})
+                return 1
+            validated = True
             continue
         bs, mt = queue[0]
         if not run(bs, mt, smoke):
