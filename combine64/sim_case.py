@@ -241,13 +241,20 @@ CQ_PROBE_QUEUES = ((2, 0, 16), (2, 1, 36), (4, 0, 16), (4, 1, 36), (1, 2, 17), (
                    (5, 2, 17), (5, 3, 37), (8, 9, 36), (11, 8, 16), (11, 9, 36))
 
 
-def bind_return_probe(case, cq_probe=False):
+def bind_return_probe(case, cq_probe=False, joint_probe=False):
     from runtime import BASES, WORLD, PHYSICAL_QPS, physical_queue_addresses
     layout = read_json(case / 'export-layout.json')
     workload = read_json(case / 'workload.yml')
     state_bytes = WORLD * PHYSICAL_QPS * 64
     for row in layout['ranks']:
         chip = workload['workload_config'][f"chip{row['rank']}"]
+        if joint_probe:
+            rank_input = case / 'input_bin' / f"rank{row['rank']:02d}"
+            local_workspace, = struct.unpack_from('<Q', (rank_input / 'kernel_args.bin').read_bytes())
+            stages = (rank_input / 'masks.bin').stat().st_size // 4
+            segment = dict(addr=local_workspace + (3 * WORLD + 96) * STRIPE, size=stages * 8 * STRIPE)
+            row['exports']['gather_done'] = segment
+            chip['output_param']['gather_done'] = segment
         planes = [('sq_head', 1), ('sq_tail', 2)]
         if cq_probe:
             planes.append(('cq_tail', 4))
@@ -320,17 +327,28 @@ def observe_joint(case, environment, intra_cores, joint_probe=False):
     samples = []
     phases = Counter()
     lanes = []
+    gathered_flags = Counter()
     for row in layout['ranks']:
         rank = row['rank']
         base = row['sys_va_base_addr']
         data = {}
-        for name in (*flags, 'sq_head', 'sq_tail', 'status'):
+        names = (*flags, 'sq_head', 'sq_tail', 'status')
+        for name in (*names, 'gather_done') if joint_probe else names:
             segment = row['exports'][name]
             paths = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
             try:
                 data[name] = reconstruct_die_output(paths, segment['addr'] - base, segment['size'], decoder)
             except (FileNotFoundError, ValueError):
                 missing[name] += 1
+        if 'gather_done' in data:
+            masks = (case / 'input_bin' / f'rank{rank:02d}' / 'masks.bin').read_bytes()
+            for stage, (mask,) in enumerate(struct.iter_unpack('<I', masks)):
+                for source in range(8):
+                    if not mask & (1 << source):
+                        continue
+                    index = (stage * 8 + source) * STRIPE
+                    value, = struct.unpack_from('<q', data['gather_done'], index)
+                    gathered_flags[f'{stage}/{"present" if value == 1 else "missing"}'] += 1
         if 'status' in data:
             for role, offset, count, stride in (
                 ('intra', 0, intra_cores, 4), ('return', STRIPE, 8, 32),
@@ -373,7 +391,7 @@ def observe_joint(case, environment, intra_cores, joint_probe=False):
     result = dict(joint_status=status, ready_markers=flags, outstanding_sq=pending,
                   outstanding_sq_examples=samples, probe_missing_ranks=missing)
     if joint_probe:
-        result['joint_trace'] = dict(phases=phases, lanes=lanes)
+        result['joint_trace'] = dict(phases=phases, lanes=lanes, gather_done=gathered_flags)
     return result
 
 
@@ -475,7 +493,7 @@ def main(config):
             for key in keys:
                 assert original[key] == record[key], key
             record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source=origin)
-            bind_return_probe(case, cq_probe)
+            bind_return_probe(case, cq_probe, joint_probe)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
         model_config = case / 'v310_config/davidV100_simulator_config.yml'
