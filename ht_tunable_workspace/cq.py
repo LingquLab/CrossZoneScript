@@ -49,7 +49,7 @@ def count_candidate_cq(case, tokens, expected_for_rank=None, mode=None):
         if not path.is_file():
             continue
         with path.open('rb') as stream:
-            raw = stream.read(MAX_TRACE_BYTES * (8 if tokens == 1024 else 1))
+            raw = stream.read(trace_limit(tokens, mode))
             totals['truncated_hosts'] += bool(stream.read(1))
         totals['hosts'] += 1
         expected = expected_for_rank[rank] if expected_for_rank is not None else expected_cq_slots(rank, tokens, mode)
@@ -133,7 +133,7 @@ def pipeline_missing_arrivals(case, tokens, mode, missing):
         file = case / 'OUTPUT/stat_trace' / f'Host{peer}_ba_layer_trace.json'
         if file.is_file():
             with file.open('rb') as stream:
-                raw = stream.read(MAX_TRACE_BYTES * (8 if tokens == 1024 else 1))
+                raw = stream.read(trace_limit(tokens, mode))
                 truncated = bool(stream.read(1))
             for match in TRACE_ARGS.finditer(raw):
                 if b'"WR_DATA"' not in match[0]:
@@ -148,3 +148,7 @@ def pipeline_missing_arrivals(case, tokens, mode, missing):
         result.append([sender, peer, physical, stage, truncated,
                        [[kind, index, address in observed] for kind, index, address in inspected]])
     return result
+
+
+def trace_limit(tokens, mode):
+    return MAX_TRACE_BYTES * (8 if tokens == 1024 or mode == 'physical' else 1)
