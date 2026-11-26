@@ -82,7 +82,7 @@ for name in ('run.json', 'unified-result.json', 'phase-summary.json'):
         data = json.loads(path.read_text())
         report[name] = {key: data[key] for key in ('status', 'returncode', 'runner_exit_code', 'sim_us',
                             'kernel_sha256', 'guards', 'checked', 'exports_sha256', 'sst_wall_seconds',
-                            'runner_wall_seconds', 'cqe') if key in data}
+                            'runner_wall_seconds', 'cqe', 'error') if key in data}
 log = case / 'sim.log'
 if log.exists():
     raw = log.read_bytes()
