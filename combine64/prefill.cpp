@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 TileXR Project.
  * Serialize candidate HT arguments and Prefill from fixture-owned route tables. */
 #include "combine_ht_prefill.h"
+#include <tilexr/moonep/combine_ht_pipeline.h>
 #include <fstream>
 #include <string>
 #include <stdexcept>
@@ -27,6 +28,11 @@ int main(int argc, char **argv) {
     std::vector<int32_t> ranges(a.layout.backward_range_elements);
     Read(p+".backward",backward.data(),backward.size());
     Read(p+".backward_counts",counts.data(),counts.size());
+    std::vector<uint32_t> schedule(uint64_t(a.config.world) * TileXREpHt::ScheduleWords(a.config.world));
+    if (TileXRMoonEpCombineHTBuildSchedule(&a.config, nullptr, schedule.data()) ||
+        TileXRMoonEpCombineHTOrderBackward(&a.config, schedule.data(), backward.data(), counts.data())) return 4;
+    Write(p+".schedule",schedule.data(),schedule.size());
+    Write(p+".backward",backward.data(),backward.size());
     if (TileXRMoonEpCombineHTBuildBackwardRanges(&a.config,backward.data(),counts.data(),ranges.data())) return 4;
     Write(p+".backward_ranges",ranges.data(),ranges.size());
     const uint64_t stride=0x2000000000ULL,base=a.config.rank*stride;
@@ -65,6 +71,14 @@ int main(int argc, char **argv) {
     std::vector<uint8_t> image;
     if(BuildPrefillImage(a.config,uint64_t(a.input),uint64_t(a.workspace),rows,counts.data(),ranges.data(),endpoints,image)) return 6;
     Write(p+".prefill",image.data(),image.size());
+    TileXRCombineHTPipelineLayout pipeline{};
+    if (TileXRMoonEpCombineHTGetPipelineLayout(&a.config, a.magic, &pipeline)) return 7;
+    Write(p+".pipeline_layout",&pipeline,1);
+    const auto jointInput = base + 0x200000000ULL + pipeline.send.inputOffset;
+    for (auto &endpoint : endpoints) endpoint.base += pipeline.local_offset;
+    if (BuildPrefillImage(a.config, jointInput, uint64_t(a.workspace) + pipeline.local_offset,
+            rows, counts.data(), ranges.data(), endpoints, image)) return 8;
+    Write(p+".joint_prefill",image.data(),image.size());
     Write(p+".args",&a,1);
     Write(p+".layout",&a.layout,1);
     return 0;

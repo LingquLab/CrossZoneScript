@@ -37,13 +37,18 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     helper=output/'prefill-tool'
     common=['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-I'+str(source/'include')]
     subprocess.run(common+['-I'+str(source/'src/moonep/combine_ht/common'),str(Path(__file__).with_name('prefill.cpp')),
-                          str(source/'src/moonep/combine_ht/host/combine_ht_prefill.cpp'),'-o',str(helper)],check=True)
+                          str(source/'src/moonep/combine_ht/host/combine_ht_prefill.cpp'),
+                          str(source/'src/moonep/combine_ht/host/combine_ht_pipeline_layout.cpp'),'-o',str(helper)],check=True)
     probe=output/'abi-probe'
     subprocess.run(common+[str(support/'abi_probe.cpp'),'-o',str(probe)],check=True)
     hidden,topk,experts=128,6,256
     capacity=tokens*topk
     rows=world*capacity
-    chunks=min(tokens,4)
+    chunks = min(tokens, 4)
+    assert tokens % chunks == 0
+    chunk_tokens = tokens // chunks
+    owner_cores = 16
+    groups = (world - 8 + owner_cores - 1) // owner_cores
     rng=random.Random(20261124)
     routes=[]
     ledger={}
@@ -58,7 +63,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
                 ledger[row]=(rank,value)
     (output/'routes.json').write_text(json.dumps(routes,separators=(',',':')))
     stats={'world':world,'tokens':tokens,'hidden':hidden,'topk':topk,'experts':experts,'seed':20261124,
-           'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'send_rows':0,'direct_rows':0,'reduce_rows':0}
+           'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'groups':groups,'send_rows':0,'direct_rows':0,'reduce_rows':0}
     assert len(ledger)==world*tokens*topk
     specs=[]
     for rank in range(world):
@@ -66,12 +71,12 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         name='rank%02d'%rank
         meta=output/'metadata'/name
         meta.parent.mkdir(exist_ok=True)
-        abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),'2026','-',str(world),'8']))
+        abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),'2026','-',str(world),'8',str(chunk_tokens),'1',str(owner_cores),'1','1']))
         images=runtime.runtime_images(abi,rank,1,world=world)
         fwd=array('i',[0])*(world*capacity*6)
         counts=[0]*world
         ranges=[0]*(world*chunks*2)
-        masks=[0]*chunks
+        masks=[0]*(chunks*groups)
         backward=[[] for _ in range(8)]
         sends=[[[] for _ in range(chunks)] for _ in range(8)]
         inp=bytearray(GUARD*(rows*hidden))
@@ -83,6 +88,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         for chunk in range(chunks):
             for s in range(world):
                 ranges[(s*chunks+chunk)*2]=counts[s]
+                group = groups - 1 if s // 8 == server else (s - 8 * (s // 8 > server)) // owner_cores
                 for t in range(tokens):
                     if t*chunks//tokens!=chunk: continue
                     route=routes[s*tokens+t]
@@ -99,7 +105,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
                             row=(s*tokens+t)*topk+slot
                             records.append((owner,row,-1 if owner==rank else row))
                             if owner!=rank:
-                                masks[chunk]|=1<<(owner%8)
+                                masks[group * chunks + chunk] |= 1 << (owner % 8)
                                 gathered[row*512:(row+1)*512]=ledger[row][1]
                         for owner,row,gather in records:
                             at=(s*capacity+counts[s])*6
@@ -126,7 +132,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
                 backward[g].extend(run)
             backward_counts.append(len(backward[g]))
             for i,record in enumerate(backward[g]): packed[(g*rows+i)*3:(g*rows+i)*3+3]=array('q',record)
-        config=struct.pack('<13I',rank,world,tokens,hidden,topk,rows,rows,256,chunks,8,8,3,0)
+        config=struct.pack('<17I',rank,world,tokens,hidden,topk,rows,rows,chunk_tokens,1,24,8,3,0,8,owner_cores,1,1)
         Path(str(meta)+'.config').write_bytes(config)
         Path(str(meta)+'.backward').write_bytes(packed.tobytes())
         Path(str(meta)+'.backward_counts').write_bytes(struct.pack('<8i',*backward_counts))
@@ -134,22 +140,25 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         subprocess.run([str(helper),str(meta)],check=True)
         raw=bytearray(Path(str(meta)+'.args').read_bytes())
         struct.pack_into('<Q',raw,80,0)
-        layout=struct.unpack('<6I4Q',Path(str(meta)+'.layout').read_bytes())
+        layout=struct.unpack('<6I6Q',Path(str(meta)+'.layout').read_bytes())
         gather_offset,partial_offset,workspace_bytes=layout[6:9]
-        assert len(raw)==248 and layout[:2]==(chunks,1)
+        assert len(raw)==288 and layout[:2]==(chunks,groups)
         images=runtime.runtime_images(abi,rank,workspace_bytes,world=world)
         ws=bytearray(workspace_bytes)
         for g in range(64): struct.pack_into('<Q',ws,(3*world+g)*512,1)
         ws[gather_offset:partial_offset]=GUARD*((partial_offset-gather_offset)//4)
         ws[partial_offset:]=GUARD*((workspace_bytes-partial_offset)//4)
+        schedule = Path(str(meta)+'.schedule').read_bytes()
+        assert len(schedule) == layout[11]
+        ws[layout[10]:gather_offset] = schedule
         addresses=dict(runtime.BASES,input=(0x440000000 if len(inp)>0x1000000 else 0x404000000),prefill=0x405000000,masks=0x406000000,
                        backward=0x407000000,backward_counts=0x408000000,backward_ranges=0x409000000)
         images.update(workspace=ws,input=inp,forward=fwd.tobytes(),counts=struct.pack('<%di'%world,*counts),
                       ranges=struct.pack('<%di'%len(ranges),*ranges),masks=struct.pack('<%di'%chunks,*masks),
-                      backward=packed.tobytes(),backward_counts=struct.pack('<8i',*backward_counts),
+                      backward=Path(str(meta)+'.backward').read_bytes(),backward_counts=struct.pack('<8i',*backward_counts),
                       backward_ranges=Path(str(meta)+'.backward_ranges').read_bytes(),status=b'\xa5'*512,
                       prefill=Path(str(meta)+'.prefill').read_bytes())
-        completed=bytearray((chunks*8+8)*512)
+        completed=bytearray((len(masks)*8+8)*512)
         for c,mask in enumerate(masks):
             for owner in range(8):
                 if mask&(1<<owner): struct.pack_into('<Q',completed,(c*8+owner)*512,1)
@@ -170,7 +179,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
             inputs.append(dict(name=key,addr=base+addr,data=b'\xde'*512))
             guards.append(dict(name=key,addr=base+addr,size=512,expected_byte=222))
         if disk_backed:inputs=DiskImages(output/'.image-spool'/name,inputs)
-        specs.append(dict(rank=rank,abi_size=248,fields=[dict(name='word%d'%(i//8),offset=i,type='uint64_t',value=v)
+        specs.append(dict(rank=rank,abi_size=len(raw),fields=[dict(name='word%d'%(i//8),offset=i,type='uint64_t',value=v)
                           for i,(v,) in zip(range(0,len(raw),8),struct.iter_unpack('<Q',raw))],
                           gm_size=runtime.GM_BYTES,sys_va_base_addr=base,ub_base_addr=0x80000,stack_base_addr=0x100000,
                           param_base_addr=base+0x80000000,binary_addr=base+0x40000000,images=inputs,exports=exports,guards=guards))

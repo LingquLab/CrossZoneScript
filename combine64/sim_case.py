@@ -97,7 +97,7 @@ def local_phase(case, asset, action):
         inputs = case / 'input_bin' / rank_name
         golden = case / 'fixture-data' / rank_name
         args = bytearray((inputs / 'kernel_args.bin').read_bytes())
-        assert len(args) == 248
+        assert len(args) == 288
         struct.pack_into('<II', args, 148, 0, REDUCERS)
         struct.pack_into('<I', args, 156, 1 if action == 'local-send' else 2)
         (inputs / 'kernel_args.bin').write_bytes(args)
@@ -125,9 +125,9 @@ def local_phase(case, asset, action):
                 workspace[offset:offset + len(payload)] = payload
             (inputs / 'workspace.bin').write_bytes(workspace)
             completed = bytearray((golden / 'golden-completed.bin').read_bytes())
-            chunks = asset_id['chunks']
+            stages = asset_id['chunks'] * asset_id['groups']
             for reducer in range(REDUCERS):
-                struct.pack_into('<I', completed, (chunks * 8 + reducer) * STRIPE, chunks)
+                struct.pack_into('<I', completed, (stages * 8 + reducer) * STRIPE, stages)
             (golden / 'golden-completed.bin').write_bytes(completed)
         (golden / 'golden-status.bin').write_bytes(status)
     write_json(case / 'workload.yml', workload)
