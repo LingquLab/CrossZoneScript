@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import re
 import time
 
 from benchmark import HOSTS, OUTPUT, REVISION, ROOT, main, ssh
@@ -29,7 +30,7 @@ def recover():
         return
 
     errors = (prior / "stderr.log").read_text(encoding="utf-8", errors="replace")
-    if "preflight exited" not in errors or "NPU occupied after preflight" not in errors:
+    if "preflight exited" not in errors or not re.search(r"NPU \d+ occupied or unrecognized", errors):
         raise RuntimeError("The previous launch did not exit due to verified NPU occupancy")
     command = f"test ! -e {OUTPUT} && test ! -e {ROOT}/full-bs32-f50-controller.log"
     with ThreadPoolExecutor(max_workers=2) as pool:

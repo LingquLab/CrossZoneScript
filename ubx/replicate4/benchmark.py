@@ -60,8 +60,8 @@ def controller(index, action, payload, port):
             f'export LD_LIBRARY_PATH={shlex.quote(libraries)}:"${{LD_LIBRARY_PATH:-}}" && exec {argv}'
         )
         argv = shlex.join(["bash", "-lc", shell])
-    result = ssh(HOSTS[index], argv, payload=payload, timeout=740 if action == "run" else 215,
-                 stage=action)
+    timeouts = {"run": 740, "preflight": 215, "preflight-cleanup": 420}
+    result = ssh(HOSTS[index], argv, payload=payload, timeout=timeouts[action], stage=action)
     return json.loads(result)
 
 
