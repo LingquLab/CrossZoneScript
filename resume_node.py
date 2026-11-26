@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from controller import OUTPUT, REMOTE, REVISIONS, RUNNER, WINDOWS
-from transport_current import from_handbook
+from native_askpass import native_transport
 
 
 def main():
@@ -18,16 +18,7 @@ def main():
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     profile = runner.load_profile(WINDOWS / "ep32-local.json")
-    dependency = OUTPUT / "ssh-python"
-    if not (dependency / "paramiko").is_dir():
-        command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
-                   "--target", str(dependency), "paramiko"]
-        with (OUTPUT / "ssh-python-install.log").open("wb") as log:
-            result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=180)
-        if result.returncode:
-            return {"status": "BLOCKED", "reason": "paramiko_install_failed"}
-    sys.path.insert(0, str(dependency))
-    run = from_handbook(runner, profile)
+    run = native_transport(runner, profile, OUTPUT)
     preflight = run(profile, 1,
                     f'import json,os\nprint(json.dumps({{"status":"PASS","exists":os.path.exists({REMOTE!r})}}))\n',
                     OUTPUT, "retry-preflight", 40)

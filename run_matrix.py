@@ -14,7 +14,7 @@ import sys
 import uuid
 
 from controller import OUTPUT, REMOTE, RUNNER, STATE, WINDOWS, HISTORICAL
-from transport_current import from_handbook
+from native_askpass import native_transport
 
 RESULT = STATE / "ubx-topk-perf-20261126-results"
 KERNEL = "lib/tilexr/kernels/tilexr_ep_ubx_kernel.o"
@@ -166,13 +166,13 @@ def main():
     from tilexr_profiling.records import parse_record_bytes
 
     template = runner.load_profile(WINDOWS / "ep32-local.json")
-    if (OUTPUT / "ssh-python" / "paramiko").is_dir():
-        sys.path.insert(0, str(OUTPUT / "ssh-python"))
-        prior = runner.transport
-        handbook = from_handbook(runner, template)
-        def transport(profile, node, script, directory, label, timeout):
-            return (prior if node == 0 else handbook)(profile, node, script, directory, label, timeout)
-        runner.transport = transport
+    prior = runner.transport
+    handbook = native_transport(runner, template, OUTPUT)
+
+    def transport(profile, node, script, directory, label, timeout):
+        return (prior if node == 0 else handbook)(profile, node, script, directory, label, timeout)
+
+    runner.transport = transport
     worker = worker_source()
     # Run a batch as one transaction with four separately archived configurations.
     assert sys.argv[1] == "--args-file"

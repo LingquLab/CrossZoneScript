@@ -5,9 +5,7 @@ import runpy
 import time
 
 
-def from_handbook(runner, profile):
-    import paramiko
-
+def load_auth(runner, profile):
     data = Path("D:/project/UBX攻关/环境信息/实机手册.md").read_text(encoding="utf-8-sig")
     tssh = runner.tssh
     cluster = tssh.find_cluster(tssh.load_clusters(Path(profile["cluster"]["inventory"])), profile["cluster"]["name"])
@@ -46,6 +44,14 @@ def from_handbook(runner, profile):
             if len(matching) != 1:
                 raise ValueError("handbook password entry is ambiguous") from None
             return matching.pop()
+
+    return cluster, hosts, authenticate
+
+
+def from_handbook(runner, profile):
+    import paramiko
+
+    cluster, hosts, authenticate = load_auth(runner, profile)
 
     def transport(current_profile, node, script, directory, label, timeout):
         host = hosts[node]
