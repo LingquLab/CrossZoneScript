@@ -2,15 +2,17 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from decimal import Decimal
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import base64
 import csv
 import hashlib
 import importlib.util
 import json
 import runpy
+import shutil
 import statistics
 import sys
+import tarfile
 import time
 import traceback
 import uuid
@@ -108,6 +110,27 @@ def read_receipts(outcome, phase):
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
 
 
+def extract_capture(archive, destination):
+    destination.mkdir(parents=True)
+    root = destination.resolve()
+    paths = {}
+    with tarfile.open(archive) as source:
+        for member in source:
+            relative = PurePosixPath(member.name)
+            if not member.isfile() or relative.is_absolute() or ".." in relative.parts or "\\" in member.name:
+                raise ValueError("Unsafe capture archive member")
+            if len(relative.parts) >= 3 and relative.parts[1] == "msprof" and relative.suffix == ".csv":
+                relative = PurePosixPath(relative.parts[0], "msprof", relative.name)
+            target = (root / relative.as_posix()).resolve()
+            if not target.is_relative_to(root) or target == root / "archive-paths.json":
+                raise ValueError("Unsafe capture archive path")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source.extractfile(member) as data, target.open("xb") as sink:
+                shutil.copyfileobj(data, sink)
+            paths[member.name] = relative.as_posix()
+    write_json(root / "archive-paths.json", paths)
+
+
 def archive_capture(runner, profile, node, receipt, outcome, run_id):
     remote = profile["workspace"].rstrip("/") + "/" + run_id + "/captures.tar.gz"
     if receipt["capture_archive_path"] != remote:
@@ -140,7 +163,7 @@ def archive_capture(runner, profile, node, receipt, outcome, run_id):
     if not certificate.is_file():
         if destination.exists():
             destination.rename(outcome / f"interrupted-node-{node}-{uuid.uuid4().hex[:8]}")
-        runner.extract_capture_archive(archive, destination)
+        extract_capture(archive, destination)
     return {"bytes": size, "sha256": digest}
 
 
