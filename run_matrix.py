@@ -12,6 +12,7 @@ import runpy
 import statistics
 import sys
 import time
+import traceback
 import uuid
 
 from controller import OUTPUT, REMOTE, RUNNER, STATE, WINDOWS, HISTORICAL
@@ -105,6 +106,42 @@ def retryable_occupancy(result):
 def read_receipts(outcome, phase):
     path = outcome / f"{phase}.private.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+
+
+def archive_capture(runner, profile, node, receipt, outcome, run_id):
+    remote = profile["workspace"].rstrip("/") + "/" + run_id + "/captures.tar.gz"
+    if receipt["capture_archive_path"] != remote:
+        raise ValueError("Capture archive is outside this run")
+    size, digest = receipt["capture_archive_bytes"], receipt["capture_archive_sha256"]
+    archive = outcome / f"node-{node}-captures.tar.gz"
+    if not archive.is_file() or runner.digest(archive) != digest:
+        partial = archive.with_suffix(".partial")
+        with partial.open("wb") as stream:
+            for offset in range(0, size, 1024 * 1024):
+                length = min(1024 * 1024, size - offset)
+                script = ('import base64,json\n'
+                          f'with open({remote!r}, "rb") as stream:\n'
+                          f' stream.seek({offset})\n data=stream.read({length})\n'
+                          'print(json.dumps({"status":"PASS","data":base64.b64encode(data).decode("ascii")}))\n')
+                label = f"capture-{offset}"
+                chunk = runner.transport(profile, node, script, outcome, label, 60)
+                if chunk.get("status") != "PASS":
+                    raise ValueError("Capture transfer failed")
+                data = base64.b64decode(chunk["data"], validate=True)
+                if len(data) != length:
+                    raise ValueError("Capture transfer returned an incomplete chunk")
+                stream.write(data)
+                (outcome / f"{label}-{node}.stdout").unlink(missing_ok=True)
+        if runner.digest(partial) != digest:
+            raise ValueError("Capture archive hash mismatch")
+        partial.replace(archive)
+    destination = outcome / "raw" / f"node{node}"
+    certificate = destination / "archive-paths.json"
+    if not certificate.is_file():
+        if destination.exists():
+            destination.rename(outcome / f"interrupted-node-{node}-{uuid.uuid4().hex[:8]}")
+        runner.extract_capture_archive(archive, destination)
+    return {"bytes": size, "sha256": digest}
 
 
 def analyze(output, profile, record_reader):
@@ -276,6 +313,8 @@ def main(batch, probe_only=False, wait_seconds=120):
                 continue
             hashes = build[0]["artifacts"][package]
             assert hashes == build[1]["artifacts"][package], "host package hash mismatch"
+            prior_run = []
+            hosts = []
             if outcome.exists():
                 prior_run = read_receipts(outcome, "run")
                 prepared = read_receipts(outcome, "prepare")
@@ -285,13 +324,20 @@ def main(batch, probe_only=False, wait_seconds=120):
                     archived = RESULT / "prelaunch-attempts"
                     archived.mkdir(exist_ok=True)
                     outcome.rename(archived / f"{outcome.name}-{time.time_ns()}")
-                elif prior_run or len(prepared) != 2 or any(host.get("status") != "PASS" for host in prepared):
+                elif prior_run and (len(prior_run) != 2 or any(
+                    host.get("status") != "PASS" or not host.get("performance_valid") for host in prior_run
+                )):
                     raise RuntimeError("Case already has an unfinished attempt: " + package)
+                elif len(prepared) != 2 or any(host.get("status") != "PASS" for host in prepared):
+                    raise RuntimeError("Preparation outcome is unknown: " + package)
             if outcome.exists():
                 profile = json.loads((outcome / "profile.private.json").read_text(encoding="utf-8"))
                 identity = json.loads((outcome / "run-identity.json").read_text(encoding="utf-8"))
                 run_id, capture = identity["run_id"], identity["capture"]
                 steps = ("run", "collect")
+                if prior_run:
+                    hosts = read_receipts(outcome, "collect")
+                    steps = () if len(hosts) == 2 and all(host.get("status") == "PASS" for host in hosts) else ("collect",)
             else:
                 outcome.mkdir()
                 if not helper.is_file():
@@ -349,7 +395,10 @@ def main(batch, probe_only=False, wait_seconds=120):
                                    if k in row} for row in hosts]}, ensure_ascii=True))
                     return False
             update_status(package, "transfer", run_id=run_id)
-            archives = [runner.collect_archive(profile, node, row, outcome, run_id) for node, row in enumerate(hosts)]
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                transfers = [pool.submit(archive_capture, runner, profile, node, row, outcome, run_id)
+                             for node, row in enumerate(hosts)]
+                archives = [transfer.result() for transfer in transfers]
             update_status(package, "analyze", run_id=run_id)
             data = analyze(outcome, profile, parse_record_bytes)
             summaries.append({"package": package, "run_id": run_id,
@@ -373,7 +422,10 @@ if __name__ == "__main__":
         assert 1 <= wait_seconds <= 3600
         ok = all(main(int(batch), arguments.get("probe_only", False), wait_seconds) for batch in batches)
     except Exception as error:
-        print(json.dumps({"status": "FAILED", "error_type": type(error).__name__, "output": str(RESULT)},
+        (RESULT / f"matrix-error-{time.time_ns()}.log").write_text(traceback.format_exc(), encoding="utf-8")
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        print(json.dumps({"status": "FAILED", "error_type": type(error).__name__,
+                          "function": frame.name, "line": frame.lineno, "output": str(RESULT)},
                          ensure_ascii=True))
         ok = False
     raise SystemExit(0 if ok else 1)

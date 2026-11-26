@@ -83,7 +83,7 @@ def main(args):
                 except ValueError:
                     continue
                 exit_rows.append({key: row[key] for key in ("status", "reason", "error_type", "bs",
-                    "package", "nodes", "step", "hosts") if key in row})
+                    "package", "nodes", "step", "hosts", "function", "line") if key in row})
     print(json.dumps({"cases": summaries, "status": status, "latest_occupancy": snapshots(),
                       "matrix_results": exit_rows}, separators=(",", ":")))
 
