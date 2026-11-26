@@ -11,13 +11,10 @@ import tarfile
 import time
 from pathlib import Path, PurePosixPath
 
-SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
+SESSION = '59af0a93-b62f-4211-927e-a44f047667cf'
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 SESSION_ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION
-REVISIONS = {
-    '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
-    'cb63658': 'cb63658b507aa7eba023afefd9e7ef8a27a0dcde',
-}
+REVISIONS = {'71b62db': '71b62db945c23268df029ecb6a4e8809a7579222'}
 
 
 def execute(argv, timeout=20):
@@ -35,7 +32,7 @@ def build(request):
     assert execute(['docker','image','inspect','--format','{{.Id}} {{.Os}}/{{.Architecture}}',IMAGE]).decode().strip() == IMAGE+' linux/arm64'
     root.mkdir(parents=True, exist_ok=False)
     record = {k: request[k] for k in ('revision','tree','source_sha256')}
-    record.update(root=str(root), image=IMAGE, started_unix=time.time(), sim_send=True, model='perf', world=64, hidden=128, topk=6, dtype='fp32')
+    record.update(root=str(root), image=IMAGE, started_unix=time.time(), sim_send=True, inter_server_rank_send=True, model='perf', world=64, hidden=128, topk=6, dtype='fp32')
     (root/'identity.json').write_text(json.dumps(record,indent=2))
     raw = base64.b64decode(request['source'],validate=True)
     assert hashlib.sha256(raw).hexdigest() == request['source_sha256']
@@ -57,6 +54,11 @@ def build(request):
                 target.parent.mkdir(parents=True,exist_ok=True)
                 with target.open('xb') as dest: dest.write(archive.extractfile(member).read())
     (root/'build.sh').write_text(request['build_script'])
+    tools=root/'bootstrap-tools'
+    tools.mkdir()
+    assert set(request['files']) == {'build_profile.py','profile_capture.h'}
+    for name, content in request['files'].items():
+        (tools/name).write_text(content)
     name=f'combine-ht-{SESSION[:8]}-{candidate}-a1'
     container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
                        '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8','--memory=32g',
@@ -80,15 +82,12 @@ def build(request):
     record.update(build_exit=proc.returncode, wall_seconds=time.monotonic()-start)
     summary=root/'build-summary.json'
     record['build']=json.loads(summary.read_text()) if summary.is_file() else {'all_compiled':False,'missing_summary':True}
+    profile=root/'profile-build/build-summary.json'
+    record['profile_build']=json.loads(profile.read_text()) if profile.is_file() else {'all_compiled':False}
     (root/'bootstrap-result.json').write_text(json.dumps(record,indent=2))
     print(json.dumps(record,separators=(',',':')))
-    return 0 if proc.returncode==0 and record['build']['all_compiled'] else 1
+    return 0 if proc.returncode==0 and record['build']['all_compiled'] and record['profile_build']['all_compiled'] else 1
 
 
 def main(request):
-    baseline_lock = SESSION_ROOT / 'run-b5383cf-a1' / 'sst.lock'
-    if baseline_lock.is_file():
-        with baseline_lock.open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            return build(request)
     return build(request)

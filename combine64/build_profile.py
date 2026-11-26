@@ -50,13 +50,13 @@ def run(argv, log):
 def main():
     target = WORK / 'profile-build'
     target.mkdir()
-    summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
+    summary = dict(all_compiled=False, sim_send=True, profiling=True, inter_server_rank_send=True, targets={})
     options = [
         '-xcce', '-O2', '-DCATLASS_ARCH=3510', '--cce-auto-sync', '--cce-aicore-arch=dav-c310-vec',
         '-Wno-deprecated-declarations', '-mllvm', '-cce-aicore-stack-size=0x8000',
         '-mllvm', '-cce-aicore-function-stack-size=0x8000', '-mllvm', '-cce-aicore-addr-transform',
         '-mllvm', '-cce-aicore-dcci-insert-for-scalar=false', '-DTILEXR_ENABLE_PROFILING=1',
-        '-DTILEXR_COMBINE_HT_SIM_SEND=1', '-DTILEXR_COMBINE_HT_SST_FP32=1',
+        '-DTILEXR_COMBINE_HT_SIM_SEND=1', '-DTILEXR_COMBINE_HT_INTER_SERVER_RANK_SEND=1', '-DTILEXR_COMBINE_HT_SST_FP32=1',
         '-DTILEXR_EP_HT_SST_SPLIT_WRITES=1', '-DTILEXR_EP_HT_FINAL_REDUCE_SST_FP32=1',
         '-DTILEXR_EP_HT_PIPELINE_FP32=1', '--cce-aicore-only', '-std=gnu++17',
     ]
@@ -69,6 +69,7 @@ def main():
                 SOURCE/'src/moonep/combine_ht/common', SOURCE/'src/moonep/combine_ht/kernels',
                 *(CANN / name for name in tool_include)]
     flags = [*options, *('-I' + str(folder) for folder in includes)]
+    summary['compiler_flags'] = flags
     for entry, relative in ENTRIES.items():
         key = entry + '_kernel' if entry == 'tilexr_ht_pipeline_sst' else entry
         original = SOURCE / relative

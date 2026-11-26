@@ -1,5 +1,6 @@
 # Copyright (c) 2026 TileXR Project.
 """Prepare and check cases against the immutable production HT kernels."""
+import datetime
 import hashlib
 import json
 import os
@@ -160,7 +161,8 @@ def run_sst(case, environment, timeout, record, stop_at_us=None):
         command.append(f'--stop-at={stop_at_us}us')
     command.append(str(case / 'test_UBusSim.py'))
     start = time.monotonic()
-    record.update(status='running', command=command, started_unix=time.time())
+    record.update(status='running', command=command, started_unix=time.time(),
+                  sst_started_utc=datetime.datetime.now(datetime.timezone.utc).isoformat())
     with (case / 'sim.log').open('wb') as log:
         proc = subprocess.Popen(command, cwd=case, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         def interrupt(signum, frame):
@@ -181,7 +183,8 @@ def run_sst(case, environment, timeout, record, stop_at_us=None):
             raise
         finally:
             signal.signal(signal.SIGTERM, previous)
-            record.update(sst_wall_seconds=round(time.monotonic() - start, 3), returncode=proc.returncode)
+            record.update(sst_wall_seconds=round(time.monotonic() - start, 3), returncode=proc.returncode,
+                          sst_finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat())
             write_json(case / 'run.json', record)
     with (case / 'sim.log').open('rb') as log:
         log.seek(max(0, log.seek(0, os.SEEK_END) - 131072))
@@ -232,11 +235,12 @@ def main(config):
     stop_at_us = config.get('diagnostic_stop_us')
     build_file = 'profile-build/build-summary.json' if use_profile else 'build-summary.json'
     build = read_json(ROOT / build_file)
+    assert build['inter_server_rank_send'] is True
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
     case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
     assert not case.exists(), 'case_already_exists'
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
-              'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
+              'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True, 'inter_server_rank_send': True,
               'profiling_enabled': use_profile, 'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
     started = time.monotonic()
     write_json(ROOT / 'progress.json', {'stage': 'prepare_case', 'case': case.name, 'updated_unix': time.time()})

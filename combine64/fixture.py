@@ -35,7 +35,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     sys.path.insert(0,str(support))
     import loader,runtime
     helper=output/'prefill-tool'
-    common=['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-I'+str(source/'include')]
+    common=['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-DTILEXR_COMBINE_HT_INTER_SERVER_RANK_SEND=1','-I'+str(source/'include')]
     subprocess.run(common+['-I'+str(source/'src/moonep/combine_ht/common'),str(Path(__file__).with_name('prefill.cpp')),
                           str(source/'src/moonep/combine_ht/host/combine_ht_prefill.cpp'),'-o',str(helper)],check=True)
     probe=output/'abi-probe'
@@ -67,6 +67,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         meta=output/'metadata'/name
         meta.parent.mkdir(exist_ok=True)
         abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),'2026','-',str(world),'8']))
+        assert abi['inter_server_rank_send'] is True
         images=runtime.runtime_images(abi,rank,1,world=world)
         fwd=array('i',[0])*(world*capacity*6)
         counts=[0]*world
@@ -179,7 +180,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     binary=kernel.read_bytes()
     padded.write_bytes(binary+bytes(10485760-len(binary)))
     loader.prepare_loader(output/'loader',root,padded,loader.sha256(padded),'tilexr_moonep_combine_ht_kernel',specs)
-    stats.update(runtime_root=root,sim_send=True,candidate_commit=revision,
+    stats.update(runtime_root=root,sim_send=True,inter_server_rank_send=True,candidate_commit=revision,
                  kernel_sha256=loader.sha256(padded),routes_sha256=loader.sha256(output/'routes.json'))
     (output/'fixture-data/manifest.json').write_text(json.dumps(stats,indent=2))
     if disk_backed:

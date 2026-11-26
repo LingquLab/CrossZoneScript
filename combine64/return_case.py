@@ -161,6 +161,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
             str(asset / 'abi-probe'), str(rank), str(tokens), '128', '6', str(rows), str(rows),
             str(MAGIC), '-', '64', str(REDUCERS),
         ]))
+        assert abi['inter_server_rank_send'] is True
         cfg, config_bytes = send_config(abi)
         assert (cfg['rank'], cfg['chunks'], cfg['reducerCount'], abi['forward_record_words']) == (rank, 4, REDUCERS, 8)
         base = rank * runtime.GM_BYTES
@@ -192,7 +193,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
             for gateway in range(WORLD):
                 if gateway // 8 != rank // 8:
                     slot = REDUCERS + (gateway * cfg['chunks'] + cfg['chunks'] - 1) * 2
-                    for lane in range(2):
+                    for lane in (0,):
                         struct.pack_into('<q', completion, (slot + lane) * STRIPE, MAGIC)
         flags = bytearray(8 * STRIPE)
         for gateway in range(8):

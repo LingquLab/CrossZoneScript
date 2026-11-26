@@ -9,11 +9,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-SESSION='de038086-2b21-40e2-bad9-65360186ad97'
-REVISIONS = {
-    '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
-    'cb63658': 'cb63658b507aa7eba023afefd9e7ef8a27a0dcde',
-}
+SESSION='59af0a93-b62f-4211-927e-a44f047667cf'
+REVISIONS = {'71b62db': '71b62db945c23268df029ecb6a4e8809a7579222'}
 
 
 def main():
@@ -21,7 +18,7 @@ def main():
     parser.add_argument('--args-file',type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     assert args.get('action') == 'build' and set(args) <= {'action', 'candidate'}
-    candidate = args.get('candidate', '86f802f')
+    candidate = args.get('candidate', '71b62db')
     revision = REVISIONS[candidate]
     logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION/candidate
     logs.mkdir(parents=True,exist_ok=True)
@@ -39,7 +36,8 @@ def main():
         archive=git('archive','--format=tar.gz',revision)
     directory=Path(__file__).parent
     request={'candidate':candidate,'revision':revision,'tree':tree,'source_sha256':hashlib.sha256(archive).hexdigest(),
-             'source':base64.b64encode(archive).decode(),'build_script':(directory/'build.sh').read_text(encoding='utf-8')}
+             'source':base64.b64encode(archive).decode(),'build_script':(directory/'build.sh').read_text(encoding='utf-8'),
+             'files':{name:(directory/name).read_text(encoding='utf-8') for name in ('build_profile.py','profile_capture.h')}}
     source=(directory/'bootstrap_host.py').read_text(encoding='utf-8')+'\nraise SystemExit(main('+repr(request)+'))\n'
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     argv=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',

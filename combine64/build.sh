@@ -16,7 +16,7 @@ Path('toolchain.json').write_text(json.dumps({'arch':platform.machine(),'bisheng
 PY
 common=(-DTILEXR_BUILD_EP=OFF -DTILEXR_BUILD_COMBINE_HT=ON -DTILEXR_BUILD_UNITEST=OFF
         -DTILEXR_BUILD_TESTS=OFF -DBUILD_TESTING=OFF -DTILEXR_ENABLE_PROFILING=OFF
-        -DTILEXR_COMBINE_HT_SIM_SEND=ON -DTILEXR_EP_HT_SST_SPLIT_WRITES=ON
+        -DTILEXR_COMBINE_HT_SIM_SEND=ON -DTILEXR_COMBINE_HT_INTER_SERVER_RANK_SEND=ON -DTILEXR_EP_HT_SST_SPLIT_WRITES=ON
         -DTILEXR_DIAGNOSTICS_SOC_TYPE=Ascend950)
 targets=(tilexr_moonep_combine_ht_kernel tilexr_ep_ht_local_return_kernel
          tilexr_ep_ht_inter_server_send_kernel tilexr_ep_ht_final_reduce_kernel
@@ -66,8 +66,10 @@ for variant in ('fp32',):
         p=root/relative/(target+'.o')
         if p.is_file(): row.update(path=str(p),bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest())
 passed=len(results)==6 and all(row['exit_code']==0 for row in results.values())
-summary={'all_compiled':passed,'sim_send':True,'sst_split_writes':True,'profiling':False,'targets':results}
+summary={'all_compiled':passed,'sim_send':True,'sst_split_writes':True,'profiling':False,'inter_server_rank_send':True,'targets':results}
 Path('build-summary.json').write_text(json.dumps(summary,indent=2))
 Path('progress.json').write_text(json.dumps({'stage':'compiled' if passed else 'compile_failed','updated_unix':time.time()}))
 raise SystemExit(0 if passed else 1)
 PY
+
+python3 /work/bootstrap-tools/build_profile.py
