@@ -11,6 +11,7 @@ import json
 import runpy
 import statistics
 import sys
+import time
 import uuid
 
 from controller import OUTPUT, REMOTE, RUNNER, STATE, WINDOWS, HISTORICAL
@@ -168,6 +169,55 @@ def main():
     template = make_profile(runner, WINDOWS / "ep32-local.json", OUTPUT)
     runner.transport = install(runner, template, runner.transport if helper.is_file() else None)
     worker = worker_source()
+    checks = RESULT / "occupancy"
+    checks.mkdir(exist_ok=True)
+    runtime = deepcopy(template)
+    runtime["runtime"].update(prefix=f"{REMOTE}/baseline-off")
+    if Path(runtime["runtime"]["cann_env"]).parent.name != build[0]["cann"] and build[0]["cann"] == "cann-9.3.0":
+        runtime["runtime"]["cann_env"] = "/usr/local/Ascend/cann-9.3.0/set_env.sh"
+    mismatch = [label for label in build[0]["artifacts"]
+                if build[0]["artifacts"][label] != build[1]["artifacts"].get(label)]
+    if mismatch:
+        print(json.dumps({"status": "BLOCKED", "reason": "build_package_hash_mismatch",
+            "packages": mismatch, "different_files": {label: [path for path, digest in
+                build[0]["artifacts"][label].items() if digest != build[1]["artifacts"].get(label, {}).get(path)]
+                for label in mismatch}}, separators=(",", ":")))
+        return False
+
+    def wait_idle(batch, package):
+        deadline = time.monotonic() + 120
+        poll = 0
+        while True:
+            poll += 1
+
+            def probe(node):
+                command = (f'import json\nfrom pathlib import Path\nns={{"__name__":"ubx_worker"}}\n'
+                           f'exec(compile({worker!r},"worker18.py","exec"),ns)\n'
+                           f'p={runtime!r}\n'
+                           f'env=ns["runtime_environment"](p,Path({runtime["runtime"]["prefix"]!r}),"lib")\n'
+                           f'rows=ns["probe_devices"](p,{node},env)\n'
+                           f'print(json.dumps({{"status":"PASS","rows":rows}}))\n')
+                return runner.transport(runtime, node, command, checks,
+                                        f"bs{batch}-{package}-{poll}", 50)
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                values = list(pool.map(probe, range(2)))
+            brief = [{"node": node, "error": row.get("reason"), "status": row.get("status"),
+                      "busy": [d["device"] for d in row.get("rows", []) if d.get("pids")],
+                      "indeterminate": [d["device"] for d in row.get("rows", []) if
+                          not d.get("usable") and not d.get("pids")],
+                      "usable": sum(bool(d.get("usable")) for d in row.get("rows", []))}
+                     for node, row in enumerate(values)]
+            if all(row["usable"] == 16 for row in brief):
+                return True
+            if time.monotonic() >= deadline or any(
+                row["status"] != "PASS" or row["indeterminate"] for row in brief
+            ):
+                print(json.dumps({"status": "BLOCKED", "bs": batch, "package": package,
+                                  "reason": "device_preflight", "nodes": brief}, separators=(",", ":")))
+                return False
+            time.sleep(5)
+
     # Run a batch as one transaction with four separately archived configurations.
     assert sys.argv[1] == "--args-file"
     batch = int(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))["batch"])
@@ -176,6 +226,8 @@ def main():
     for mode in ("off", "on"):
         for variant in ("baseline", "candidate"):
             package = variant + "-" + mode
+            if not wait_idle(batch, package):
+                return False
             outcome = RESULT / f"bs{batch}-{package}"
             outcome.mkdir(exist_ok=False)
             if not helper.is_file():
