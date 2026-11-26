@@ -63,7 +63,7 @@ def main():
     if args.get('joint_probe'):
         assert action == 'joint-final' and 'stop_at_us' in args
     if 'stalled_cq_cycle' in args:
-        assert args.get('cq_probe') or action == 'interrupt-stalled-joint'
+        assert action == 'interrupt-stalled-joint' or (action == 'joint-final' and 'stop_at_us' in args)
         assert type(args['stalled_cq_cycle']) is int and args['stalled_cq_cycle'] > 0
     if 'sst_threads' in args:
         assert action in ('joint-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
