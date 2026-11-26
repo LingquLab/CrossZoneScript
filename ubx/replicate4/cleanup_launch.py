@@ -9,7 +9,7 @@ from benchmark import HOSTS, OUTPUT, REVISION, ROOT, main, ssh
 
 
 def recover():
-    prior = Path.cwd() / "runs/replicate4-bs32-50-posix-launch/1/execution"
+    prior = Path.cwd() / "runs/replicate4-bs32-50-occupied-recovery/1/execution"
     receipt = prior / "execution.json"
     deadline = time.monotonic() + 580
     while time.monotonic() < deadline:
@@ -30,8 +30,8 @@ def recover():
         return
 
     errors = (prior / "stderr.log").read_text(encoding="utf-8", errors="replace")
-    if "preflight exited" not in errors or not re.search(r"NPU \d+ occupied or unrecognized", errors):
-        raise RuntimeError("The previous launch did not exit due to verified NPU occupancy")
+    if not re.search(r"preflight-cleanup exited .*AttributeError: module 'os' has no attribute 'pidfd_open'", errors):
+        raise RuntimeError("The previous launch did not exit at the unsupported preflight cleanup call")
     command = f"test ! -e {OUTPUT} && test ! -e {ROOT}/full-bs32-f50-controller.log"
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(lambda host: ssh(host, command, stage="verify no workload was started"), HOSTS))

@@ -37,30 +37,31 @@ def occupants():
     return pids
 
 
+def start_time(pid):
+    try:
+        stat = (Path("/proc") / str(pid) / "stat").read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    return stat.rsplit(") ", 1)[1].split()[19]
+
+
 def clear_occupants(pids):
     assert all(pid > 1 and pid not in (os.getpid(), os.getppid()) for pid in pids)
-    descriptors = {}
-    terminated, killed = [], []
-    try:
-        for pid in sorted(pids):
+    original = {pid: start_time(pid) for pid in pids}
+    report = {}
+    for sig, name in ((signal.SIGTERM, "term_sent"), (signal.SIGKILL, "kill_sent")):
+        report[name] = 0
+        for pid in sorted(occupants() & original.keys()):
+            identity = original[pid]
+            if identity is None or start_time(pid) != identity:
+                continue
             try:
-                descriptors[pid] = os.pidfd_open(pid)
+                os.kill(pid, sig)
+                report[name] += 1
             except ProcessLookupError:
                 pass
-        for sig, confirmed in ((signal.SIGTERM, terminated), (signal.SIGKILL, killed)):
-            current = occupants()
-            for pid in sorted(current & descriptors.keys()):
-                try:
-                    signal.pidfd_send_signal(descriptors[pid], sig)
-                    confirmed.append(pid)
-                except ProcessLookupError:
-                    pass
-            if confirmed:
-                time.sleep(4)
-    finally:
-        for descriptor in descriptors.values():
-            os.close(descriptor)
-    report = {"term_sent": len(terminated), "kill_sent": len(killed)}
+        if report[name]:
+            time.sleep(4)
     (ROOT / "full-bs32-f50-npu-cleanup.json").write_text(json.dumps(report))
     return report
 
