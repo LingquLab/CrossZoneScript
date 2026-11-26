@@ -52,7 +52,7 @@ def status(host):
 
 
 def main():
-    folder = Path.cwd() / "runs/replicate4-shared-mr-bs32-retest/1/execution"
+    folder = Path.cwd() / "runs/replicate4-shared-mr-bs32-resume/1/execution"
     saved = folder / "execution.json"
     controller = {}
     if saved.is_file():
