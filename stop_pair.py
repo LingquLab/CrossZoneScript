@@ -5,6 +5,7 @@ import sys
 
 from controller import REMOTE
 from read_case import case_transport
+from run_matrix import retryable_occupancy
 
 
 def stop(directory, capture):
@@ -49,6 +50,17 @@ def main(args):
         print(json.dumps({"status": "case_already_advanced"}))
         return
     directory = f"{REMOTE}/runs/{run_id}"
+    early = outcome / "run-1.stdout"
+    if args.get("awaiting_peer") and early.is_file():
+        receipt = json.loads(early.read_text(encoding="utf-8"))
+        if receipt.get("run_id") == run_id and receipt.get("node") == 1 and retryable_occupancy(receipt):
+            command = ("import json\nfrom pathlib import Path\n"
+                       f"root=Path({directory!r})\n"
+                       "if (root/'started.json').is_file() and not (root/'run-result.json').is_file():\n"
+                       " (root/'peer-failed.flag').touch()\n"
+                       "print(json.dumps({'status':'notified_own_worker'}))\n")
+            print(json.dumps(transport(profile, 0, command, outcome, "close-preflight-failure", 20)))
+            return
     peer = ("import json\nfrom pathlib import Path\n"
             f"receipt=Path({directory!r})/'run-result.json'\n"
             "result=json.loads(receipt.read_text()) if receipt.is_file() else {}\n"
