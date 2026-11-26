@@ -23,7 +23,7 @@ def main():
     files={name:(here/name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
     args['tool_key']=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()[:16]
     code=(here/'recovery_host.py').read_text()+'\nraise SystemExit(main('+repr(args)+'))\n'
-    budget=2050 if args['action']=='snapshot-joint' else (65 if args['action'] in ('stop-joint','read-cq') else 1470)
+    budget=2150 if args['action']=='snapshot-joint' else (65 if args['action'] in ('stop-joint','read-cq') else 1470)
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     cmd=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
          '-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12','-o','ServerAliveInterval=20',
