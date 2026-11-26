@@ -62,7 +62,7 @@ def clear_occupants(pids):
                 pass
         if report[name]:
             time.sleep(4)
-    (ROOT / "full-bs32-f50-npu-cleanup.json").write_text(json.dumps(report))
+    (ROOT / f"{OUTPUT.name}-npu-cleanup.json").write_text(json.dumps(report))
     return report
 
 
@@ -100,7 +100,7 @@ def run(index):
 
     os.environ.pop("ASCEND_VISIBLE_DEVICES", None)
     os.environ.pop("ASCEND_RT_VISIBLE_DEVICES", None)
-    log_path = ROOT / "full-bs32-f50-controller.log"
+    log_path = ROOT / f"{OUTPUT.name}-controller.log"
     with log_path.open("x") as log:
         from contextlib import redirect_stdout, redirect_stderr
         with redirect_stdout(log), redirect_stderr(log):
@@ -142,6 +142,9 @@ def run(index):
 if __name__ == "__main__":
     action = sys.argv[1]
     PORT = int(sys.argv[3])
+    run_name = sys.argv[4]
+    assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
+    OUTPUT = ROOT / run_name
     if action in ("preflight", "preflight-cleanup"):
         preflight(cleanup=action == "preflight-cleanup")
     else:
