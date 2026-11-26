@@ -58,6 +58,10 @@ def main():
         assert set(args['matrix_timeouts']) == {'32', '128'}
         remote_seconds = 180 + sum(stage_budget(STAGES, args['matrix_timeouts'][str(size)], timeout, size)
                                    for size in (32, 128))
+    if args.get('replace_legacy_batch'):
+        assert (action, candidate, tokens, attempt) == ('joint-final', 'd04fde0', 4, 1)
+        assert (args.get('intra_cores', 8), args.get('peer_slots', 1)) == (8, 1)
+        remote_seconds += 1785
     if 'after' in args:
         assert action == 'batch'
         wait_seconds = args['after']['max_wait_seconds']

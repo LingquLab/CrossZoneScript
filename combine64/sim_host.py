@@ -283,6 +283,56 @@ def retry_failed(root, revision, wait):
     return True
 
 
+INTERRUPT_LEGACY_PRODUCER = r"""
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+
+expected = sys.argv[1]
+case = Path('/work/cases/t4-joint-producer-a1')
+if (case / 'phase-result.json').is_file() or not (case / 'run.json').is_file():
+    raise SystemExit(0)
+run = json.loads((case / 'run.json').read_text())
+assert (run['candidate_commit'], run['tokens'], run['stage'], run['attempt'], run['status']) == (
+    expected, 4, 'joint-producer', 1, 'running')
+if run.get('returncode') is not None:
+    raise SystemExit(0)
+proc = Path('/proc') / str(run['pid'])
+if not proc.exists():
+    raise SystemExit(0)
+assert (proc / 'cwd').resolve() == case
+parent = int((proc / 'stat').read_text().rsplit(')', 1)[1].split()[1])
+runner = Path('/proc') / str(parent)
+cmd = (runner / 'cmdline').read_bytes().rstrip(bytes(1)).split(bytes(1))
+assert len(cmd) == 3 and cmd[1].endswith(b'/sim_case.py')
+args = json.loads(cmd[2])
+assert tuple(args[key] for key in ('revision', 'tokens', 'action', 'attempt')) == (
+    expected, 4, 'joint-producer', 1)
+os.kill(parent, signal.SIGTERM)
+"""
+
+
+def wait_or_interrupt_legacy(root, cid, revision):
+    for stage in ('inter-server-send', 'final-independent'):
+        deadline = time.monotonic() + 700
+        path = root / 'cases' / f't4-{stage}-a1' / 'phase-result.json'
+        while not path.is_file():
+            assert time.monotonic() < deadline, f'prerequisite_missing_{stage}'
+            time.sleep(3)
+        verify_completed(json_file(path), revision, 4, stage, 8, 1)
+    deadline = time.monotonic() + 180
+    producer = root / 'cases/t4-joint-producer-a1'
+    result = producer / 'phase-result.json'
+    while not result.is_file() and time.monotonic() < deadline:
+        if (producer / 'run.json').is_file():
+            subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_LEGACY_PRODUCER, revision],
+                           capture_output=True, timeout=20, check=True)
+            break
+        time.sleep(2)
+
+
 def set_container_memory(cid, gib):
     assert gib == 64
     desired = gib * 2**30
@@ -401,18 +451,21 @@ def main(args):
             cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         verify_prerequisite(root, revision, args)
+        if args.get('replace_legacy_batch'):
+            wait_or_interrupt_legacy(root, cid, revision)
         if args.get('ready_probe') and not retry_failed(root, revision, args['wait_for_idle_seconds']):
             return 0
         with (root / 'sst.lock').open('a') as lock:
             # The predecessor can still be returning its journal after writing a case result.
-            wait_seconds = args.get('wait_for_idle_seconds', 30)
+            wait_seconds = 180 if args.get('replace_legacy_batch') else args.get('wait_for_idle_seconds', 30)
             deadline = time.monotonic() + wait_seconds
             while True:
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
-                    if (not args.get('after') and 'wait_for_idle_seconds' not in args) or time.monotonic() >= deadline:
+                    if (not args.get('after') and 'wait_for_idle_seconds' not in args
+                        and not args.get('replace_legacy_batch')) or time.monotonic() >= deadline:
                         raise
                     time.sleep(1)
             memory = None
