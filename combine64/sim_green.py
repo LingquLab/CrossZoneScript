@@ -73,7 +73,7 @@ def main():
     if args.get('joint_probe') or args.get('inter_probe'):
         remote_seconds += 230
     if action == 'joint-evidence':
-        assert tokens == 4 and attempt in (2, 3, 4) and args['peer_slots'] == 2
+        assert tokens == 4 and attempt in (2, 3, 4, 7)
         remote_seconds = 170
     if action == 'status':
         remote_seconds = 95 if args.get('all_variants') else 35

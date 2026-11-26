@@ -466,15 +466,17 @@ def observe_cq(case, environment, all_local=False, inter=False):
                     payload = entry(rank, f'sq-{peer}-{slot}', head - 1)
                     length, = struct.unpack_from('<I', payload, 48)
                     sample.update(sq_last_nonzero=any(payload), sq_last_length=length)
-                    if inter:
+                    if inter or all_local:
                         address, = struct.unpack_from('<Q', payload, 40)
-                        target = layout['ranks'][peer]['exports']['completed']
-                        size = target['size']
-                        if target['addr'] <= address < target['addr'] + size:
+                        plans = layout['ranks'][peer]
+                        target_name = 'completed' if inter else 'local_ready'
+                        target = plans['exports'][target_name]
+                        if length == 8 and 0 <= address - target['addr'] <= target['size'] - length:
                             offset = address - target['addr']
-                            sample['notification_index'] = offset // STRIPE
-                            plans = layout['ranks'][peer]
-                            paths = [case / 'bin' / f'david_{peer}_die{d}_completed.bin' for d in (1, 2)]
+                            sample['notification_index'] = offset // STRIPE if inter else offset % STRIPE // 8
+                            if all_local:
+                                sample['notification_sender'] = offset // STRIPE
+                            paths = [case / 'bin' / f'david_{peer}_die{d}_{target_name}.bin' for d in (1, 2)]
                             flag = read_die_stripe(paths, address - plans['sys_va_base_addr'], 8, decoder)
                             sample['notification_visible'] = struct.unpack('<q', flag)[0] == MAGIC
                 except (FileNotFoundError, ValueError):

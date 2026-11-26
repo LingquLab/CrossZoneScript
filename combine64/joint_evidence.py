@@ -156,9 +156,17 @@ def main(case, revision, attempt):
                    missing_gather_examples=gather_samples,
                    missing_links=dict(missing_links), pending_sq_delta=dict(outstanding),
                    examples_sender_receiver_slot_chunk_head_tail=queue_samples)
+    if report['candidate_commit'].startswith('1369e1b'):
+        summary['local_ready_samples'] = [
+            dict(sender=sender, receiver=receiver, visible=[
+                i64(flags[receiver][0], (sender % 8) * STRIPE + chunk * 8) == MAGIC
+                for chunk in range(CHUNKS)])
+            for sender, receiver in ((12, 12), (12, 13), (34, 34), (34, 35))
+        ]
     if attempt == 3:
         from sim_case import observe_cq
-        summary.update(observe_cq(case, environment))
+        all_local = f'cq-1-{local_slot(1)}' in layout['ranks'][0]['exports']
+        summary.update(observe_cq(case, environment, all_local=all_local))
     if attempt == 4:
         traced = Counter()
         examples = []
