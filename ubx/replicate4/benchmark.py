@@ -139,6 +139,29 @@ def extra_metrics(collection):
     )
 
 
+def summarize(pool, verifier):
+    with tempfile.TemporaryDirectory(prefix="ubx-replicate4-f50-") as path:
+        collection = Path(path)
+        list(pool.map(lambda i: collect(i, collection), range(2)))
+        verified = verifier.analyze(collection, REVISION, 32, list(HOSTS))
+        assert verified["passed"] and verified["profile_mode"] == "full"
+        assert verified["stage_details_enabled"] and verified["core_total_samples"] == 89600
+        summary = extra_metrics(collection)
+    keys = ("revision", "bs", "warmup", "measured", "verified_ranks", "core_total_samples",
+            "trace_hashes_verified", "last_trace_round", "group_stats", "round_core_maxima_stats",
+            "aligned_entry_spread_stats", "route_sha256", "missed_targets", "physical_hosts_by_logical_group")
+    return {
+        "passed": True, "route_distribution": "replicate4", "route_qps_verified": 128,
+        "profile_mode": "full", "stage_details_enabled": True, "clock_aligned": True,
+        **{key: verified[key] for key in keys}, **summary,
+    }
+
+
+def read_verifier():
+    source = ssh(HOSTS[0], shlex.join(["cat", str(HARDWARE / "clock_results.py")])).decode()
+    return load_clock_results(source)
+
+
 def main():
     here = Path(__file__).resolve().parent
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
@@ -146,27 +169,13 @@ def main():
     payload = (rounds_script + "\n" + remote).encode()
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         wait_for_build(pool)
-        verifier_source = ssh(HOSTS[0], shlex.join(["cat", str(HARDWARE / "clock_results.py")])).decode()
-        verifier = load_clock_results(verifier_source)
+        verifier = read_verifier()
         readiness = list(pool.map(lambda i: controller(i, "preflight", payload), range(2)))
         assert all(item["ready"] for item in readiness)
         results = list(pool.map(lambda i: controller(i, "run", payload), range(2)))
         assert all(result["passed"] for result in results)
-        with tempfile.TemporaryDirectory(prefix="ubx-replicate4-f50-") as path:
-            collection = Path(path)
-            list(pool.map(lambda i: collect(i, collection), range(2)))
-            verified = verifier.analyze(collection, REVISION, 32, list(HOSTS))
-            assert verified["passed"] and verified["profile_mode"] == "full"
-            assert verified["stage_details_enabled"] and verified["core_total_samples"] == 89600
-            summary = extra_metrics(collection)
-    keys = ("revision", "bs", "warmup", "measured", "verified_ranks", "core_total_samples",
-            "trace_hashes_verified", "last_trace_round", "group_stats", "round_core_maxima_stats",
-            "aligned_entry_spread_stats", "route_sha256", "missed_targets", "physical_hosts_by_logical_group")
-    print(json.dumps({
-        "passed": True, "route_distribution": "replicate4", "route_qps_verified": 128,
-        "profile_mode": "full", "stage_details_enabled": True, "clock_aligned": True,
-        **{key: verified[key] for key in keys}, **summary,
-    }, separators=(",", ":")))
+        summary = summarize(pool, verifier)
+    print(json.dumps(summary, separators=(",", ":")))
 
 
 if __name__ == "__main__":
