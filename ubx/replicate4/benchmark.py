@@ -17,6 +17,8 @@ from round_count import load_clock_results
 ROOT = PurePosixPath(SERVER_ROOT)
 HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
 OUTPUT = ROOT / "full-bs32-f50"
+RUNTIME_INSTALL = ROOT / "runtime-install"
+RUNTIME_REVISION = None
 
 
 def ssh(host, command, *, payload=None, timeout=60, stage="SSH"):
@@ -50,10 +52,11 @@ def wait_for_build(pool):
 
 
 def controller(index, action, payload, port):
-    argv = shlex.join(["python3", "-", action, str(index), str(port), OUTPUT.name])
+    argv = shlex.join(["python3", "-", action, str(index), str(port), OUTPUT.name,
+                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-"])
     if action == "run":
-        libraries = ":".join(str(ROOT / p) for p in (
-            "dispatch-build", "runtime-install/lib", "runtime-install/lib64",
+        libraries = ":".join(str(path) for path in (
+            RUNTIME_INSTALL / "lib", RUNTIME_INSTALL / "lib64", ROOT / "dispatch-build",
         ))
         shell = (
             "source /usr/local/Ascend/ascend-toolkit/set_env.sh >/dev/null && "
@@ -191,6 +194,11 @@ def main(ports=(43000,), cleanup=False):
         assert all(result["passed"] for result in results)
         summary = summarize(pool, verifier)
     summary["coordinator_port"] = port
+    if RUNTIME_REVISION:
+        summary["runtime_revision"] = RUNTIME_REVISION
+        summary["runtime_sha256_by_host"] = {
+            host: receipt["runtime_sha256"] for host, receipt in zip(HOSTS, readiness)
+        }
     if cleanup:
         summary["npu_cleanup"] = [
             dict(host=host, term_sent=receipt["term_sent"], kill_sent=receipt["kill_sent"])

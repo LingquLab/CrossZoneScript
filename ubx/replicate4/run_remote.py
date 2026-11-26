@@ -18,6 +18,8 @@ BUILD = ROOT / "dispatch-build"
 OUTPUT = ROOT / "full-bs32-f50"
 PORT = 43000
 NICS = [f"hrn5_{device // 2}" for device in range(16)]
+RUNTIME_INSTALL = ROOT / "runtime-install"
+RUNTIME_REVISION = "-"
 
 
 def load_json(path):
@@ -72,8 +74,12 @@ def preflight(cleanup=False):
     assert receipt["built"] and receipt["revision"] == REVISION
     for name, digest in receipt["artifacts"].items():
         assert hashlib.sha256((BUILD / name).read_bytes()).hexdigest() == digest, name
-    library, = (p for p in (ROOT / "runtime-install").glob("lib*/libtile-comm.so") if p.is_file())
-    assert hashlib.sha256(library.read_bytes()).hexdigest() == receipt["runtime_sha256"]
+    if RUNTIME_REVISION != "-":
+        receipt = load_json(RUNTIME_INSTALL.parent / "runtime-result.json")
+        assert receipt["revision"] == RUNTIME_REVISION
+    library, = (p for p in RUNTIME_INSTALL.glob("lib*/libtile-comm.so") if p.is_file())
+    digest = hashlib.sha256(library.read_bytes()).hexdigest()
+    assert digest == receipt["runtime_sha256"]
     pids = occupants()
     cleanup_report = {"term_sent": 0, "kill_sent": 0}
     if pids and cleanup:
@@ -89,10 +95,17 @@ def preflight(cleanup=False):
     for port in range(PORT, PORT + 514):
         with socket.socket() as probe:
             probe.bind(("0.0.0.0", port))
-    print(json.dumps({"ready": True, "idle": 16, "healthy": 16, "port": PORT, **cleanup_report}))
+    print(json.dumps({"ready": True, "idle": 16, "healthy": 16, "port": PORT,
+                      "runtime_sha256": digest, **cleanup_report}))
 
 
 def run(index):
+    if RUNTIME_REVISION != "-":
+        linked = subprocess.check_output(
+            ["ldd", str(BUILD / "ubx_dispatch_hardware_ep32")], text=True, timeout=15,
+        )
+        match = re.search(r"libtile-comm\.so\s*=>\s*(\S+)", linked)
+        assert match and RUNTIME_INSTALL.resolve() in Path(match.group(1)).resolve().parents, linked
     clock_results_path = HARDWARE / "clock_results.py"
     sys.modules["clock_results"] = load_clock_results(clock_results_path.read_text())
     sys.path.insert(0, str(HARDWARE))
@@ -145,6 +158,9 @@ if __name__ == "__main__":
     run_name = sys.argv[4]
     assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
     OUTPUT = ROOT / run_name
+    if len(sys.argv) > 5:
+        RUNTIME_INSTALL = Path(sys.argv[5])
+        RUNTIME_REVISION = sys.argv[6]
     if action in ("preflight", "preflight-cleanup"):
         preflight(cleanup=action == "preflight-cleanup")
     else:
