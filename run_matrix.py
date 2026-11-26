@@ -149,7 +149,7 @@ def analyze(output, profile, record_reader):
     return result
 
 
-def main(batch, probe_only=False):
+def main(batch, probe_only=False, wait_seconds=120):
     build = json.loads((OUTPUT / "result.private.json").read_text())
     assert len(build) == 2 and all(row["status"] == "PASS" for row in build), "build incomplete"
     assert build[0]["cann"] == build[1]["cann"]
@@ -184,8 +184,14 @@ def main(batch, probe_only=False):
                 for label in mismatch}}, separators=(",", ":")))
         return False
 
+    def update_status(package, state, **details):
+        staged = checks / "status.tmp"
+        write_json(staged, dict(batch=batch, package=package, state=state,
+                                updated_at=time.time(), **details))
+        staged.replace(checks / "status.json")
+
     def wait_idle(batch, package):
-        deadline = time.monotonic() + (0 if probe_only else 120)
+        deadline = time.monotonic() + (0 if probe_only else wait_seconds)
         poll = 0
         while True:
             poll += 1
@@ -208,6 +214,7 @@ def main(batch, probe_only=False):
                           not d.get("usable") and not d.get("pids")],
                       "usable": sum(bool(d.get("usable")) for d in row.get("rows", []))}
                      for node, row in enumerate(values)]
+            update_status(package, "waiting_for_devices", nodes=brief, polls=poll)
             if probe_only:
                 print(json.dumps({"status": "READY" if all(row["usable"] == 16 for row in brief)
                                   else "BLOCKED", "nodes": brief}, separators=(",", ":")))
@@ -220,7 +227,7 @@ def main(batch, probe_only=False):
                 print(json.dumps({"status": "BLOCKED", "bs": batch, "package": package,
                                   "reason": "device_preflight", "nodes": brief}, separators=(",", ":")))
                 return False
-            time.sleep(5)
+            time.sleep(min(15, max(0, deadline - time.monotonic())))
 
     # Run a batch as one transaction with four separately archived configurations.
     assert batch in (32, 64, 128)
@@ -230,9 +237,22 @@ def main(batch, probe_only=False):
     for mode in ("off", "on"):
         for variant in ("baseline", "candidate"):
             package = variant + "-" + mode
+            outcome = RESULT / f"bs{batch}-{package}"
+            previous = outcome / "summary.json"
+            if previous.is_file():
+                raw = json.loads(previous.read_text(encoding="utf-8"))
+                identity = json.loads((outcome / "run-identity.json").read_text(encoding="utf-8"))
+                archives = json.loads((outcome / "collect.private.json").read_text(encoding="utf-8"))
+                assert raw["rank_rounds"] == 800 and len(archives) == 2
+                assert all((outcome / f"node-{node}-captures.tar.gz").is_file() for node in range(2))
+                summaries.append({"package": package, "run_id": identity["run_id"],
+                    "archives": [{"bytes": v["capture_archive_bytes"], "sha256": v["capture_archive_sha256"]}
+                                 for v in archives], **raw})
+                continue
+            if outcome.exists():
+                raise RuntimeError("Case already has an unfinished attempt: " + package)
             if not wait_idle(batch, package):
                 return False
-            outcome = RESULT / f"bs{batch}-{package}"
             outcome.mkdir(exist_ok=False)
             if not helper.is_file():
                 (outcome / "ssh-askpass.sh").write_bytes((OUTPUT / "ssh-askpass.sh").read_bytes())
@@ -263,6 +283,7 @@ def main(batch, probe_only=False):
                 return result
 
             for step in ("prepare", "run", "collect"):
+                update_status(package, step, run_id=run_id)
                 hosts = phase(step)
                 if not all(row.get("status") == "PASS" and
                            (step != "run" or row.get("performance_valid")) for row in hosts):
@@ -271,11 +292,14 @@ def main(batch, probe_only=False):
                         "hosts": [{k: row[k] for k in ("status", "reason", "hardware_launched", "performance_valid")
                                    if k in row} for row in hosts]}, ensure_ascii=True))
                     return False
+            update_status(package, "transfer", run_id=run_id)
             archives = [runner.collect_archive(profile, node, row, outcome, run_id) for node, row in enumerate(hosts)]
+            update_status(package, "analyze", run_id=run_id)
             data = analyze(outcome, profile, parse_record_bytes)
             summaries.append({"package": package, "run_id": run_id,
                               "archives": [{"bytes": v["bytes"], "sha256": v["sha256"]} for v in archives], **data})
     write_json(RESULT / f"bs{batch}-report.json", summaries)
+    update_status("all", "complete")
     print(json.dumps({"status": "PASS", "bs": batch, "windows_output": str(RESULT), "compared": summaries},
                      ensure_ascii=True, separators=(",", ":")))
     return True
@@ -289,7 +313,9 @@ if __name__ == "__main__":
         if batches is None:
             batches = [arguments["batch"]]
         assert sorted(set(batches)) == sorted(batches) and set(batches) <= {32, 64, 128}
-        ok = all(main(int(batch), arguments.get("probe_only", False)) for batch in batches)
+        wait_seconds = int(arguments.get("wait_seconds", 120))
+        assert 1 <= wait_seconds <= 3600
+        ok = all(main(int(batch), arguments.get("probe_only", False), wait_seconds) for batch in batches)
     except Exception as error:
         print(json.dumps({"status": "FAILED", "error_type": type(error).__name__, "output": str(RESULT)},
                          ensure_ascii=True))
