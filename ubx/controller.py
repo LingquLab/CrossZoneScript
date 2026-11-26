@@ -51,7 +51,7 @@ def main():
         print(json.dumps(obj), flush=True)
 
     def run(bs, mt, smoke=False):
-        config = {'action': 'run', 'run_id': 'ablation-bs%d-mt%d-' % (bs, mt) + uuid.uuid4().hex[:12], 'bs': bs, 'mt': mt, 'rounds': 3 if smoke else 25, 'warmup': 1 if smoke else 5, 'timeout': 240 if smoke else 560, 'port': 24000 + int(uuid.uuid4().hex[:4], 16) % 10000}
+        config = {'action': 'run', 'run_id': 'ablation-bs%d-mt%d-' % (bs, mt) + uuid.uuid4().hex[:12], 'bs': bs, 'mt': mt, 'rounds': 4 if smoke else 25, 'warmup': 2 if smoke else 5, 'timeout': 240 if smoke else 560, 'port': 24000 + int(uuid.uuid4().hex[:4], 16) % 10000}
         rows = both(config)
         emit({'event': 'smoke' if smoke else 'experiment', 'bs': bs, 'mt': mt, 'run_id': config['run_id'], 'results': rows})
         return all(r.get('status') == 'PASS' for r in rows)
