@@ -235,6 +235,21 @@ def verify_prerequisite(root, revision, args):
         assert row['profiling_lanes'] == 64 * row['blocks'] and row['profiling_dropped_records'] == 0
 
 
+def retry_failed(root, revision, wait):
+    deadline = time.monotonic() + wait
+    path = root / 'cases/t4-local-return-a3/phase-result.json'
+    while not path.is_file():
+        assert time.monotonic() < deadline, 'return_retry_result_pending'
+        time.sleep(2)
+    result = json_file(path)
+    assert result['candidate_commit'] == revision and result['attempt'] == 3
+    if result['status'] == 'sst_and_checker_passed':
+        print(json.dumps({'status': 'probe_skipped', 'case': str(path.parent)}))
+        return False
+    assert result['status'] in ('failed', 'timed_out', 'interrupted')
+    return True
+
+
 def set_container_memory(cid, gib):
     assert gib == 64
     desired = gib * 2**30
@@ -287,6 +302,8 @@ def main(args):
         cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         verify_prerequisite(root, revision, args)
+        if args.get('ready_probe') and not retry_failed(root, revision, args['wait_for_idle_seconds']):
+            return 0
         with (root / 'sst.lock').open('a') as lock:
             # The predecessor can still be returning its journal after writing a case result.
             wait_seconds = args.get('wait_for_idle_seconds', 30)

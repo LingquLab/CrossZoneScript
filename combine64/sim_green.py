@@ -58,7 +58,7 @@ def main():
         remote_seconds += wait_seconds + 30
     if args.get('ready_probe'):
         assert 'stop_at_us' in args and 30 <= args['wait_for_idle_seconds'] <= 800
-        remote_seconds += 215 + args['wait_for_idle_seconds']
+        remote_seconds += 215 + 2 * args['wait_for_idle_seconds']
     elif 'memory_gib' in args or 'wait_for_idle_seconds' in args:
         wait = args['wait_for_idle_seconds']
         assert type(wait) is int and 30 <= wait <= 600
