@@ -1,6 +1,7 @@
 # Copyright (c) 2026 TileXR Project.
 """Run a scoped simulator recovery action and retain all verbose output in green."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,9 @@ def main():
     assert set(args)=={'action'} and args['action'] in ('stop-joint','snapshot-send')
     here=Path(__file__).parent
     args['snapshot_script']=(here/'snapshot_case.py').read_text()
+    from sim_green import SCRIPT_FILES
+    files={name:(here/name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
+    args['tool_key']=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()[:16]
     code=(here/'recovery_host.py').read_text()+'\nraise SystemExit(main('+repr(args)+'))\n'
     budget=65 if args['action']=='stop-joint' else 1470
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'

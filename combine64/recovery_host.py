@@ -50,20 +50,21 @@ def main(request):
         timeout=50
     else:
         content=request['snapshot_script']
-        target=root/'diagnostic-tools/snapshot_case.py'
-        target.parent.mkdir(exist_ok=True)
+        target=root/'diagnostic-tools'/hashlib.sha256(content.encode()).hexdigest()[:16]/'snapshot_case.py'
+        target.parent.mkdir(parents=True,exist_ok=True)
         if target.exists(): assert target.read_text()==content
         else: target.write_text(content)
-        argv=['docker','exec',cid,'timeout','--kill-after=20','1400','python3','/work/diagnostic-tools/snapshot_case.py']
+        argv=['docker','exec',cid,'timeout','--kill-after=20','1400','python3',str(Path('/work')/target.relative_to(root)),request['tool_key']]
         timeout=1440
-    with (root/(action+'.stdout')).open('wb') as out,(root/(action+'.stderr')).open('wb') as err:
+    stem=action+'-'+hashlib.sha256((STOP if action=='stop-joint' else request['snapshot_script']).encode()).hexdigest()[:12]
+    with (root/(stem+'.stdout')).open('wb') as out,(root/(stem+'.stderr')).open('wb') as err:
         p=subprocess.run(argv,stdout=out,stderr=err,timeout=timeout)
-    raw=(root/(action+'.stdout')).read_bytes()
+    raw=(root/(stem+'.stdout')).read_bytes()
     if p.returncode==0:
         assert len(raw)<=4096
         print(json.dumps(json.loads(raw),separators=(',',':')))
     else:
-        errors=(root/(action+'.stderr')).read_text(errors='replace').splitlines()
+        errors=(root/(stem+'.stderr')).read_text(errors='replace').splitlines()
         classes=[name for name in ('AssertionError','ValueError','TimeoutExpired','FileNotFoundError') if any(name in line for line in errors)]
         report=dict(action=action,exit_code=p.returncode,error_classes=classes)
         if raw.strip():

@@ -4,6 +4,7 @@ from collections import Counter
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -17,9 +18,11 @@ SUPPORT=ROOT/'source/tools/unitest/simulator/experiments/inter_server_send/sst'
 
 
 def main():
-    tools=list((ROOT/'tools').iterdir())
-    assert len(tools)==1
-    sys.path[:0]=[str(tools[0]),str(SUPPORT)]
+    key=sys.argv[1]
+    assert re.fullmatch('[0-9a-f]{16}',key)
+    tools=ROOT/'tools'/key
+    assert tools.is_dir()
+    sys.path[:0]=[str(tools),str(SUPPORT)]
     from sim_case import run_sst,write_json
     from addressed_exports import reconstruct_die_output
     from runtime import BASES,BB_BYTES,PHYSICAL_QPS,WORLD
@@ -42,7 +45,7 @@ def main():
     write_json(CASE/'v310_config/workload_config.yml',workload)
     assert hashlib.sha256((CASE/'kernel/inter_server_send.o').read_bytes()).hexdigest()==previous['kernel_sha256']
     environment=json.loads((CASE/'sst-environment.json').read_text())
-    record=dict(diagnostic_only=True,source_case=ORIGINAL.name,stop_at_us=130,
+    record=dict(diagnostic_only=True,tools_key=key,source_case=ORIGINAL.name,stop_at_us=130,
                 candidate_commit=previous['candidate_commit'],kernel_sha256=previous['kernel_sha256'],
                 routes_sha256=previous['routes_sha256'])
     try:
