@@ -35,7 +35,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     sys.path.insert(0,str(support))
     import loader,runtime
     helper=output/'prefill-tool'
-    common=['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-DTILEXR_COMBINE_HT_INTER_SERVER_RANK_SEND=1','-I'+str(source/'include')]
+    common=['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_SIM_SEND=1','-DTILEXR_COMBINE_HT_INTER_SERVER_RANK_SEND=1','-I'+str(source/'include'),'-I'+str(source/'src/ep/combine_ht')]
     subprocess.run(common+['-I'+str(source/'src/moonep/combine_ht/common'),str(Path(__file__).with_name('prefill.cpp')),
                           str(source/'src/moonep/combine_ht/host/combine_ht_prefill.cpp'),'-o',str(helper)],check=True)
     probe=output/'abi-probe'

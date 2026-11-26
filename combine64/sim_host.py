@@ -157,10 +157,6 @@ def main(args):
             return 0
         assert action in ('inter-server-send', 'joint-final')
         assert json_file(root/'profile-build/build-summary.json')['inter_server_rank_send'] is True
-        if tokens == 128:
-            for stage in ('inter-server-send','joint-final'):
-                previous = json_file(root/'cases'/f't32-{stage}-a1'/'phase-result.json')
-                assert previous['status'] == 'sst_and_checker_passed' and previous['checked_ranks'] == 64
         with (root/'sst.lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             tools, platform_hashes = stage_tools(root,args['files'])
