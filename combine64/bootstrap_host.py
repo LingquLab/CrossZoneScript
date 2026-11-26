@@ -16,6 +16,7 @@ SESSION_ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION
 REVISIONS = {
     '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
     'd04fde0': 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354',
+    '8e005fa': '8e005faf781c14dab3c0e977b52741ee29b597ac',
 }
 
 
