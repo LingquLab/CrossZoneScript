@@ -3,11 +3,12 @@ import hashlib
 import importlib.util
 import json
 import sys
-import subprocess
+import runpy
 from pathlib import Path
 
 from controller import OUTPUT, REMOTE, REVISIONS, RUNNER, WINDOWS
-from native_askpass import native_transport
+from key_transport import install, make_profile
+from controller import HISTORICAL
 
 
 def main():
@@ -17,8 +18,17 @@ def main():
     spec = importlib.util.spec_from_file_location("ep32_runner", RUNNER)
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
-    profile = runner.load_profile(WINDOWS / "ep32-local.json")
-    run = native_transport(runner, profile, OUTPUT)
+    profile = make_profile(runner, WINDOWS / "ep32-local.json", OUTPUT)
+    helper = HISTORICAL / "ubx-task-rsa-key-transport.py"
+    fallback = None
+    if helper.is_file():
+        assert hashlib.sha256(helper.read_bytes()).hexdigest() == "847b4a4801b6ddc63315aacbb092f4c0336241cb276bd96c1f954284276d129a"
+        runpy.run_path(str(helper))["install"](runner)
+        fallback = runner.transport
+    run = install(runner, profile, fallback)
+    node0 = run(profile, 0, 'import json; print(json.dumps({"status":"PASS"}))', OUTPUT, "verify-node0", 40)
+    if node0.get("status") != "PASS":
+        return node0
     preflight = run(profile, 1,
                     f'import json,os\nprint(json.dumps({{"status":"PASS","exists":os.path.exists({REMOTE!r})}}))\n',
                     OUTPUT, "retry-preflight", 40)
