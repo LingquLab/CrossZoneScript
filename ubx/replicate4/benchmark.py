@@ -53,7 +53,7 @@ def wait_for_build(pool):
 
 def controller(index, action, payload, port):
     argv = shlex.join(["python3", "-", action, str(index), str(port), OUTPUT.name,
-                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-"])
+                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-", str(ROOT), REVISION])
     if action == "run":
         libraries = ":".join(str(path) for path in (
             RUNTIME_INSTALL / "lib", RUNTIME_INSTALL / "lib64", ROOT / "dispatch-build",

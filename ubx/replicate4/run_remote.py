@@ -157,10 +157,15 @@ if __name__ == "__main__":
     PORT = int(sys.argv[3])
     run_name = sys.argv[4]
     assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
-    OUTPUT = ROOT / run_name
     if len(sys.argv) > 5:
         RUNTIME_INSTALL = Path(sys.argv[5])
         RUNTIME_REVISION = sys.argv[6]
+    if len(sys.argv) > 7:
+        ROOT = Path(sys.argv[7])
+        REVISION = sys.argv[8]
+        HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
+        BUILD = ROOT / "dispatch-build"
+    OUTPUT = ROOT / run_name
     if action in ("preflight", "preflight-cleanup"):
         preflight(cleanup=action == "preflight-cleanup")
     else:
