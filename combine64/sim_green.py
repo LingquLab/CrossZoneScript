@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import traceback
 
-SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
+SESSION = '6992376d-c5e1-4c7e-bb0f-c77cdb096bf5'
 SCRIPT_FILES = ('fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py',
                 'profile_capture.h', 'profile_case.py', 'clock_evidence.json', 'inter_snapshot.py', 'joint_evidence.py')
 STAGES = ('local-send', 'gateway-reduce', 'local-return',
