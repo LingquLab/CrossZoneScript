@@ -1,0 +1,154 @@
+"""Run and analyze the two-host EP32 BS32 replicate4 benchmark."""
+import concurrent.futures
+import hashlib
+import io
+import json
+from pathlib import Path
+import shlex
+import statistics
+import subprocess
+import tarfile
+import tempfile
+
+from build import HOSTS, SSH
+from round_count import load_clock_results
+from run_remote import HARDWARE, OUTPUT, REVISION, ROOT
+
+
+def ssh(host, command, *, payload=None, timeout=60):
+    result = subprocess.run(
+        [str(SSH), "-o", "ConnectTimeout=12", "-o", "BatchMode=yes",
+         "-o", "StrictHostKeyChecking=yes", "root@" + host, command],
+        input=payload, capture_output=True, timeout=timeout,
+    )
+    if result.returncode:
+        raise RuntimeError(f"{host}: command exited {result.returncode}")
+    return result.stdout
+
+
+def controller(index, action, payload):
+    argv = shlex.join(["python3", "-", action, str(index)])
+    if action == "run":
+        libraries = ":".join(str(ROOT / p) for p in (
+            "dispatch-build", "runtime-install/lib", "runtime-install/lib64",
+        ))
+        shell = (
+            "source /usr/local/Ascend/ascend-toolkit/set_env.sh >/dev/null && "
+            f'export LD_LIBRARY_PATH={shlex.quote(libraries)}:"${{LD_LIBRARY_PATH:-}}" && exec {argv}'
+        )
+        argv = shlex.join(["bash", "-lc", shell])
+    result = ssh(HOSTS[index], argv, payload=payload, timeout=740 if action == "run" else 215)
+    return json.loads(result)
+
+
+def collect(index, collection):
+    members = {
+        f"rank{rank}/{name}"
+        for rank in range(index * 16, (index + 1) * 16)
+        for name in ("core-total-records.json", "clock-models.json", "dispatch.last.trace.json")
+    }
+    archive = ssh(HOSTS[index], shlex.join(["tar", "-cz", "-C", str(OUTPUT),
+                                           "host-result.json", *sorted(members)]), timeout=180)
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as bundle:
+        entries = bundle.getmembers()
+        assert len(entries) == 49 and {entry.name for entry in entries} == members | {"host-result.json"}
+        for entry in entries:
+            assert entry.isfile()
+            relative = f"host{index}-result.json" if entry.name == "host-result.json" else entry.name
+            output = collection / relative
+            output.parent.mkdir(exist_ok=True)
+            with output.open("xb") as handle:
+                handle.write(bundle.extractfile(entry).read())
+    receipt = json.loads((collection / f"host{index}-result.json").read_text())
+    for rank in receipt["ranks"]:
+        trace = collection / f"rank{rank['rank']}/dispatch.last.trace.json"
+        assert hashlib.sha256(trace.read_bytes()).hexdigest() == rank["trace_sha256"]
+
+
+def timings(values):
+    ordered = sorted(values)
+    p90, p95 = (statistics.quantiles(ordered, n=100, method="inclusive")[i - 1] for i in (90, 95))
+    return dict(samples=len(ordered), mean_us=statistics.mean(ordered),
+                min_us=ordered[0], max_us=ordered[-1], p90_us=p90, p95_us=p95)
+
+
+def extra_metrics(collection):
+    all_rank_rounds = []
+    loads = {"own_gm": [], "group_peer_gm": []}
+    flag_observations = {"own_gm": [], "group_peer_gm": []}
+    routes_ready = {"own_gm": [], "group_peer_gm": []}
+    worst_route_load = None
+    for rank in range(32):
+        directory = collection / f"rank{rank}"
+        rows = json.loads((directory / "core-total-records.json").read_text())
+        for row in rows[10:]:
+            all_rank_rounds.append((rank, [c["end"] - c["start"] for c in row["cores"]]))
+        trace = json.loads((directory / "dispatch.last.trace.json").read_text())
+        assert trace["metadata"]["route_distribution"] == "replicate4"
+        assert trace["metadata"]["route_sync_detail_version"] == 4
+        windows = {(e["tid"], e["name"]): e for e in trace["traceEvents"]
+                   if e.get("ph") == "X" and 40 <= e["tid"] < 56}
+        observed = {e["tid"]: e["args"]["core_entry_us"] for e in trace["traceEvents"]
+                    if e.get("ph") == "i" and e["name"] == "route_peer_flag_observed"
+                    and 40 <= e["tid"] < 56}
+        assert set(observed) == set(range(40, 56))
+        for core in range(40, 56):
+            path = "own_gm" if (core - 40) % 4 == rank % 4 else "group_peer_gm"
+            load = windows[core, "route_remote_load"]
+            sync = windows[core, "route_sync"]
+            route_ready = sync["ts"] + sync["dur"] - windows[core, "core_total"]["ts"]
+            loads[path].append(load["dur"])
+            flag_observations[path].append(observed[core])
+            routes_ready[path].append(route_ready)
+            if worst_route_load is None or load["dur"] > worst_route_load["us"]:
+                worst_route_load = dict(host=HOSTS[rank // 16], rank=rank, aiv=core, path=path, us=load["dur"])
+    all_ticks = [value for _, samples in all_rank_rounds for value in samples]
+    stats = timings([value / 1000 for value in all_ticks])
+    # Compare exact ticks to the 95th percentile represented in hundredths of a tick.
+    sorted_ticks = sorted(all_ticks)
+    lower, fraction = divmod(95 * (len(sorted_ticks) - 1), 100)
+    cutoff = sorted_ticks[lower] * (100 - fraction) + sorted_ticks[lower + 1] * fraction
+    rank_rounds = [(rank, max(samples) * 100 > cutoff) for rank, samples in all_rank_rounds]
+    return dict(
+        core_total=stats,
+        rank_rounds_above_core_p95=sum(hit for _, hit in rank_rounds),
+        distinct_ranks_above_core_p95=len({rank for rank, hit in rank_rounds if hit}),
+        rank_round_count=len(rank_rounds),
+        route_remote_load={path: timings(vals) for path, vals in loads.items()},
+        route_flag_observed_from_core_entry={path: timings(vals) for path, vals in flag_observations.items()},
+        route_ub_ready_from_core_entry={path: timings(vals) for path, vals in routes_ready.items()},
+        worst_route_remote_load=worst_route_load,
+    )
+
+
+def main():
+    here = Path(__file__).resolve().parent
+    rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
+    remote = (here / "run_remote.py").read_text()
+    payload = (rounds_script + "\n" + remote).encode()
+    verifier_source = ssh(HOSTS[0], shlex.join(["cat", str(HARDWARE / "clock_results.py")])).decode()
+    verifier = load_clock_results(verifier_source)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        readiness = list(pool.map(lambda i: controller(i, "preflight", payload), range(2)))
+        assert all(item["ready"] for item in readiness)
+        results = list(pool.map(lambda i: controller(i, "run", payload), range(2)))
+        assert all(result["passed"] for result in results)
+        with tempfile.TemporaryDirectory(prefix="ubx-replicate4-f50-") as path:
+            collection = Path(path)
+            list(pool.map(lambda i: collect(i, collection), range(2)))
+            verified = verifier.analyze(collection, REVISION, 32, list(HOSTS))
+            assert verified["passed"] and verified["profile_mode"] == "full"
+            assert verified["stage_details_enabled"] and verified["core_total_samples"] == 89600
+            summary = extra_metrics(collection)
+    keys = ("revision", "bs", "warmup", "measured", "verified_ranks", "core_total_samples",
+            "trace_hashes_verified", "last_trace_round", "group_stats", "round_core_maxima_stats",
+            "aligned_entry_spread_stats", "route_sha256", "missed_targets", "physical_hosts_by_logical_group")
+    print(json.dumps({
+        "passed": True, "route_distribution": "replicate4", "route_qps_verified": 128,
+        "profile_mode": "full", "stage_details_enabled": True, "clock_aligned": True,
+        **{key: verified[key] for key in keys}, **summary,
+    }, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()
