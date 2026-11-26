@@ -25,6 +25,11 @@ def main(c):
         cards = occupancy()
         return {'ready': all(cards), 'unavailable': [i for i, free in enumerate(cards) if not free]}
     root = Path(c['root'])
+    if c['action'] == 'gate':
+        case = root / c['run_id']
+        if c.get('signal') and case.is_dir():
+            (case / c['signal']).touch()
+        return {'ready': (case / 'ready').is_file()}
     expected = {'off/bin/ubx_full_intra': '999a9814dfdec6b05754c83677cfb9fbc62dae47a3c64a0a2a64da5b943ef404', 'off/lib/libtile-comm.so': 'afdfda792b1fd53ec445702367ed5dc8c2d0620afb3d55814aa40452db95c508'}
     for rel, digest in expected.items():
         if hashlib.sha256((root / rel).read_bytes()).hexdigest() != digest:
@@ -33,6 +38,13 @@ def main(c):
         return {'status': 'BUSY', 'launched': False}
     case = root / c['run_id']
     case.mkdir(exist_ok=False)
+    if c.get('gated'):
+        (case / 'ready').touch()
+        gate_deadline = time.monotonic() + 90
+        while not (case / 'go').is_file():
+            if (case / 'abort').is_file() or time.monotonic() > gate_deadline:
+                return {'status': 'ABORTED', 'launched': False}
+            time.sleep(0.2)
     raw = subprocess.check_output(['bash', '-lc', 'source /usr/local/Ascend/cann/set_env.sh >/dev/null 2>&1\nenv -0'])
     env = dict(x.decode().split('=', 1) for x in raw.split(b'\0') if b'=' in x)
     values = {'RANK_SIZE': 32, 'TILEXR_COMM_ID': '90.90.93.84:' + str(c['port']), 'TILEXR_ENABLE_IPC': 1, 'TILEXR_IPC_SCOPE': 'local', 'TILEXR_ENABLE_RDMA': 1, 'TILEXR_ENABLE_UDMA': 0, 'TILEXR_ENABLE_SDMA': 0, 'TILEXR_RDMA_MODE': 'aiv', 'TILEXR_RDMA_DMA_MODE': 'indep_ub', 'TILEXR_RDMA_DB_MODE': 'hard', 'TILEXR_RDMA_GID_INDEX': 1, 'TILEXR_RDMA_MTU': 4096, 'TILEXR_RDMA_TIMEOUT_MS': 30000, 'TILEXR_UBX_BS': c['bs'], 'TILEXR_UBX_EXPERTS': 384, 'TILEXR_UBX_ROUNDS': c['rounds'], 'TILEXR_UBX_CARDS_PER_SERVER': 16, 'TILEXR_UBX_SEND_CORES': 16, 'TILEXR_UBX_RECV_CORES': 16, 'TILEXR_UBX_RELAY_CORES': 16, 'TILEXR_UBX_CORES': 56, 'TILEXR_UBX_CAPTURE': 0, 'TILEXR_UBX_PACKET_CAPTURE': 0, 'TILEXR_UBX_REUSE': 0, 'TILEXR_UBX_INTRA_ONLY': 0, 'TILEXR_UBX_CLOCK_START': 1, 'TILEXR_UBX_ROUTES_FILE': root / ('routes-bs%d.bin' % c['bs']), 'TILEXR_UBX_WARMUP_ROUNDS': c['warmup'], 'TILEXR_UBX_EXPECT_COPIES': 0, 'TILEXR_UBX_MAX_TOKENS': c['mt']}
@@ -61,6 +73,8 @@ def main(c):
             jobs.append((rank, p, d))
         deadline = time.monotonic() + c['timeout']
         while any(p.poll() is None for _, p, _ in jobs):
+            if (case / 'abort').is_file():
+                break
             if any(p.poll() not in (None, 0) for _, p, _ in jobs):
                 break
             if time.monotonic() > deadline:

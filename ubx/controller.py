@@ -51,9 +51,26 @@ def main():
         print(json.dumps(obj), flush=True)
 
     def run(bs, mt, smoke=False):
-        config = {'action': 'run', 'capture': uuid.uuid4().hex, 'run_id': 'ablation-bs%d-mt%d-' % (bs, mt) + uuid.uuid4().hex[:12], 'bs': bs, 'mt': mt, 'rounds': 4 if smoke else 25, 'warmup': 2 if smoke else 5, 'timeout': 240 if smoke else 560, 'port': 24000 + int(uuid.uuid4().hex[:4], 16) % 10000}
-        rows = both(config)
+        config = {'action': 'run', 'gated': True, 'capture': uuid.uuid4().hex, 'run_id': 'ablation-bs%d-mt%d-' % (bs, mt) + uuid.uuid4().hex[:12], 'bs': bs, 'mt': mt, 'rounds': 4 if smoke else 25, 'warmup': 2 if smoke else 5, 'timeout': 240 if smoke else 560, 'port': 24000 + int(uuid.uuid4().hex[:4], 16) % 10000}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(remote, node, config) for node in range(2)]
+            gate_deadline = time.monotonic() + 75
+            released = False
+            while time.monotonic() < gate_deadline:
+                if any(f.done() for f in futures):
+                    break
+                gates = both({'action': 'gate', 'run_id': config['run_id']})
+                if all(g.get('ready') for g in gates):
+                    released = True
+                    both({'action': 'gate', 'run_id': config['run_id'], 'signal': 'go'})
+                    break
+                time.sleep(1)
+            if not released:
+                both({'action': 'gate', 'run_id': config['run_id'], 'signal': 'abort'})
+            rows = [f.result() for f in futures]
         emit({'event': 'smoke' if smoke else 'experiment', 'bs': bs, 'mt': mt, 'run_id': config['run_id'], 'results': rows})
+        if any(r.get('status') in ['BUSY', 'ABORTED'] for r in rows):
+            return None
         return all(r.get('status') == 'PASS' for r in rows)
 
     deadline = time.monotonic() + settings.get('hours', 8) * 3600
@@ -73,14 +90,28 @@ def main():
                 time.sleep(min(30, max(0, wake - time.monotonic())))
             continue
         if not smoke and not validated:
-            if not run(settings.get('smoke_bs', 32), 2, True):
+            outcome = run(settings.get('smoke_bs', 32), 2, True)
+            if outcome is None:
+                emit({'event': 'RESOURCE_RACE', 'reason': 'launch_cancelled_retry_in_five_minutes'})
+                wake = time.monotonic() + settings.get('interval_seconds', 300)
+                while time.monotonic() < wake:
+                    time.sleep(min(30, max(0, wake - time.monotonic())))
+                continue
+            if not outcome:
                 emit({'event': 'EXPERIMENTS_PAUSED', 'reason': 'smoke_validation_failed', 'remaining': queue})
                 paused = True
                 continue
             validated = True
             continue
         bs, mt = queue[0]
-        if not run(bs, mt, smoke):
+        outcome = run(bs, mt, smoke)
+        if outcome is None:
+            emit({'event': 'RESOURCE_RACE', 'reason': 'launch_cancelled_retry_in_five_minutes'})
+            wake = time.monotonic() + settings.get('interval_seconds', 300)
+            while time.monotonic() < wake:
+                time.sleep(min(30, max(0, wake - time.monotonic())))
+            continue
+        if not outcome:
             emit({'event': 'EXPERIMENTS_PAUSED', 'reason': 'validation_failed_or_incomplete', 'remaining': queue})
             paused = True
             continue
