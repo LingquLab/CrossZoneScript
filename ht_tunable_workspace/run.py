@@ -49,6 +49,15 @@ elif options.get('read_profile'):
     source = '\n'.join((prefix, (here / 'profile.py').read_text(), f'case = MOUNT / {case!r}',
                         f'result = extract_pipeline_profile(case, 48, 8, 16, {step_ends!r}, {len(ends)})',
                         "print(json.dumps(result, separators=(',', ':')))"))
+elif options.get('recover_profile'):
+    assert profile
+    source = '\n'.join((prefix, (root / 'ht_four_stage/local_phases.py').read_text(),
+                        (here / 'profile.py').read_text(), (here / 'recover_profile.py').read_text(),
+                        f'case = MOUNT / {case!r}', 'try:',
+                        f'    result = recover_profile(case, {step_ends!r}, {len(ends)})',
+                        "except (AssertionError, ValueError, OSError) as error:",
+                        "    result = dict(status='recovery_failed', error_type=type(error).__name__, detail=str(error))",
+                        "print(json.dumps(result, separators=(',', ':')))"))
 elif options.get('suite_status'):
     assert profile
     suite = {label: f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32{suffix}-profile'
@@ -212,9 +221,12 @@ if options.get('check_only'):
 ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10', '-o',
        'BatchMode=no', '-o', 'NumberOfPasswordPrompts=1', '-o',
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
+transport_timeout = 700 if options.get('recover_profile') else timeout + 250
+if any(options.get(key) for key in ('status', 'suite_status', 'cq', 'direct_activity', 'read_profile')):
+    transport_timeout = 120
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
-                            timeout=120 if any(options.get(key) for key in ('status', 'suite_status', 'cq', 'direct_activity', 'read_profile')) else timeout + 250)
+                            timeout=transport_timeout)
 if result.returncode:
     print(json.dumps({'ssh_exit': result.returncode, 'stderr_bytes': len(result.stderr)}))
 else:

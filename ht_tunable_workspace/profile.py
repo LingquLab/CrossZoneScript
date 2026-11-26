@@ -25,7 +25,7 @@ def profile_binding(address, blocks):
     return descriptor.ljust(size, b'\0')
 
 
-def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, chunks):
+def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, chunks, directory='actual'):
     steps = len(step_ends)
     final_start = blocks - 16
     compute = {step: [] for step in range(steps)}
@@ -34,7 +34,7 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
     stream_states = Counter()
     overlap = Counter()
     for rank in range(64):
-        path = case / 'actual' / f'rank{rank:02d}' / 'profile.bin'
+        path = case / directory / f'rank{rank:02d}' / 'profile.bin'
         raw = path.read_bytes()
         view = struct.unpack_from('<8I7Q', raw)
         assert view[:8] == (2, 88, 1, blocks, PROFILE_CAPACITY, PROFILE_CAPACITY, PROFILE_STATE_STRIDE, 0)
@@ -90,3 +90,50 @@ def extract_pipeline_profile(case, blocks, send_start, send_cores, step_ends, ch
     (case / 'tunable-profile-markers.json').write_text(json.dumps(all_events, separators=(',', ':')))
     (case / 'tunable-profile-summary.json').write_text(json.dumps(result, separators=(',', ':')))
     return result
+
+
+def decode_sparse_profile(dump_dir, rank, region, blocks):
+    address, size = region['addr'], region['size']
+    assert address % 512 == 0
+    image = bytearray(size)
+    sectors = set()
+    for die in (0, 1):
+        path = dump_dir / f'david_{rank}_die{die + 1}_profile.bin'
+        with path.open('rb') as stream:
+            while record := stream.read(520):
+                assert len(record) == 520, (rank, die, 'truncated profile sector')
+                sector, = struct.unpack_from('<Q', record)
+                owner = ((sector >> 9) ^ (sector >> 16) ^ (sector >> 23)) & 1
+                if owner != die or not address <= sector < address + size:
+                    continue
+                offset = sector - address
+                end = min(offset + 512, size)
+                value = record[8:8 + end - offset]
+                assert offset not in sectors or image[offset:end] == value, (rank, die, offset)
+                image[offset:end] = value
+                sectors.add(offset)
+
+    def require(offset, count):
+        assert 0 <= offset <= offset + count <= size and all(
+            sector in sectors for sector in range(offset // 512 * 512, offset + count, 512)
+        ), (rank, 'missing recorded profile bytes', offset, count)
+
+    require(0, 88)
+    view = struct.unpack_from('<8I7Q', image)
+    assert view[:8] == (2, 88, 1, blocks, PROFILE_CAPACITY, PROFILE_CAPACITY, PROFILE_STATE_STRIDE, 0)
+    base = view[8] - 128
+    assert base % (0x2000000000) == address
+    assert image[:88] == profile_binding(base, blocks)[:88]
+    timestamps, events, counts, drops, states = (pointer - base for pointer in view[8:13])
+    for aiv in range(blocks):
+        state_offset = aiv * PROFILE_STATE_STRIDE * 4
+        for field in (counts, drops, states):
+            require(field + state_offset, 4)
+        state, = struct.unpack_from('<I', image, states + state_offset)
+        count, = struct.unpack_from('<I', image, counts + state_offset)
+        dropped, = struct.unpack_from('<I', image, drops + state_offset)
+        assert state == 2 and dropped == 0 and 0 < count <= PROFILE_CAPACITY, (rank, aiv, state, count, dropped)
+        first = aiv * PROFILE_CAPACITY
+        require(timestamps + first * 8, count * 8)
+        require(events + first * 4, count * 4)
+    return image, len(sectors)
