@@ -22,8 +22,17 @@ def main():
     assert hashlib.sha256(Path(env['decoder_library']).read_bytes()).hexdigest()==V310_DECODER_SHA256
     stats=Counter()
     rows=[]
+    first={}
+    for queue in record['pending_queues']:
+        group=(queue['rank'],queue['slot']%20)
+        order=(queue['slot']//20,queue['peer'])
+        first[group]=min(first.get(group,order),order)
     for queue in record['pending_queues']:
         q=dict(queue)
+        is_first=(q['slot']//20,q['peer'])==first[q['rank'],q['slot']%20]
+        q['first_pending_of_owner']=is_first
+        stats['lane'+str(q['slot']//20)+'_pending']+=1
+        if is_first: stats['first_pending_groups']+=1
         address=physical_queue_addresses(q['rank'],q['peer'],q['slot'])['cq']-q['rank']*GM_BYTES+(q['cq_tail']%DEPTH)*64
         die=((address>>9)^(address>>16)^(address>>23))&1
         name=f"cq_peer{q['peer']}_slot{q['slot']}"
@@ -41,12 +50,13 @@ def main():
             q.update(next_owner=owner,expected_owner=expected_owner,next_status=(flags>>24)&255,
                      next_substatus=(flags>>16)&255,next_entry=entry&65535)
             stats['valid_next_owner' if owner==expected_owner else 'not_ready_next_owner']+=1
+            if is_first: stats['first_pending_valid_owner' if owner==expected_owner else 'first_pending_not_ready_owner']+=1
             stats['matching_next_entry' if (entry&65535)==q['sq_tail']%DEPTH else 'different_next_entry']+=1
             if q['next_status'] or q['next_substatus']: stats['cqe_error_status']+=1
         rows.append(q)
     full=dict(status='existing_snapshot_cq_read',queue_count=len(rows),histogram=dict(stats),queues=rows)
     (CASE/'cq-read-result.json').write_text(json.dumps(full,indent=2)+'\n')
-    compact=dict(status=full['status'],queue_count=len(rows),histogram=dict(stats),samples=rows[:6])
+    compact=dict(status=full['status'],queue_count=len(rows),histogram=dict(stats),samples=[q for q in rows if q['first_pending_of_owner']][:6])
     raw=json.dumps(compact,separators=(',',':'))
     assert len(raw.encode())<=4096
     print(raw)
