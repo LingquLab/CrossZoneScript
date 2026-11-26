@@ -13,7 +13,8 @@ import traceback
 SESSION = '59af0a93-b62f-4211-927e-a44f047667cf'
 REVISIONS = {'71b62db': '71b62db945c23268df029ecb6a4e8809a7579222',
              '2dfd2b4': '2dfd2b47394d013164f9270b445aa0bd39321755',
-             'b61cb53': 'b61cb530b0d25d1e9ad18748ee7aeb7a7962740e'}
+             'b61cb53': 'b61cb530b0d25d1e9ad18748ee7aeb7a7962740e',
+             'e7da7b1': 'e7da7b11d072fad95a8c58804839a1c867f205bd'}
 SESSION_ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}')
 TEMPLATE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549')
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
@@ -161,7 +162,7 @@ def main(args):
             return 0
         assert action in ('inter-server-send', 'joint-reuse')
         if action == 'joint-reuse':
-            assert candidate in ('2dfd2b4','b61cb53'), 'candidate_has_no_reuse_mode'
+            assert candidate in ('2dfd2b4','b61cb53','e7da7b1'), 'candidate_has_no_reuse_mode'
         assert json_file(root/'profile-build/build-summary.json')['inter_server_rank_send'] is True
         with (root/'sst.lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
