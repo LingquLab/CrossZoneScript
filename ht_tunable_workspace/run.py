@@ -116,6 +116,20 @@ else:
     export_fields = fields + ('profile',) if profile else fields
     exports = exports.replace('("returned", "completed", "status", "output")', repr(export_fields)).replace(
         '{"returned", "completed", "status", "output"}', repr(set(export_fields)))
+    if profile:
+        exports = exports.replace('def export_actual(', (here / 'profile.py').read_text() + '\n\ndef export_actual(', 1)
+        call = '''            payload = reconstruct_die_output(
+                paths, local, target["size"], decoder_library
+            )'''
+        assert exports.count(call) == 1
+        exports = exports.replace(call, '''            if name == 'profile':
+                assert digest(decoder_library) == V310_DECODER_SHA256
+                profile_region = dict(addr=local, size=target['size'])
+                payload, _, missing = decode_sparse_profile(dump_dir, row['rank'], profile_region, 48)
+                assert not missing
+            else:
+                payload = reconstruct_die_output(paths, local, target['size'], decoder_library)''')
+        compile(exports, '<numeric-and-profile-exports>', 'exec')
     checker = (shared / 'check.py').read_text().replace('reduce=(32,8,4)', 'reduce=(96,8,4)')
     if mode == 'direct':
         checker = checker.replace('cross_return=(512,16,32)', 'cross_return=(512,8,32)')
