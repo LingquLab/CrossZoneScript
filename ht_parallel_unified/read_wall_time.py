@@ -26,6 +26,7 @@ root = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/int
 wall_pattern = re.compile(
     r'(?:wall[- ]?clock(?: time)?|(?:total )?real time|elapsed wall time)\s*[:=]\s*'
     r'([0-9.]+)\s*(seconds?|secs?|s)\b', re.IGNORECASE)
+wall_date_pattern = re.compile(rb'\b20\d\d[-/]\d\d[-/]\d\d[ T]\d\d:\d\d:\d\d(?:[.,]\d+)?')
 
 
 def birth_time(path):
@@ -45,9 +46,32 @@ def read_timing(case):
         if path.is_file():
             stats = path.stat()
             report[key] = {'created_s': birth_time(path), 'last_write_s': round(stats.st_mtime, 3)}
+    manifest = case / 'case-manifest.json'
+    if manifest.is_file():
+        manifest_time = manifest.stat().st_mtime
+        report['manifest_last_write_s'] = round(manifest_time, 3)
+        changed = []
+        for folder in ('OUTPUT', 'bin'):
+            for path in (case / folder).rglob('*'):
+                if path.is_file():
+                    modified = path.stat().st_mtime
+                    if manifest_time <= modified <= report['sst_log']['last_write_s']:
+                        changed.append((round(modified, 3), folder, path.suffix))
+        report['early_sim_outputs'] = sorted(set(changed))[:12]
+        report['root_file_writes_near_launch'] = sorted(
+            (round(path.stat().st_mtime, 3), path.name)
+            for path in case.iterdir() if path.is_file() and
+            0 <= path.stat().st_mtime - manifest_time <= 120
+        )[:12]
     with (case / 'sim.log').open('rb') as stream:
+        first = stream.read(65536)
         stream.seek(max(0, (case / 'sim.log').stat().st_size - 65536))
-        tail = stream.read().decode(errors='replace')
+        last = stream.read()
+    tail = last.decode(errors='replace')
+    first_dates = wall_date_pattern.findall(first)
+    last_dates = wall_date_pattern.findall(last)
+    report['sst_log_wall_dates'] = [first_dates[0].decode() if first_dates else None,
+                                    last_dates[-1].decode() if last_dates else None]
     report['wall_seconds_in_sst_log_tail'] = [float(match[0]) for match in wall_pattern.findall(tail)][-8:]
     report['has_sst_completion_line'] = 'simulation is complete' in tail.lower()
     return report
