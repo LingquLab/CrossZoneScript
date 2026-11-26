@@ -1,0 +1,28 @@
+[
+  {
+    "task_id": "ht-tunable-sync-bs1024-window-live-limit",
+    "event_id": "green-faea2580d1994cf2aa534d4dcbf98a02",
+    "iteration": 1,
+    "result": {
+      "status": "running",
+      "updated": true,
+      "old_memory_gib": 32,
+      "new_memory_gib": 256,
+      "running": true,
+      "case": "ht-tunable-workspace-186dfa18-bs1024-fp32-profile"
+    }
+  },
+  {
+    "task_id": "ht-tunable-sync-bs1024-logical-live-limit",
+    "event_id": "green-30cb0a2f0164440099929de2065523a7",
+    "iteration": 1,
+    "result": {
+      "status": "running",
+      "updated": true,
+      "old_memory_gib": 32,
+      "new_memory_gib": 256,
+      "running": true,
+      "case": "ht-tunable-workspace-186dfa18-bs1024-fp32-logical-profile"
+    }
+  }
+]
