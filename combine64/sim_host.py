@@ -123,7 +123,7 @@ def stage_tools(root, files):
 
 STAGES = (
     'local-send', 'gateway-reduce', 'local-return', 'inter-server-send',
-    'final-independent', 'joint-producer', 'final-from-producer', 'joint-final',
+    'final-independent', 'joint-final',
 )
 REPORT_FIELDS = (
     'candidate_commit', 'stage', 'tokens', 'attempt', 'status', 'blocks', 'intra_cores', 'peer_slots',
