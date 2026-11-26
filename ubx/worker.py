@@ -50,7 +50,7 @@ def main(c):
             child.update(RANK=str(rank), DEVICE_ID=str(device), TILEXR_RDMA_DEVICE='hrn5_' + str(device // 2), TILEXR_RDMA_PORT='1')
             out, err = open(d / 'stdout.log', 'wb'), open(d / 'stderr.log', 'wb')
             handles.extend([out, err])
-            p = subprocess.Popen([str(root / 'off/bin/ubx_full_intra'), 'fp8e4m3', str(d / 'records'), c['run_id']], env=child, stdout=out, stderr=err, start_new_session=True)
+            p = subprocess.Popen([str(root / 'off/bin/ubx_full_intra'), 'fp8e4m3', str(d / 'records'), c['capture']], env=child, stdout=out, stderr=err, start_new_session=True)
             jobs.append((rank, p, d))
         deadline = time.monotonic() + c['timeout']
         while any(p.poll() is None for _, p, _ in jobs):
