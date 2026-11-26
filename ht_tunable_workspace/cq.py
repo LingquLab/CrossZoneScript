@@ -152,3 +152,41 @@ def pipeline_missing_arrivals(case, tokens, mode, missing):
 
 def trace_limit(tokens, mode):
     return MAX_TRACE_BYTES * (8 if tokens == 1024 or mode == 'physical' else 1)
+
+
+def direct_activity(case):
+    layouts = json.loads((case / 'fixture-data/trace-offsets.json').read_text())
+    totals, samples = Counter(), []
+    for rank, layout in enumerate(layouts):
+        bindings = layout['sq_bindings']
+        local_sq = set(bindings['local_return'])
+        gather_cq = {address - 0x1900000000 + CQ_BASE for address in bindings['gather']}
+        path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
+        with path.open('rb') as stream:
+            raw = stream.read(trace_limit(32, None))
+            if stream.read(1):
+                totals['truncated'] += 1
+                continue
+        trace = json.loads(raw)
+        events = trace['traceEvents'] if isinstance(trace, dict) else trace
+        first_return, last_gather = None, None
+        for event in events:
+            args, timestamp = event.get('args', {}), event.get('ts')
+            kind, address = args.get('busPayloadType_'), args.get('oriAddr_')
+            if timestamp is None or address is None or kind not in ('WR_REQ', 'RD_REQ'):
+                continue
+            address = int(address, 0) if isinstance(address, str) else int(address)
+            rank_base = rank * GM_BYTES
+            if not rank_base <= address < rank_base + GM_BYTES:
+                continue
+            tag = rank_base + (address - rank_base) // RING_BYTES * RING_BYTES
+            if kind == 'RD_REQ' and tag in local_sq:
+                first_return = timestamp if first_return is None else min(first_return, timestamp)
+            if kind == 'WR_REQ' and tag in gather_cq:
+                last_gather = timestamp if last_gather is None else max(last_gather, timestamp)
+        if first_return is not None and last_gather is not None:
+            totals['ranks_with_both'] += 1
+            totals['ranks_return_fetch_before_last_gather_cq'] += first_return < last_gather
+            if len(samples) < 4:
+                samples.append([rank, first_return, last_gather])
+    return dict(totals=totals, columns=['rank', 'first_local_return_sq_fetch_ts', 'last_gather_cq_write_ts'], samples=samples)

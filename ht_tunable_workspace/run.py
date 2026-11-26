@@ -32,12 +32,17 @@ ends = chunk_ends(tokens)
 step_ends = [ends[index] for index in sync_steps(tokens, mode)]
 timeout = {4: 1200, 32: 6000, 1024: 54000}[tokens]
 prefix = (root / 'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
-if options.get('cq'):
+if options.get('cq') or options.get('direct_activity'):
     evidence = (shared / 'queue_trace.py').read_text().split('\ndef queue_trace(', 1)[0]
+    if options.get('direct_activity'):
+        assert mode == 'direct'
+        summary_command = 'result = direct_activity(case)'
+    else:
+        summary_command = (f'result = count_candidate_cq(case, {tokens}, mode={mode!r})\n'
+                           f"if result['first_missing']: result['arrival'] = pipeline_missing_arrivals(case, {tokens}, {mode!r}, result['first_missing'])")
     source = '\n'.join((prefix, (shared / 'config.py').read_text(), evidence, (here / 'sync_layout.py').read_text(),
                         (here / 'cq.py').read_text(),
-                        f'case = MOUNT / {case!r}\nresult = count_candidate_cq(case, {tokens}, mode={mode!r})',
-                        f"if result['first_missing']: result['arrival'] = pipeline_missing_arrivals(case, {tokens}, {mode!r}, result['first_missing'])",
+                        f'case = MOUNT / {case!r}', summary_command,
                         "print(json.dumps(result, separators=(',', ':')))"))
 elif options.get('read_profile'):
     assert profile
@@ -185,7 +190,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
-                            timeout=120 if any(options.get(key) for key in ('status', 'cq', 'read_profile')) else timeout + 250)
+                            timeout=120 if any(options.get(key) for key in ('status', 'cq', 'direct_activity', 'read_profile')) else timeout + 250)
 if result.returncode:
     print(json.dumps({'ssh_exit': result.returncode, 'stderr_bytes': len(result.stderr)}))
 else:
