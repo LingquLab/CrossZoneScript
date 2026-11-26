@@ -239,9 +239,15 @@ def check_outputs(case, environment, record):
 
 CQ_PROBE_QUEUES = ((2, 0, 16), (2, 1, 36), (4, 0, 16), (4, 1, 36), (1, 2, 17), (1, 3, 37),
                    (5, 2, 17), (5, 3, 37), (8, 9, 36), (11, 8, 16), (11, 9, 36))
+INTER_CQ_PROBE_QUEUES = ((0, 24, 8), (0, 24, 28), (0, 25, 8), (0, 25, 28),
+                         (0, 30, 11), (0, 30, 31), (0, 31, 11), (0, 31, 31),
+                         (0, 56, 8), (0, 56, 28), (0, 57, 8), (0, 57, 28),
+                         (0, 62, 11), (0, 62, 31), (0, 63, 11), (0, 63, 31))
 
 
-def cq_probe_queues(rank, all_local):
+def cq_probe_queues(rank, all_local, inter):
+    if inter:
+        return [(peer, slot) for sender, peer, slot in INTER_CQ_PROBE_QUEUES if sender == rank]
     if not all_local:
         return [(peer, slot) for sender, peer, slot in CQ_PROBE_QUEUES if sender == rank]
     from return_case import local_slot
@@ -249,7 +255,7 @@ def cq_probe_queues(rank, all_local):
     return [(peer, local_slot(peer - begin)) for peer in range(begin, begin + 8) if peer != rank]
 
 
-def bind_return_probe(case, cq_probe=False, joint_probe=False, all_local_cq=False):
+def bind_return_probe(case, cq_probe=False, joint_probe=False, all_local_cq=False, inter_cq=False):
     from runtime import BASES, WORLD, PHYSICAL_QPS, physical_queue_addresses
     layout = read_json(case / 'export-layout.json')
     workload = read_json(case / 'workload.yml')
@@ -272,7 +278,7 @@ def bind_return_probe(case, cq_probe=False, joint_probe=False, all_local_cq=Fals
             row['exports'][name] = segment
             chip['output_param'][name] = segment
         if cq_probe:
-            for peer, slot in cq_probe_queues(row['rank'], all_local_cq):
+            for peer, slot in cq_probe_queues(row['rank'], all_local_cq, inter_cq):
                 physical = physical_queue_addresses(row['rank'], peer, slot)
                 for prefix in ('sq', 'cq'):
                     name = f'{prefix}-{peer}-{slot}'
@@ -401,7 +407,7 @@ def observe_joint(case, environment, intra_cores, joint_probe=False):
     return result
 
 
-def observe_cq(case, environment, all_local=False):
+def observe_cq(case, environment, all_local=False, inter=False):
     from collections import Counter
     from addressed_exports import read_die_stripe, reconstruct_die_output
     layout = read_json(case / 'export-layout.json')
@@ -424,7 +430,7 @@ def observe_cq(case, environment, all_local=False):
     samples = []
     counts = Counter()
     for rank in range(len(layout['ranks'])):
-        selected = cq_probe_queues(rank, all_local)
+        selected = cq_probe_queues(rank, all_local, inter)
         if not selected:
             continue
         names = ('sq_head', 'sq_tail', 'cq_tail')
@@ -432,7 +438,7 @@ def observe_cq(case, environment, all_local=False):
         for peer, slot in selected:
             offset = (peer * 40 + slot) * 64
             head, tail, completion = [struct.unpack_from('<I', data, offset)[0] for data in state]
-            if all_local and head == tail:
+            if (all_local or inter) and head == tail:
                 counts['drained'] += 1
                 continue
             sample = dict(rank=rank, peer=peer, slot=slot, sq_head=head, sq_tail=tail, cq_tail=completion)
@@ -450,7 +456,19 @@ def observe_cq(case, environment, all_local=False):
             if 0 < head <= 1536 // 64:
                 try:
                     payload = entry(rank, f'sq-{peer}-{slot}', head - 1)
-                    sample.update(sq_last_nonzero=any(payload), sq_last_length=struct.unpack_from('<I', payload, 48)[0])
+                    length, = struct.unpack_from('<I', payload, 48)
+                    sample.update(sq_last_nonzero=any(payload), sq_last_length=length)
+                    if inter:
+                        address, = struct.unpack_from('<Q', payload, 40)
+                        target = layout['ranks'][peer]['exports']['completed']
+                        size = target['size']
+                        if target['addr'] <= address < target['addr'] + size:
+                            offset = address - target['addr']
+                            sample['notification_index'] = offset // STRIPE
+                            plans = layout['ranks'][peer]
+                            paths = [case / 'bin' / f'david_{peer}_die{d}_completed.bin' for d in (1, 2)]
+                            flag = read_die_stripe(paths, address - plans['sys_va_base_addr'], 8, decoder)
+                            sample['notification_visible'] = struct.unpack('<q', flag)[0] == MAGIC
                 except (FileNotFoundError, ValueError):
                     sample['sq_dump_missing'] = True
             if len(samples) < 16:
@@ -468,6 +486,7 @@ def main(config):
     joint_probe = config.get('joint_probe', False)
     cq_probe = config.get('cq_probe', False)
     all_local_cq = config.get('all_local_cq', False)
+    inter_cq = config.get('inter_cq', False)
     intra_cores = config.get('intra_cores', 8)
     peer_slots = config.get('peer_slots', 1)
     return_qp_base = config.get('return_qp_base', 0)
@@ -518,7 +537,7 @@ def main(config):
             for key in keys:
                 assert original[key] == record[key], key
             record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source=origin)
-            bind_return_probe(case, cq_probe, joint_probe, all_local_cq)
+            bind_return_probe(case, cq_probe, joint_probe, all_local_cq, inter_cq)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
         model_config = case / 'v310_config/davidV100_simulator_config.yml'
@@ -541,7 +560,7 @@ def main(config):
             if action == 'joint-final':
                 record.update(observe_joint(case, env, intra_cores, joint_probe))
                 if cq_probe:
-                    record.update(observe_cq(case, env, all_local_cq))
+                    record.update(observe_cq(case, env, all_local_cq, inter_cq))
             else:
                 record.update(observe_local_return(case, env, ready_probe))
             record['status'] = 'diagnostic_snapshot'

@@ -44,6 +44,8 @@ def main():
     assert type(timeout) is int and 30 <= timeout <= 7200
     if 'stop_at_us' in args:
         expected_attempt = 4 if args.get('ready_probe') or args.get('joint_probe') else (3 if args.get('cq_probe') else 2)
+        if args.get('inter_cq'):
+            expected_attempt = 6
         assert action in ('local-return', 'joint-final') and tokens == 4
         assert attempt == expected_attempt and args.get('profiling') is True
         assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 300
@@ -52,6 +54,8 @@ def main():
         assert 'stop_at_us' in args
     if args.get('all_local_cq'):
         assert args.get('cq_probe')
+    if args.get('inter_cq'):
+        assert args.get('cq_probe') and not args.get('all_local_cq')
     if args.get('joint_probe'):
         assert action == 'joint-final' and 'stop_at_us' in args
     if 'stalled_cq_cycle' in args:

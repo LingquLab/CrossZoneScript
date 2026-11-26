@@ -627,6 +627,7 @@ def main(args):
                 config['diagnostic_stop_us'] = args.get('stop_at_us')
                 config['cq_probe'] = args.get('cq_probe', False)
                 config['all_local_cq'] = args.get('all_local_cq', False)
+                config['inter_cq'] = args.get('inter_cq', False)
                 results = [run_case(root, cid, tools, config)]
                 report = results[0]
         if memory is not None:
