@@ -37,7 +37,7 @@ print(json.dumps({key:result[key] for key in ('status','sst_wall_seconds','runne
 
 def main(request):
     action=request['action']
-    assert action in ('stop-joint','snapshot-send')
+    assert action in ('stop-joint','snapshot-send','read-cq')
     candidate='2dfd2b4' if action=='stop-joint' else '71b62db'
     root=BASE/f'run-{candidate}-a1'
     identity=json.loads((root/'identity.json').read_text())
@@ -56,6 +56,9 @@ def main(request):
         else: target.write_text(content)
         argv=['docker','exec',cid,'timeout','--kill-after=20','1400','python3',str(Path('/work')/target.relative_to(root)),request['tool_key']]
         timeout=1440
+        if action=='read-cq':
+            argv=['docker','exec',cid,'python3',str(Path('/work')/target.relative_to(root))]
+            timeout=50
     stem=action+'-'+hashlib.sha256((STOP if action=='stop-joint' else request['snapshot_script']).encode()).hexdigest()[:12]
     with (root/(stem+'.stdout')).open('wb') as out,(root/(stem+'.stderr')).open('wb') as err:
         p=subprocess.run(argv,stdout=out,stderr=err,timeout=timeout)
