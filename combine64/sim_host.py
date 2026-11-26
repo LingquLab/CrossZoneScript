@@ -26,6 +26,7 @@ REVISIONS = {
     'a4885e1': 'a4885e131bee353f47e74a6e90de2e16d7dcbba1',
 }
 SESSION_ROOT = Path(f'/mnt/share/tilexr-sim-jobs/{SESSION}')
+PRIOR_ROOT = SESSION_ROOT.parent / '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
 TEMPLATE = Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549')
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 PLATFORM_FILES = {'test_UBusSim.py', 'sst-environment.json', 'environment.snapshot.json', 'installed_model.py'}
@@ -379,7 +380,7 @@ def interrupt_stalled_joint(root, cid, revision, cycle, attempt=1):
 
 
 def set_container_cpus(cid, count):
-    assert count in (16, 32) and len(os.sched_getaffinity(0)) >= 4 * count
+    assert count in (8, 16, 32) and len(os.sched_getaffinity(0)) >= 4 * count
     subprocess.run(['docker', 'update', '--cpus', str(count), cid],
                    capture_output=True, check=True, timeout=20)
     actual = subprocess.check_output(['docker', 'inspect', '--format', '{{.HostConfig.NanoCpus}}', cid], timeout=10)
@@ -438,8 +439,11 @@ def verify_completed(row, revision, tokens, stage, intra_cores, peer_slots):
     assert (row['candidate_commit'], row['tokens'], row['stage']) == (revision, tokens, stage)
     assert (row.get('intra_cores', 8), row.get('peer_slots', 1)) == (intra_cores, peer_slots)
     assert row['status'] == 'sst_and_checker_passed'
+    assert row['profiling_enabled'] is True and not row.get('diagnostic_only')
     assert row['checked_ranks'] == 64 and row['guards'] > 0
     assert row['profiling_lanes'] == 64 * row['blocks'] and row['profiling_dropped_records'] == 0
+    assert all(row[key] > 0 for key in ('platform_simulated_us', 'profiling_operator_us',
+                                       'sst_wall_seconds', 'runner_wall_seconds'))
 
 
 def run_variant_cases(origin, revision, variant, tokens, args):
@@ -448,10 +452,11 @@ def run_variant_cases(origin, revision, variant, tokens, args):
         cid = prepare_variant(root, origin, revision, intra, slots)
     else:
         cid = task_container(root, revision)
-    threads = args.get('sst_threads', 8)
+    default_threads = 16 if args['action'] == 'size-matrix' and stages == ('joint-final',) else 8
+    threads = args.get('sst_threads', default_threads)
     with (root / 'sst.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if threads != 8:
+        if args['action'] == 'size-matrix' or threads != 8:
             set_container_cpus(cid, threads)
         tools, platform = stage_tools(root, args['files'])
         config = dict(tokens=tokens, attempt=1, timeout=args['timeout'], revision=revision,
@@ -460,19 +465,78 @@ def run_variant_cases(origin, revision, variant, tokens, args):
         rows = []
         stage_timeouts = args.get('stage_timeouts', {})
         for stage in stages:
-            case = root / 'cases' / f't{tokens}-{stage}-a1'
+            attempt = args.get('case_attempts', {}).get(f'{intra}/{slots}/{stage}', 1)
+            case = root / 'cases' / f't{tokens}-{stage}-a{attempt}'
             result = case / 'phase-result.json'
             if result.is_file():
                 full = json_file(result)
                 row = {key: full[key] for key in REPORT_FIELDS if key in full}
                 row['case'] = str(case)
             else:
-                point = dict(config, action=stage, timeout=stage_timeouts.get(stage, config['timeout']))
+                point = dict(config, action=stage, attempt=attempt,
+                             timeout=stage_timeouts.get(stage, config['timeout']))
                 row = run_case(root, cid, tools, point)
-                assert row['container_exit'] == 0
-            verify_completed(row, revision, tokens, stage, intra, slots)
+            try:
+                assert row.get('container_exit', 0) == 0
+                verify_completed(row, revision, tokens, stage, intra, slots)
+            except (AssertionError, KeyError):
+                if args['action'] != 'size-matrix':
+                    raise
+                row = dict(row, passed=False, tokens=tokens, stage=stage,
+                           intra_cores=intra, peer_slots=slots, attempt=attempt)
+                if row['status'] == 'sst_and_checker_passed':
+                    row['error'] = 'case_verification_failed'
             rows.append(row)
     return rows
+
+
+def run_size_matrix(origin, revision, args):
+    tokens = args['tokens']
+    variants = validation_variants(origin, args['candidate'])
+    if tokens == 4 and args['candidate'] == 'a4885e1':
+        prior = [(8, 1, PRIOR_ROOT / 'run-a4885e1-a1', STAGES[:-1]),
+                 (4, 2, PRIOR_ROOT / 'run-a4885e1-i4-p2', ('joint-final',))]
+    else:
+        prior = []
+    rows = []
+    reused = set()
+    build = json_file(origin / 'bootstrap-result.json')
+    objects = {item['sha256'] for item in build['profile']['targets'].values()}
+    for intra, slots, root, stages in prior:
+        for stage in stages:
+            case = root / 'cases' / f't4-{stage}-a1'
+            if not (case / 'phase-result.json').is_file():
+                continue
+            row = json_file(case / 'phase-result.json')
+            verify_completed(row, revision, 4, stage, intra, slots)
+            assert row['source_object_sha256'] in objects
+            assert row['environment_sha256'] == build['platform_environment_sha256']
+            rows.append(dict({key: row[key] for key in REPORT_FIELDS if key in row},
+                             case=str(case), reused=True))
+            reused.add((intra, slots, stage))
+
+    def wave(joint):
+        with ThreadPoolExecutor(max_workers=len(variants)) as pool:
+            pending = {}
+            for intra, slots, root, stages in variants:
+                selected = tuple(stage for stage in stages if (stage == 'joint-final') == joint
+                                 and (intra, slots, stage) not in reused)
+                if selected:
+                    group = (intra, slots, root, selected)
+                    pending[pool.submit(run_variant_cases, origin, revision, group, tokens, args)] = group
+            for future, (intra, slots, root, selected) in pending.items():
+                try:
+                    rows.extend(future.result())
+                except Exception as error:
+                    rows.append(dict(passed=False, status='host_setup_failed', stages=selected,
+                                     tokens=tokens, intra_cores=intra, peer_slots=slots,
+                                     case=str(root), error=f'{type(error).__name__}: {error}'[:240]))
+
+    wave(joint=False)
+    if all(row.get('passed', True) for row in rows):
+        wave(joint=True)
+    print(json.dumps(dict(batch=rows, tokens=tokens, revision=revision), separators=(',', ':')))
+    return 0 if len(rows) == 11 and all(row.get('passed', True) for row in rows) else 1
 
 
 def run_bs4_joint_remainder(origin, revision, args):
@@ -542,7 +606,7 @@ def main(args):
             variants.extend((i, p, SESSION_ROOT / f'run-{candidate}-i{i}-p{p}') for i, p in ((4, 1), (4, 2), (8, 2)))
             reports = [dict(status(path, args), intra_cores=i, peer_slots=p) for i, p, path in variants]
             result = dict(variants=reports, available_cpus=len(os.sched_getaffinity(0)),
-                          load_average=os.getloadavg())
+                          load_average=os.getloadavg(), disk_free_bytes=shutil.disk_usage(SESSION_ROOT).free)
         else:
             result = status(root, args)
         print(json.dumps(result, separators=(',', ':')))
@@ -552,6 +616,8 @@ def main(args):
             return run_bs4_joint_remainder(origin, revision, args)
         if action == 'matrix':
             return run_large_matrix(origin, revision, args)
+        if action == 'size-matrix':
+            return run_size_matrix(origin, revision, args)
         if root != origin and not root.exists():
             cid = prepare_variant(root, origin, revision, intra_cores, peer_slots)
         else:

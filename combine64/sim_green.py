@@ -30,7 +30,7 @@ def main():
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
     assert action in ('status', 'interrupt-stalled-joint', 'interrupt-unprofiled', 'profile-build', 'batch', 'matrix',
-                      'bs4-remainder', 'joint-evidence', *STAGES)
+                      'bs4-remainder', 'size-matrix', 'joint-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args['candidate']
@@ -103,6 +103,13 @@ def main():
         assert set(args['matrix_timeouts']) == {'32', '128'}
         remote_seconds = 180 + sum(stage_budget(STAGES, args['matrix_timeouts'][str(size)], timeout, size)
                                    for size in (32, 128))
+    if action == 'size-matrix':
+        assert tokens in (4, 32, 128) and attempt == 1 and args.get('profiling') is True
+        attempts = args.get('case_attempts', {})
+        assert all(key in {f'{intra}/{slots}/{stage}' for intra in (4, 8)
+                           for slots in (1, 2) for stage in STAGES} for key in attempts)
+        assert all(type(value) is int and 1 <= value <= 20 for value in attempts.values())
+        remote_seconds = 180 + stage_budget(STAGES, args.get('stage_timeouts', {}), timeout, tokens)
     if args.get('replace_legacy_batch'):
         assert (action, candidate, tokens, attempt) == ('joint-final', 'd04fde0', 4, 1)
         assert (args.get('intra_cores', 8), args.get('peer_slots', 1)) == (8, 1)
