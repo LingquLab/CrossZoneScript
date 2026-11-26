@@ -89,7 +89,7 @@ def stage_tools(root, files):
     for name, content in files.items():
         assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py',
                         'build_profile.py', 'profile_capture.h', 'profile_case.py', 'clock_evidence.json',
-                        'inter_snapshot.py'}
+                        'inter_snapshot.py', 'joint_evidence.py'}
         path = tools / name
         if path.exists():
             assert path.read_bytes() == content.encode()
@@ -443,6 +443,18 @@ def run_large_matrix(origin, revision, args):
     return 0
 
 
+def inspect_joint_snapshot(root, cid, args):
+    tools, _ = stage_tools(root, args['files'])
+    entry = Path('/work') / tools.relative_to(root) / 'joint_evidence.py'
+    case = '/work/cases/t4-joint-final-a2'
+    proc = subprocess.run(['docker', 'exec', cid, 'timeout', '125', 'python3', str(entry), case],
+                          capture_output=True, timeout=145)
+    (root / 'joint-evidence.stderr').write_bytes(proc.stderr)
+    if proc.returncode == 0:
+        print(json.dumps(json.loads(proc.stdout), separators=(',', ':')))
+    return proc.returncode
+
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args['candidate']
@@ -470,6 +482,8 @@ def main(args):
         else:
             cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
+        if action == 'joint-evidence':
+            return inspect_joint_snapshot(root, cid, args)
         verify_prerequisite(root, revision, args)
         if args.get('replace_legacy_batch'):
             wait_or_interrupt_legacy(root, cid, revision)

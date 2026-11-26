@@ -9,7 +9,7 @@ import traceback
 
 SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
 SCRIPT_FILES = ('fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py',
-                'profile_capture.h', 'profile_case.py', 'clock_evidence.json', 'inter_snapshot.py')
+                'profile_capture.h', 'profile_case.py', 'clock_evidence.json', 'inter_snapshot.py', 'joint_evidence.py')
 STAGES = ('local-send', 'gateway-reduce', 'local-return',
            'inter-server-send', 'final-independent', 'joint-final')
 
@@ -29,7 +29,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'profile-build', 'batch', 'matrix', *STAGES)
+    assert action in ('status', 'profile-build', 'batch', 'matrix', 'joint-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args['candidate']
@@ -46,6 +46,9 @@ def main():
     if 'sst_threads' in args:
         assert action == 'joint-final' and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
+    if action == 'joint-evidence':
+        assert tokens == 4 and attempt == 2 and args['peer_slots'] == 2
+        remote_seconds = 170
     if action == 'status':
         remote_seconds = 95 if args.get('all_variants') else 35
     if action == 'profile-build':
