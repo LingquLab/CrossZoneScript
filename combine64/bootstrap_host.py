@@ -1,7 +1,6 @@
 # Copyright (c) 2026 TileXR Project.
 """Create the task-owned CPU container and compile immutable candidate source."""
 import base64
-import fcntl
 import hashlib
 import io
 import json
@@ -11,12 +10,11 @@ import tarfile
 import time
 from pathlib import Path, PurePosixPath
 
-SESSION = 'de038086-2b21-40e2-bad9-65360186ad97'
+SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 SESSION_ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION
 REVISIONS = {
-    '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
-    'cb63658': 'cb63658b507aa7eba023afefd9e7ef8a27a0dcde',
+    '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
 }
 
 
@@ -35,7 +33,7 @@ def build(request):
     assert execute(['docker','image','inspect','--format','{{.Id}} {{.Os}}/{{.Architecture}}',IMAGE]).decode().strip() == IMAGE+' linux/arm64'
     root.mkdir(parents=True, exist_ok=False)
     record = {k: request[k] for k in ('revision','tree','source_sha256')}
-    record.update(root=str(root), image=IMAGE, started_unix=time.time(), sim_send=True, model='perf', world=64, hidden=128, topk=6, dtype='fp32')
+    record.update(root=str(root), image=IMAGE, started_unix=time.time(), sim_send=True, model='perf', world=64, hidden=128, topk=6, dtype='fp32', experts=256)
     (root/'identity.json').write_text(json.dumps(record,indent=2))
     raw = base64.b64decode(request['source'],validate=True)
     assert hashlib.sha256(raw).hexdigest() == request['source_sha256']
@@ -86,9 +84,4 @@ def build(request):
 
 
 def main(request):
-    baseline_lock = SESSION_ROOT / 'run-b5383cf-a1' / 'sst.lock'
-    if baseline_lock.is_file():
-        with baseline_lock.open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            return build(request)
     return build(request)

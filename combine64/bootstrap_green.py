@@ -9,10 +9,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-SESSION='de038086-2b21-40e2-bad9-65360186ad97'
+SESSION='44b9c060-a5dd-46a8-897f-e4a6fee171e2'
 REVISIONS = {
-    '86f802f': '86f802f9f8a19728364c466b0e9cb7416e038595',
-    'cb63658': 'cb63658b507aa7eba023afefd9e7ef8a27a0dcde',
+    '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
 }
 
 
@@ -21,7 +20,7 @@ def main():
     parser.add_argument('--args-file',type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     assert args.get('action') == 'build' and set(args) <= {'action', 'candidate'}
-    candidate = args.get('candidate', '86f802f')
+    candidate = args.get('candidate', '518b9df')
     revision = REVISIONS[candidate]
     logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION/candidate
     logs.mkdir(parents=True,exist_ok=True)
