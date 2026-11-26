@@ -44,11 +44,15 @@ def main():
         assert attempt == expected_attempt and args.get('profiling') is True
         assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 300
     if args.get('cq_probe'):
-        assert (candidate, action, args['intra_cores'], args['peer_slots']) == ('d04fde0', 'joint-final', 4, 2)
+        assert (action, args['intra_cores'], args['peer_slots']) == ('joint-final', 4, 2)
         assert 'stop_at_us' in args
+    if 'stalled_cq_cycle' in args:
+        assert args.get('cq_probe') and type(args['stalled_cq_cycle']) is int and args['stalled_cq_cycle'] > 0
     if 'sst_threads' in args:
         assert action in ('joint-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
+    if 'stalled_cq_cycle' in args:
+        remote_seconds += 135
     if action == 'joint-evidence':
         assert tokens == 4 and attempt == 2 and args['peer_slots'] == 2
         remote_seconds = 170

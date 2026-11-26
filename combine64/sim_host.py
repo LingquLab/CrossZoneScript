@@ -295,7 +295,7 @@ def retry_failed(root, revision, wait):
     return True
 
 
-INTERRUPT_LEGACY_PRODUCER = r"""
+INTERRUPT_CASE = r"""
 import json
 import os
 from pathlib import Path
@@ -303,12 +303,14 @@ import signal
 import sys
 
 expected = sys.argv[1]
-case = Path('/work/cases/t4-joint-producer-a1')
+stage = sys.argv[2]
+assert stage in ('joint-producer', 'joint-final')
+case = Path('/work/cases') / f't4-{stage}-a1'
 if (case / 'phase-result.json').is_file() or not (case / 'run.json').is_file():
     raise SystemExit(0)
 run = json.loads((case / 'run.json').read_text())
 assert (run['candidate_commit'], run['tokens'], run['stage'], run['attempt'], run['status']) == (
-    expected, 4, 'joint-producer', 1, 'running')
+    expected, 4, stage, 1, 'running')
 if run.get('returncode') is not None:
     raise SystemExit(0)
 proc = Path('/proc') / str(run['pid'])
@@ -321,7 +323,7 @@ cmd = (runner / 'cmdline').read_bytes().rstrip(bytes(1)).split(bytes(1))
 assert len(cmd) == 3 and cmd[1].endswith(b'/sim_case.py')
 args = json.loads(cmd[2])
 assert tuple(args[key] for key in ('revision', 'tokens', 'action', 'attempt')) == (
-    expected, 4, 'joint-producer', 1)
+    expected, 4, stage, 1)
 os.kill(parent, signal.SIGTERM)
 """
 
@@ -339,9 +341,29 @@ def wait_or_interrupt_legacy(root, cid, revision):
     result = producer / 'phase-result.json'
     while not result.is_file() and time.monotonic() < deadline:
         if (producer / 'run.json').is_file():
-            subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_LEGACY_PRODUCER, revision],
+            subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_CASE,
+                            revision, 'joint-producer'],
                            capture_output=True, timeout=20, check=True)
             break
+        time.sleep(2)
+
+
+def interrupt_stalled_joint(root, cid, revision, cycle):
+    case = root / 'cases/t4-joint-final-a1'
+    result = case / 'phase-result.json'
+    if result.is_file():
+        return
+    first = log_state(case / 'sim.log')
+    assert first['last_cq_cycle'] == cycle and first['log_age_seconds'] >= 300, 'joint_case_progressing'
+    time.sleep(6)
+    second = log_state(case / 'sim.log')
+    assert second['last_cq_cycle'] == cycle and second['log_bytes'] == first['log_bytes']
+    assert second['log_age_seconds'] >= first['log_age_seconds'] and not second['simulation_complete_marker']
+    subprocess.run(['docker', 'exec', cid, 'python3', '-c', INTERRUPT_CASE, revision, 'joint-final'],
+                   capture_output=True, timeout=20, check=True)
+    deadline = time.monotonic() + 90
+    while not result.is_file():
+        assert time.monotonic() < deadline, 'joint_interrupt_pending'
         time.sleep(2)
 
 
@@ -519,6 +541,8 @@ def main(args):
         verify_prerequisite(root, revision, args)
         if args.get('replace_legacy_batch'):
             wait_or_interrupt_legacy(root, cid, revision)
+        if 'stalled_cq_cycle' in args:
+            interrupt_stalled_joint(root, cid, revision, args['stalled_cq_cycle'])
         if args.get('ready_probe') and not retry_failed(root, revision, args['wait_for_idle_seconds']):
             return 0
         with (root / 'sst.lock').open('a') as lock:
@@ -530,7 +554,7 @@ def main(args):
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
-                    if (not args.get('after') and 'wait_for_idle_seconds' not in args
+                    if (not args.get('after') and 'wait_for_idle_seconds' not in args and 'stalled_cq_cycle' not in args
                         and not args.get('replace_legacy_batch')) or time.monotonic() >= deadline:
                         raise
                     time.sleep(1)
