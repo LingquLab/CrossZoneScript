@@ -16,14 +16,16 @@ from round_count import load_clock_results
 from run_remote import HARDWARE, OUTPUT, REVISION, ROOT
 
 
-def ssh(host, command, *, payload=None, timeout=60):
+def ssh(host, command, *, payload=None, timeout=60, stage="SSH"):
     result = subprocess.run(
         [str(SSH), "-o", "ConnectTimeout=12", "-o", "BatchMode=yes",
          "-o", "StrictHostKeyChecking=yes", "root@" + host, command],
         input=payload, capture_output=True, timeout=timeout,
     )
     if result.returncode:
-        raise RuntimeError(f"{host}: command exited {result.returncode}")
+        tail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()[-1:]
+        detail = tail[0][:220] if tail else "no stderr"
+        raise RuntimeError(f"{host}: {stage} exited {result.returncode}: {detail}")
     return result.stdout
 
 
@@ -55,7 +57,8 @@ def controller(index, action, payload):
             f'export LD_LIBRARY_PATH={shlex.quote(libraries)}:"${{LD_LIBRARY_PATH:-}}" && exec {argv}'
         )
         argv = shlex.join(["bash", "-lc", shell])
-    result = ssh(HOSTS[index], argv, payload=payload, timeout=740 if action == "run" else 215)
+    result = ssh(HOSTS[index], argv, payload=payload, timeout=740 if action == "run" else 215,
+                 stage=action)
     return json.loads(result)
 
 

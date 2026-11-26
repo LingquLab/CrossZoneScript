@@ -7,6 +7,7 @@ import re
 import socket
 import subprocess
 import sys
+import traceback
 
 ROOT = Path("/root/ubx-replicate4-e172cd2-bs32-f50")
 REVISION = "e172cd211889e6da70e35da315771508a1a92c47"
@@ -68,7 +69,11 @@ def run(index):
                 "--measured", "50", "--no-stats", "--clock-install", str(ROOT / "clock-install"),
                 "--profile-mode", "full",
             ]
-            run_dispatch_node.main()
+            try:
+                run_dispatch_node.main()
+            except Exception:
+                traceback.print_exc()
+                raise
     receipt = load_json(OUTPUT / "host-result.json")
     assert receipt["passed"] and receipt["clock_aligned"] and receipt["revision"] == REVISION
     assert receipt["warmup"] == 10 and receipt["measured"] == 50
