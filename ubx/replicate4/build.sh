@@ -2,7 +2,15 @@
 set -euo pipefail
 
 root=/root/ubx-replicate4-e172cd2-bs32-f50
-mkdir "$root"
+[[ $(cat "$root/build-status.txt") == 'fetch-dispatch 128' ]]
+test ! -e "$root/build-result.json"
+test ! -e "$root/full-bs32-f50"
+test ! -e "$root/first-build-status.txt"
+mv "$root/build-status.txt" "$root/first-build-status.txt"
+mv "$root/build.log" "$root/first-build.log"
+if [[ -d "$root/source" ]]; then
+    mv "$root/source" "$root/first-fetch"
+fi
 exec 3>&1 >"$root/build.log" 2>&1
 phase=setup
 trap 'code=$?; printf "%s %s\n" "$phase" "$code" > "$root/build-status.txt"; exit "$code"' EXIT
@@ -10,33 +18,22 @@ trap 'code=$?; printf "%s %s\n" "$phase" "$code" > "$root/build-status.txt"; exi
 revision=e172cd211889e6da70e35da315771508a1a92c47
 runtime_revision=0797410beab1da40800611affc9c512cd42525ba
 clock_revision=3c7195b5fc8bc1584fcb05f891bc32d07e359dff
-origin=https://github.com/LingquLab/TileXR.git
 toolkit=/usr/local/Ascend/ascend-toolkit/set_env.sh
 set +u
 source "$toolkit"
 set -u
 
-checkout() {
-    local dir=$1 expected=$2
-    git init -q "$dir"
-    git -C "$dir" remote add origin "$origin"
-    GIT_TERMINAL_PROMPT=0 timeout 150 git -C "$dir" -c http.https://github.com/.sslVerify=false \
-        fetch --no-tags --depth=1 origin "$expected"
-    git -C "$dir" checkout -q --detach FETCH_HEAD
-    test "$(git -C "$dir" rev-parse HEAD)" = "$expected"
-}
-
-fetch_dependencies() {
-    local dir=$1 expected=$2
-    checkout "$dir" "$expected"
-    GIT_TERMINAL_PROMPT=0 timeout 150 git -C "$dir" -c http.https://github.com/.sslVerify=false \
-        submodule update --init --depth=1 3rdparty/spdlog 3rdparty/picojson
-}
-
-phase=fetch-dispatch
-checkout "$root/source" "$revision"
-phase=fetch-runtime
-fetch_dependencies "$root/runtime-source" "$runtime_revision"
+phase=verify-staged-sources
+printf '%s  %s\n' "$1" "$root/staged-input/sources.tar" | sha256sum --check --status
+tar -xf "$root/staged-input/sources.tar" -C "$root"
+for source_dir in source runtime-source clock-source; do
+    mkdir -p "$root/$source_dir"
+    tar -xzf "$root/$source_dir.tar.gz" -C "$root/$source_dir"
+done
+for source_dir in runtime-source clock-source; do
+    tar -xzf "$root/spdlog.tar.gz" -C "$root/$source_dir/3rdparty/spdlog"
+    tar -xzf "$root/picojson.tar.gz" -C "$root/$source_dir/3rdparty/picojson"
+done
 phase=build-runtime
 cmake -S "$root/runtime-source" -B "$root/runtime-build" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DTILEXR_BUILD_TESTS=OFF \
@@ -45,8 +42,6 @@ cmake -S "$root/runtime-source" -B "$root/runtime-build" \
 cmake --build "$root/runtime-build" -j8
 cmake --install "$root/runtime-build"
 
-phase=fetch-clock
-fetch_dependencies "$root/clock-source" "$clock_revision"
 phase=build-clock
 cmake -S "$root/clock-source" -B "$root/clock-build" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DTILEXR_BUILD_TESTS=OFF \
