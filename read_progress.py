@@ -90,8 +90,15 @@ def main(args):
                     continue
                 exit_rows.append({key: row[key] for key in ("status", "reason", "error_type", "bs",
                     "package", "nodes", "step", "hosts", "function", "line") if key in row})
+    attempts = []
+    for directory in sorted((RESULT / "previous-attempts").glob("bs*-*"),
+                            key=lambda path: path.name.rsplit("-", 1)[1], reverse=True)[:4]:
+        receipt = load(directory / "run.private.json")
+        if receipt:
+            attempts.append({"case": directory.name.rsplit("-", 1)[0],
+                             "hosts": [host_receipt(host) for host in receipt]})
     print(json.dumps({"cases": summaries, "status": status, "latest_occupancy": snapshots(),
-                      "matrix_results": exit_rows}, separators=(",", ":")))
+                      "matrix_results": exit_rows, "recent_attempts": attempts}, separators=(",", ":")))
 
 
 if __name__ == "__main__":
