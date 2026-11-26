@@ -27,10 +27,25 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--args-file',type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
-    assert args.get('action') == 'build' and set(args) <= {'action', 'candidate'}
+    assert args.get('action') in ('build', 'build-status') and set(args) <= {'action', 'candidate'}
     candidate = args.get('candidate', '518b9df')
     revision = REVISIONS[candidate]
     logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION/candidate
+    if args['action'] == 'build-status':
+        report = {'revision': revision}
+        for name in ('source-git.stderr', 'bootstrap.stderr', 'bootstrap.stdout'):
+            path = logs / name
+            report[name] = path.stat().st_size if path.is_file() else None
+        if report['bootstrap.stdout']:
+            saved = json.loads((logs / 'bootstrap.stdout').read_text(encoding='utf-8'))
+            assert saved['revision'] == revision
+            for stage in ('build', 'profile'):
+                if stage in saved:
+                    report[stage] = {name: {key: row[key] for key in ('exit_code', 'errors') if key in row}
+                                     for name, row in saved[stage].get('targets', {}).items()}
+            report.update({key: saved[key] for key in ('build_exit', 'profile_exit') if key in saved})
+        print(json.dumps(report, separators=(',', ':')))
+        return 0
     logs.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='combine-ht-source-') as temporary:
         def git(*argv):
