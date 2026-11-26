@@ -98,6 +98,7 @@ def run(index):
 
 if __name__ == "__main__":
     action = sys.argv[1]
+    PORT = int(sys.argv[3])
     if action == "preflight":
         preflight()
     else:

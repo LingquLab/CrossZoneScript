@@ -46,8 +46,8 @@ def wait_for_build(pool):
     raise TimeoutError("Staged builds did not finish before the benchmark readiness deadline")
 
 
-def controller(index, action, payload):
-    argv = shlex.join(["python3", "-", action, str(index)])
+def controller(index, action, payload, port):
+    argv = shlex.join(["python3", "-", action, str(index), str(port)])
     if action == "run":
         libraries = ":".join(str(ROOT / p) for p in (
             "dispatch-build", "runtime-install/lib", "runtime-install/lib64",
@@ -165,7 +165,7 @@ def read_verifier():
     return load_clock_results(source)
 
 
-def main():
+def main(ports=(43000,)):
     here = Path(__file__).resolve().parent
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (here / "run_remote.py").read_text()
@@ -173,12 +173,20 @@ def main():
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         wait_for_build(pool)
         verifier = read_verifier()
-        readiness = list(pool.map(lambda i: controller(i, "preflight", payload), range(2)))
-        assert all(item["ready"] for item in readiness)
-        results = list(pool.map(lambda i: controller(i, "run", payload), range(2)))
+        for port in ports:
+            try:
+                readiness = list(pool.map(lambda i: controller(i, "preflight", payload, port), range(2)))
+                assert all(item["ready"] and item["port"] == port for item in readiness)
+                break
+            except RuntimeError as exc:
+                if "Address already in use" not in str(exc):
+                    raise
+        else:
+            raise RuntimeError("The available coordination port ranges are occupied")
+        results = list(pool.map(lambda i: controller(i, "run", payload, port), range(2)))
         assert all(result["passed"] for result in results)
         summary = summarize(pool, verifier)
-    print(json.dumps(summary, separators=(",", ":")))
+    print(json.dumps(dict(summary, coordinator_port=port), separators=(",", ":")))
 
 
 if __name__ == "__main__":
