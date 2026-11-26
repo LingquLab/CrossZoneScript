@@ -306,7 +306,8 @@ def main(config):
         if stop_at_us is not None:
             assert action == 'local-return'
             original = read_json(case.parent / 't4-local-return-a1/phase-result.json')
-            assert original['status'] in ('timed_out', 'interrupted')
+            assert original['status'] in ('timed_out', 'interrupted') or (
+                original['status'] == 'failed' and original.get('returncode') == -9)
             for key in ('candidate_commit', 'tokens', 'stage', 'routes_sha256',
                         'kernel_sha256', 'source_object_sha256'):
                 assert original[key] == record[key], key
