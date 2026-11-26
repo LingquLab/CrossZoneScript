@@ -14,6 +14,7 @@ import sys
 import uuid
 
 from controller import OUTPUT, REMOTE, RUNNER, STATE, WINDOWS, HISTORICAL
+from transport_current import from_handbook
 
 RESULT = STATE / "ubx-topk-perf-20261126-results"
 KERNEL = "lib/tilexr/kernels/tilexr_ep_ubx_kernel.o"
@@ -107,10 +108,12 @@ def analyze(output, profile, record_reader):
             records = record_reader(stem.with_suffix(".records.bin").read_bytes())
             assert len(records.streams) == 112 and all(
                 lane.complete and not lane.overflow and lane.dropped_count == 0 for lane in records.streams)
-            for lane in records.streams[:56]:
+            physical = [lane for lane in records.streams if (lane.id & 0xFFFF) < 56]
+            assert {lane.id for lane in physical} == {(rank << 16) + core for core in range(56)}
+            for lane in physical:
                 events = {record.event_id: record.timestamp for record in lane.records}
                 assert 1 in events and 2 in events
-                core = lane.id % 112
+                core = lane.id & 0xFFFF
                 if not 16 <= core < 32:
                     continue
                 for name, (begin, end) in STAGES.items():
@@ -163,9 +166,17 @@ def main():
     from tilexr_profiling.records import parse_record_bytes
 
     template = runner.load_profile(WINDOWS / "ep32-local.json")
+    if (OUTPUT / "ssh-python" / "paramiko").is_dir():
+        sys.path.insert(0, str(OUTPUT / "ssh-python"))
+        prior = runner.transport
+        handbook = from_handbook(runner, template)
+        def transport(profile, node, script, directory, label, timeout):
+            return (prior if node == 0 else handbook)(profile, node, script, directory, label, timeout)
+        runner.transport = transport
     worker = worker_source()
     # Run a batch as one transaction with four separately archived configurations.
-    batch = int(sys.argv[1])
+    assert sys.argv[1] == "--args-file"
+    batch = int(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))["batch"])
     assert batch in (32, 64, 128)
     summaries = []
     for mode in ("off", "on"):
