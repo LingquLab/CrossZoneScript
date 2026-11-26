@@ -111,5 +111,43 @@
       },
       "first_missing": []
     }
+  },
+  "transport_activity": {
+    "task_id": "ht-tunable-direct-bs32-activity",
+    "event_id": "green-e0631e83b8c645c0a62cd61ebadb3fc6",
+    "iteration": 1,
+    "result": {
+      "totals": {
+        "ranks_with_both": 64,
+        "ranks_return_fetch_before_last_gather_cq": 0
+      },
+      "columns": [
+        "rank",
+        "first_local_return_sq_fetch_ts",
+        "last_gather_cq_write_ts"
+      ],
+      "samples": [
+        [
+          0,
+          81.709,
+          69.595
+        ],
+        [
+          1,
+          84.765,
+          67.695
+        ],
+        [
+          2,
+          81.165,
+          70.009
+        ],
+        [
+          3,
+          86.16,
+          67.594
+        ]
+      ]
+    }
   }
 }
