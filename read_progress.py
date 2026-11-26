@@ -20,7 +20,7 @@ def host_receipt(host):
                     "Prepared candidate changed", "Prepared package changed",
                     "Configured rendezvous port range is occupied", "A local rank failed",
                     "Case deadline exceeded", "Foreign workload detected",
-                    "Summary contract mismatch", "Packet limit or capture mode mismatch"):
+                    "Peer benchmark worker failed", "Summary contract mismatch", "Packet limit or capture mode mismatch"):
         if message in error:
             brief["error_detail"] = message
             break
@@ -69,6 +69,9 @@ def main(args):
             receipt = load(directory / (name + ".private.json"))
             if receipt:
                 case[name] = [host_receipt(host) for host in receipt]
+            elif name == "run":
+                pending = [load(directory / f"run-{node}.stdout") for node in (0, 1)]
+                case["pending_run"] = [host_receipt(host) for host in pending if host]
         summary = load(directory / "summary.json")
         if summary:
             case["summary"] = summary

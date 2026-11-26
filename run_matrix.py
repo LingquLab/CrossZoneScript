@@ -134,12 +134,16 @@ def blocked_before_launch(result):
 
 
 def interrupted_by_foreign_workload(hosts):
-    if len(hosts) != 2 or not any("Foreign workload detected" in host.get("error", "") for host in hosts):
+    if len(hosts) != 2 or not any(
+        "Foreign workload detected" in host.get("error", "") or retryable_occupancy(host) for host in hosts
+    ):
         return False
-    return all(host.get("hardware_launched") is True and host.get("network_restored") is True
-               and host.get("termination_confirmed") is not False and not host.get("cleanup_error")
-               and len(host.get("exit_codes", {})) == 16
-               and all(isinstance(code, int) for code in host["exit_codes"].values()) for host in hosts)
+    return all(retryable_occupancy(host) or (
+        host.get("hardware_launched") is True and host.get("network_restored") is True
+        and host.get("termination_confirmed") is not False and not host.get("cleanup_error")
+        and len(host.get("exit_codes", {})) == 16
+        and all(isinstance(code, int) for code in host["exit_codes"].values())
+    ) for host in hosts)
 
 
 def read_receipts(outcome, phase):
@@ -441,8 +445,9 @@ def main(batch, probe_only=False, wait_seconds=120):
                         node = pending[future]
                         result[node] = future.result()
                         if (action == "run" and result[1 - node] is None
-                                and result[node].get("status") == "FAIL"
-                                and result[node].get("hardware_launched") is True):
+                                and (retryable_occupancy(result[node]) or (
+                                    result[node].get("status") == "FAIL"
+                                    and result[node].get("hardware_launched") is True))):
                             stop_peer(1 - node)
                 write_json(outcome / (action + ".private.json"), result)
                 return result
