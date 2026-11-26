@@ -470,6 +470,7 @@ def main(config):
     all_local_cq = config.get('all_local_cq', False)
     intra_cores = config.get('intra_cores', 8)
     peer_slots = config.get('peer_slots', 1)
+    return_qp_base = config.get('return_qp_base', 0)
     blocks = block_count(action, intra_cores)
     build_file = 'profile-build/build-summary.json' if use_profile else 'build-summary.json'
     build = read_json(ROOT / build_file)
@@ -483,6 +484,9 @@ def main(config):
               'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
               'profiling_enabled': use_profile, 'blocks': blocks, 'intra_cores': intra_cores, 'peer_slots': peer_slots,
               'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
+    if return_qp_base:
+        assert action == 'joint-final' and return_qp_base == 8
+        record.update(local_return_qp_base=return_qp_base)
     started = time.monotonic()
     write_json(ROOT / 'progress.json', {'stage': 'prepare_case', 'case': case.name, 'updated_unix': time.time()})
     try:
@@ -492,7 +496,8 @@ def main(config):
             local_phase(case, asset, action)
         else:
             from return_case import prepare_return_case
-            record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], kernel_build), config.get('source_case'), revision))
+            record.update(prepare_return_case(case, asset, action, object_for(ENTRIES[action], kernel_build),
+                                              config.get('source_case'), revision, return_qp_base))
         if use_profile:
             from profile_case import bind
             if action in ('local-send', 'gateway-reduce'):

@@ -68,20 +68,26 @@ def success_status(size, count, stride=32, start=0):
     return status
 
 
-def local_communication(runtime, images, abi, local_bytes, base):
+def local_communication(runtime, images, abi, local_bytes, base, return_qp_base=0):
     control = abi['runtime_abi']
     sq, cq, memory = bytearray(), bytearray(), bytearray()
     helper_mem = bytearray(WORLD * 32 * control['mem_bytes'])
     model_memory = bytearray(images['mem_info'])
+    qp_count = 8 + return_qp_base
+    rank = base // runtime.GM_BYTES
     for peer in range(WORLD):
-        for qp in range(8):
-            slot = peer * 40 + local_slot(qp)
+        for qp in range(qp_count):
+            # The inter-server worker never sends to ranks on its own server.
+            # Those physical slots can hold the second local queue bank.
+            physical = local_slot(qp) if qp < 8 else runtime.physical_qp(qp - 8)
+            slot = peer * runtime.PHYSICAL_QPS + physical
             width = control['mem_bytes']
             at = slot * width
             entry = model_memory[at:at + width]
-            struct.pack_into('<I', entry, 16, (local_bytes + 2097151) // 2097152 * 2097152)
-            struct.pack_into('<Q', entry, 24, peer * runtime.GM_BYTES + WORKSPACE)
-            model_memory[at:at + width] = entry
+            if qp < 8 or rank // 8 == peer // 8:
+                struct.pack_into('<I', entry, 16, (local_bytes + 2097151) // 2097152 * 2097152)
+                struct.pack_into('<Q', entry, 24, peer * runtime.GM_BYTES + WORKSPACE)
+                model_memory[at:at + width] = entry
             for output, name, size in ((sq, 'sq_ctx', control['sq_bytes']), (cq, 'cq_ctx', control['cq_bytes'])):
                 output.extend(images[name][slot * size:(slot + 1) * size])
             memory.extend(entry)
@@ -98,7 +104,7 @@ def local_communication(runtime, images, abi, local_bytes, base):
     struct.pack_into('<Q', comm, control['comm_udma_info'], base + LOCAL_RESOURCES['localInfo'])
     struct.pack_into('<Q', comm, control['comm_udma_registry'], base + LOCAL_RESOURCES['localRegistry'])
     info = bytearray(images['udma_info'])
-    struct.pack_into('<I', info, 0, 8)
+    struct.pack_into('<I', info, 0, qp_count)
     for name, key in (('info_sq', 'localSq'), ('info_cq', 'localCq'), ('info_mem', 'localMem')):
         struct.pack_into('<Q', info, control[name], base + LOCAL_RESOURCES[key])
     images.update(mem_info=model_memory, localComm=comm, localInfo=info,
@@ -118,7 +124,7 @@ def position_guards(images, addresses, regions, base):
     return guards
 
 
-def prepare_return_case(case, asset, action, binary, source_case, revision):
+def prepare_return_case(case, asset, action, binary, source_case, revision, return_qp_base=0):
     sys.path.insert(0, str(SUPPORT))
     import loader
     import runtime
@@ -181,7 +187,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
         images = runtime.runtime_images(abi, rank, return_bytes, world=WORLD)
         if joint or local:
             addresses.update(LOCAL_RESOURCES)
-            helper_memory = local_communication(runtime, images, abi, return_bytes, base)
+            helper_memory = local_communication(runtime, images, abi, return_bytes, base, return_qp_base)
         initial = bytearray(return_bytes)
         inp = (local_input / 'input.bin').read_bytes()
         partial = (local_golden / 'golden-output.bin').read_bytes()
@@ -275,7 +281,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
                                     base + status_addr + 2 * STRIPE) + bound_config
             args = raw_local + send_args + struct.pack('<6Q4I', base + status_addr + STRIPE, pointer('serverMask'),
                 pointer('output'), base + status_addr + 3 * STRIPE, local_ready, local_signal,
-                0, 1, FINAL_CORES, int(not producer))
+                return_qp_base, 1, FINAL_CORES, int(not producer))
             assert len(args) == 544
             local_status = success_status(512, intra_cores, 4)
             reduce_start = intra_cores + cfg['ownerCount']

@@ -140,7 +140,7 @@ REPORT_FIELDS = (
     'diagnostic_only', 'stop_at_us', 'diagnostic_source', 'lane_status_histogram', 'incomplete_lanes',
     'probe_histograms', 'probe_missing_ranks', 'readiness_trace', 'sst_threads',
     'joint_status', 'ready_markers', 'outstanding_sq', 'outstanding_sq_examples', 'cq_samples', 'cq_frontiers',
-    'joint_trace',
+    'joint_trace', 'local_return_qp_base',
 )
 
 
@@ -605,6 +605,7 @@ def main(args):
                 report = dict(batch=results, tokens=tokens, revision=revision)
             else:
                 config['source_case'] = args.get('source_case')
+                config['return_qp_base'] = args.get('return_qp_base', 0)
                 config['diagnostic_stop_us'] = args.get('stop_at_us')
                 config['cq_probe'] = args.get('cq_probe', False)
                 config['all_local_cq'] = args.get('all_local_cq', False)

@@ -37,6 +37,9 @@ def main():
     assert len(candidate) == 7 and all(c in '0123456789abcdef' for c in candidate)
     assert type(args.get('profiling', False)) is bool
     assert args.get('intra_cores', 8) in (4, 8) and args.get('peer_slots', 1) in (1, 2)
+    if 'return_qp_base' in args:
+        assert action == 'joint-final' and tokens == 4 and attempt == 2
+        assert args['return_qp_base'] == 8 and 'stop_at_us' not in args
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     if 'stop_at_us' in args:
