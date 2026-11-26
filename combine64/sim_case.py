@@ -40,6 +40,14 @@ BLOCKS = {
 }
 
 
+def block_count(stage, intra_cores):
+    if stage == 'local-send':
+        return intra_cores
+    if stage.startswith('joint-'):
+        return BLOCKS[stage] - 8 + intra_cores
+    return BLOCKS[stage]
+
+
 def read_json(path):
     return json.loads(path.read_text())
 
@@ -66,17 +74,21 @@ def object_for(entry, build):
     return path
 
 
-def ensure_asset(tokens, binary, revision):
-    asset = ROOT / 'assets' / f't{tokens}'
+def ensure_asset(tokens, binary, revision, intra_cores, peer_slots):
+    variant = '' if (intra_cores, peer_slots) == (8, 1) else f'-intra{intra_cores}-peer{peer_slots}'
+    asset = ROOT / 'assets' / f't{tokens}{variant}'
     if not (asset / 'identity.json').is_file():
         assert not asset.exists(), 'incomplete_fixture_assets'
         asset.parent.mkdir(exist_ok=True)
         try:
-            fixture.prepare(SOURCE, asset, WORLD, tokens, binary, disk_backed=True, revision=revision)
+            fixture.prepare(SOURCE, asset, WORLD, tokens, binary, disk_backed=True, revision=revision,
+                            intra_cores=intra_cores, peer_slots=peer_slots)
         except Exception:
             asset.rename(asset.with_name(asset.name + f'-failed-{time.time_ns()}'))
             raise
-    assert read_json(asset / 'identity.json')['candidate_commit'] == revision
+    identity = read_json(asset / 'identity.json')
+    assert identity['candidate_commit'] == revision
+    assert (identity.get('intra_cores', 8), identity.get('peer_slots', 1)) == (intra_cores, peer_slots)
     return asset
 
 
@@ -91,6 +103,7 @@ def local_phase(case, asset, action):
     layout = read_json(loader / 'export-layout.json')
     workload = read_json(loader / 'workload.yml')
     asset_id = read_json(asset / 'identity.json')
+    intra_cores = asset_id.get('intra_cores', 8)
     for row in layout['ranks']:
         rank = row['rank']
         rank_name = f'rank{rank:02}'
@@ -102,7 +115,7 @@ def local_phase(case, asset, action):
         struct.pack_into('<I', args, 156, 1 if action == 'local-send' else 2)
         (inputs / 'kernel_args.bin').write_bytes(args)
         chip = workload['workload_config'][f'chip{rank}']
-        chip['block_dim'] = BLOCKS[action]
+        chip['block_dim'] = block_count(action, intra_cores)
         for word in (18, 19):
             chip['kernel_param'][f'word{word}']['value'] = struct.unpack_from('<Q', args, word * 8)[0]
         configured_root = asset_id['runtime_root']
@@ -112,7 +125,7 @@ def local_phase(case, asset, action):
                 field['input_bin'] = field['input_bin'].replace(configured_root, str(case))
         status = b'\xa5' * STRIPE
         if action == 'local-send':
-            status = bytes(8 * 4) + status[8 * 4:]
+            status = bytes(intra_cores * 4) + status[intra_cores * 4:]
             shutil.copyfile(golden / 'initial-output.bin', golden / 'golden-output.bin')
         else:
             workspace = bytearray((inputs / 'workspace.bin').read_bytes())
@@ -285,6 +298,9 @@ def main(config):
     use_profile = config.get('profiling', False)
     stop_at_us = config.get('diagnostic_stop_us')
     ready_probe = config.get('ready_probe', False)
+    intra_cores = config.get('intra_cores', 8)
+    peer_slots = config.get('peer_slots', 1)
+    blocks = block_count(action, intra_cores)
     build_file = 'profile-build/build-summary.json' if use_profile else 'build-summary.json'
     build = read_json(ROOT / build_file)
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
@@ -293,11 +309,12 @@ def main(config):
     assert not case.exists(), 'case_already_exists'
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
               'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
-              'profiling_enabled': use_profile, 'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
+              'profiling_enabled': use_profile, 'blocks': blocks, 'intra_cores': intra_cores, 'peer_slots': peer_slots,
+              'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
     started = time.monotonic()
     write_json(ROOT / 'progress.json', {'stage': 'prepare_case', 'case': case.name, 'updated_unix': time.time()})
     try:
-        asset = ensure_asset(tokens, object_for(LOCAL_ENTRY, build), revision)
+        asset = ensure_asset(tokens, object_for(LOCAL_ENTRY, build), revision, intra_cores, peer_slots)
         record['routes_sha256'] = digest(asset / 'routes.json')
         if action in ('local-send', 'gateway-reduce'):
             local_phase(case, asset, action)
@@ -309,7 +326,7 @@ def main(config):
             if action in ('local-send', 'gateway-reduce'):
                 linked = object_for(ENTRIES[action], build).read_bytes()
                 (case / 'kernel/inter_server_send.o').write_bytes(linked + bytes(10485760 - len(linked)))
-            bind(case, BLOCKS[action])
+            bind(case, blocks)
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         record['source_object_sha256'] = digest(object_for(ENTRIES[action], kernel_build))
         if stop_at_us is not None:
@@ -338,7 +355,7 @@ def main(config):
             check_outputs(case, env, record)
             if use_profile:
                 from profile_case import summarize
-                record.update(summarize(case, WORLD, BLOCKS[action]))
+                record.update(summarize(case, WORLD, blocks))
             record['status'] = 'sst_and_checker_passed'
         else:
             record.update(observe_local_return(case, env, ready_probe))

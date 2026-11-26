@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from fixture import DiskImages, GUARD
-from sim_case import BLOCKS, ENTRIES, FINAL_CORES, MAGIC, REDUCERS, SOURCE, STRIPE, SUPPORT, WORLD
+from sim_case import ENTRIES, FINAL_CORES, MAGIC, REDUCERS, STRIPE, SUPPORT, WORLD, block_count
 
 WORKSPACE = 0x200000000
 LOCAL_RESOURCES = {
@@ -131,6 +131,9 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
     from_producer = action == 'final-from-producer'
     identity = read_json(asset / 'identity.json')
     tokens, chunks, groups = (identity[key] for key in ('tokens', 'chunks', 'groups'))
+    intra_cores = identity.get('intra_cores', 8)
+    peer_slots = identity.get('peer_slots', 1)
+    blocks = block_count(action, intra_cores)
     routes = read_json(asset / 'routes.json')
     assert len(routes) == WORLD * tokens
     if from_producer:
@@ -160,11 +163,11 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
         rows = WORLD * tokens * 6
         abi = json.loads(subprocess.check_output([
             str(asset / 'abi-probe'), str(rank), str(tokens), '128', '6', str(rows), str(rows),
-            str(MAGIC), '-', '64', str(REDUCERS), str(tokens // chunks), '1', '16', '1', '1',
+            str(MAGIC), '-', '64', str(REDUCERS), str(tokens // chunks), '1', '16', str(peer_slots), '1',
         ]))
         cfg, config_bytes = send_config(abi)
-        assert (cfg['rank'], cfg['chunks'], cfg['groups'], cfg['reducerCount'], abi['forward_record_words']) == (
-            rank, chunks, groups, REDUCERS, 8)
+        assert (cfg['rank'], cfg['chunks'], cfg['groups'], cfg['reducerCount'], cfg['peerSlots'],
+                abi['forward_record_words']) == (rank, chunks, groups, REDUCERS, peer_slots, 8)
         base = rank * runtime.GM_BYTES
         addresses = dict(runtime.BASES, **EXTRA)
         local_ready, local_signal, _, local_offset, joint_bytes = struct.unpack_from(
@@ -243,7 +246,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
         export('completed', ret_address + cfg['completionOffset'], completion)
         export('local_ready', ret_address + local_ready, flags)
         regions = {'workspace': return_bytes}
-        out_status = None if joint else success_status(512, BLOCKS[action])
+        out_status = None if joint else success_status(512, blocks)
         args = None
         if joint:
             local_ws = (local_input / 'workspace.bin').read_bytes()
@@ -274,8 +277,9 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
                 pointer('output'), base + status_addr + 3 * STRIPE, local_ready, local_signal,
                 0, 1, FINAL_CORES, int(not producer))
             assert len(args) == 544
-            local_status = success_status(512, 8, 4)
-            local_status[24 * 4:32 * 4] = bytes(8 * 4)
+            local_status = success_status(512, intra_cores, 4)
+            reduce_start = intra_cores + cfg['ownerCount']
+            local_status[reduce_start * 4:(reduce_start + REDUCERS) * 4] = bytes(REDUCERS * 4)
             out_status = local_status + success_status(512, 8) + success_status(512, 16) + success_status(512, 0 if producer else FINAL_CORES)
             export('gather', WORKSPACE + local_offset + gather_offset, (local_golden / 'golden-returned.bin').read_bytes())
             export('partial', WORKSPACE + cfg['partialOffset'], partial)
@@ -306,7 +310,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
             (dest / f'golden-{name}.bin').write_bytes(payload)
         images_on_disk = DiskImages(temporary / 'spool' / rank_name,
                                     (dict(name=name, addr=pointer(name), data=payload) for name, payload in images.items()))
-        specs.append(dict(rank=rank, block_dim=BLOCKS[action], abi_size=len(args),
+        specs.append(dict(rank=rank, block_dim=blocks, abi_size=len(args),
             fields=[dict(name=f'word{i}', offset=i * 8, type='uint64_t', value=value)
                     for i, (value,) in enumerate(struct.iter_unpack('<Q', args))],
             gm_size=runtime.GM_BYTES, sys_va_base_addr=base, ub_base_addr=0x80000, stack_base_addr=0x100000,

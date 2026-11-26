@@ -28,7 +28,7 @@ class DiskImages:
             payload=path.read_bytes();assert len(payload)==size
             yield dict(name=name,addr=address,data=payload)
 
-def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=None):
+def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=None, intra_cores=8, peer_slots=1):
     source,output,kernel=map(Path,(source,output,kernel))
     output.mkdir(parents=True,exist_ok=False)
     support=source/'tools/unitest/simulator/experiments/inter_server_send/sst'
@@ -48,7 +48,9 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     assert tokens % chunks == 0
     chunk_tokens = tokens // chunks
     owner_cores = 16
-    groups = (world - 8 + owner_cores - 1) // owner_cores
+    assert intra_cores in (4, 8) and peer_slots in (1, 2)
+    batch_width = owner_cores * peer_slots
+    groups = (world - 8 + batch_width - 1) // batch_width
     rng=random.Random(20261124)
     routes=[]
     ledger={}
@@ -63,7 +65,8 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
                 ledger[row]=(rank,value)
     (output/'routes.json').write_text(json.dumps(routes,separators=(',',':')))
     stats={'world':world,'tokens':tokens,'hidden':hidden,'topk':topk,'experts':experts,'seed':20261124,
-           'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'groups':groups,'send_rows':0,'direct_rows':0,'reduce_rows':0}
+           'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'groups':groups,
+           'intra_cores':intra_cores,'peer_slots':peer_slots,'send_rows':0,'direct_rows':0,'reduce_rows':0}
     assert len(ledger)==world*tokens*topk
     specs=[]
     for rank in range(world):
@@ -71,7 +74,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         name='rank%02d'%rank
         meta=output/'metadata'/name
         meta.parent.mkdir(exist_ok=True)
-        abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),'2026','-',str(world),'8',str(chunk_tokens),'1',str(owner_cores),'1','1']))
+        abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),'2026','-',str(world),'8',str(chunk_tokens),'1',str(owner_cores),str(peer_slots),'1']))
         images=runtime.runtime_images(abi,rank,1,world=world)
         fwd=array('i',[0])*(world*capacity*6)
         counts=[0]*world
@@ -88,7 +91,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         for chunk in range(chunks):
             for s in range(world):
                 ranges[(s*chunks+chunk)*2]=counts[s]
-                group = groups - 1 if s // 8 == server else (s - 8 * (s // 8 > server)) // owner_cores
+                group = groups - 1 if s // 8 == server else (s - 8 * (s // 8 > server)) // batch_width
                 for t in range(tokens):
                     if t*chunks//tokens!=chunk: continue
                     route=routes[s*tokens+t]
@@ -132,7 +135,7 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
                 backward[g].extend(run)
             backward_counts.append(len(backward[g]))
             for i,record in enumerate(backward[g]): packed[(g*rows+i)*3:(g*rows+i)*3+3]=array('q',record)
-        config=struct.pack('<17I',rank,world,tokens,hidden,topk,rows,rows,chunk_tokens,1,24,8,3,0,8,owner_cores,1,1)
+        config=struct.pack('<17I',rank,world,tokens,hidden,topk,rows,rows,chunk_tokens,1,intra_cores+owner_cores,8,3,0,intra_cores,owner_cores,peer_slots,1)
         Path(str(meta)+'.config').write_bytes(config)
         Path(str(meta)+'.backward').write_bytes(packed.tobytes())
         Path(str(meta)+'.backward_counts').write_bytes(struct.pack('<8i',*backward_counts))

@@ -35,6 +35,7 @@ def main():
     candidate = args['candidate']
     assert len(candidate) == 7 and all(c in '0123456789abcdef' for c in candidate)
     assert type(args.get('profiling', False)) is bool
+    assert args.get('intra_cores', 8) in (4, 8) and args.get('peer_slots', 1) in (1, 2)
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     if 'stop_at_us' in args:
@@ -49,8 +50,9 @@ def main():
     if action == 'batch':
         start = STAGES.index(args.get('start_stage', STAGES[0]))
         end = STAGES.index(args.get('end_stage', STAGES[-1]))
-        assert start <= end
-        remote_seconds = 90 + stage_budget(STAGES[start:end + 1], args.get('stage_timeouts', {}), timeout, tokens)
+        stages = args.get('stages', STAGES[start:end + 1])
+        assert stages and list(stages) == [stage for stage in STAGES if stage in stages]
+        remote_seconds = 100 + stage_budget(stages, args.get('stage_timeouts', {}), timeout, tokens)
     if 'after' in args:
         assert action == 'batch'
         wait_seconds = args['after']['max_wait_seconds']
@@ -78,8 +80,9 @@ def main():
         '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3',
         'root@141.61.94.26', f'timeout --kill-after=30 {remote_seconds} python3 -',
     ]
-    variant = args.get('start_stage', action) if action == 'batch' else action
-    stem = logs / f'{variant}-t{tokens}-a{attempt}'
+    variant = args['stages'][0] if 'stages' in args else args.get('start_stage', action)
+    cores, slots = args.get('intra_cores', 8), args.get('peer_slots', 1)
+    stem = logs / f'{variant}-t{tokens}-intra{cores}-peer{slots}-a{attempt}'
     try:
         proc = subprocess.run(ssh, input=code.encode(), capture_output=True, timeout=remote_seconds + 50)
         stem.with_suffix('.stdout').write_bytes(proc.stdout)

@@ -3,6 +3,7 @@
 import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -45,9 +46,39 @@ def task_container(root, revision):
     assert info['State']['Running']
     mounts = {m['Destination']: m for m in info['Mounts']}
     assert mounts['/work']['Source'] == str(root)
-    assert mounts['/work/source']['Source'] == str(root / 'source')
+    source_root = Path(identity.get('source_root', root))
+    assert mounts['/work/source']['Source'] == str(source_root / 'source')
     assert mounts['/work/source']['RW'] is False
+    if source_root != root:
+        for folder in ('build-fp32', 'profile-build'):
+            mount = mounts[f'/work/{folder}']
+            assert mount['Source'] == str(source_root / folder) and not mount['RW']
     return cid
+
+
+def prepare_variant(root, origin, revision, intra_cores, peer_slots):
+    origin_identity = json_file(origin / 'identity.json')
+    assert origin_identity['revision'] == revision and origin_identity['image'] == IMAGE
+    available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
+                     if line.startswith('MemAvailable:')) * 1024
+    assert available >= 256 * 2**30 and len(os.sched_getaffinity(0)) >= 32, 'simulator_host_capacity'
+    root.mkdir(parents=True, exist_ok=False)
+    for folder in ('source', 'profile-build', 'build-fp32'):
+        (root / folder).mkdir()
+    shutil.copyfile(origin / 'build-summary.json', root / 'build-summary.json')
+    name = f'combine-ht-{SESSION[:8]}-{revision[:7]}-i{intra_cores}-p{peer_slots}'
+    argv = ['docker', 'run', '-dt', '--name', name, '--runtime=runc', '--network=none',
+            '--cap-drop=ALL', '--security-opt=no-new-privileges', '--cpus=8', '--memory=64g', '--memory-swap=64g',
+            '--pids-limit=1024', '--shm-size=64m', '--ulimit', 'nofile=524288:524288',
+            '--label', 'crosszone.session=' + SESSION, '--mount', f'type=bind,src={root},dst=/work']
+    for folder in ('source', 'profile-build', 'build-fp32'):
+        argv += ['--mount', f'type=bind,src={origin / folder},dst=/work/{folder},readonly']
+    argv += [IMAGE, '/bin/bash', '-c', 'exec tail -f /dev/null']
+    cid = subprocess.check_output(argv, timeout=40).decode().strip()
+    identity = dict(revision=revision, image=IMAGE, container_id=cid, container_name=name,
+                    source_root=str(origin), root=str(root), intra_cores=intra_cores, peer_slots=peer_slots)
+    (root / 'identity.json').write_text(json.dumps(identity))
+    return task_container(root, revision)
 
 
 def stage_tools(root, files):
@@ -94,7 +125,7 @@ STAGES = (
     'final-independent', 'joint-producer', 'final-from-producer', 'joint-final',
 )
 REPORT_FIELDS = (
-    'candidate_commit', 'stage', 'tokens', 'attempt', 'status', 'blocks',
+    'candidate_commit', 'stage', 'tokens', 'attempt', 'status', 'blocks', 'intra_cores', 'peer_slots',
     'routes_sha256', 'source_object_sha256', 'kernel_sha256',
     'environment_sha256', 'platform_simulated_us', 'sst_wall_seconds',
     'runner_wall_seconds', 'guards', 'checked_ranks', 'checked_bytes',
@@ -193,14 +224,15 @@ def run_batch(root, cid, tools, config, args):
     logs = root / 'hapi-logs'
     logs.mkdir(exist_ok=True)
     start = STAGES.index(args.get('start_stage', STAGES[0]))
-    journal = logs / f't{tokens}-batch-{STAGES[start]}-a{attempt}.json'
     end = STAGES.index(args.get('end_stage', STAGES[-1]))
-    assert start <= end, 'invalid_stage_interval'
+    stages = args.get('stages', STAGES[start:end + 1])
+    assert stages and list(stages) == [stage for stage in STAGES if stage in stages]
+    journal = logs / f't{tokens}-batch-{stages[0]}-a{attempt}.json'
     reports = []
     with journal.open('x') as log:
         json.dump(reports, log)
     stage_timeouts = args.get('stage_timeouts', {})
-    for action in STAGES[start:end + 1]:
+    for action in stages:
         point = dict(config, action=action, timeout=stage_timeouts.get(action, config['timeout']))
         reports.append(run_case(root, cid, tools, point))
         pending = journal.with_suffix('.tmp')
@@ -294,13 +326,18 @@ def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args['candidate']
     revision = REVISIONS[candidate]
-    root = SESSION_ROOT / f'run-{candidate}-a1'
+    origin = SESSION_ROOT / f'run-{candidate}-a1'
+    intra_cores, peer_slots = args.get('intra_cores', 8), args.get('peer_slots', 1)
+    root = origin if (intra_cores, peer_slots) == (8, 1) else SESSION_ROOT / f'run-{candidate}-i{intra_cores}-p{peer_slots}'
     case = root / 'cases' / f't{tokens}-{action}-a{attempt}'
     if action == 'status':
         print(json.dumps(status(root, args), separators=(',', ':')))
         return 0
     try:
-        cid = task_container(root, revision)
+        if root != origin and not root.exists():
+            cid = prepare_variant(root, origin, revision, intra_cores, peer_slots)
+        else:
+            cid = task_container(root, revision)
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         verify_prerequisite(root, revision, args)
         if args.get('ready_probe') and not retry_failed(root, revision, args['wait_for_idle_seconds']):
@@ -325,9 +362,10 @@ def main(args):
             if action == 'profile-build':
                 return profile_build(root, cid, tools, timeout)
             config = dict(action=action, tokens=tokens, attempt=attempt, timeout=timeout, revision=revision,
-                          platform_sha256=platform_hashes, profiling=args.get('profiling', True))
+                          platform_sha256=platform_hashes, profiling=args.get('profiling', True),
+                          intra_cores=args.get('intra_cores', 8), peer_slots=args.get('peer_slots', 1))
             if config['profiling']:
-                assert json_file(root / 'profile-build/build-summary.json')['all_compiled']
+                assert json_file(origin / 'profile-build/build-summary.json')['all_compiled']
             if args.get('ready_probe'):
                 built = profile_build(root, cid, tools, 180, ready_probe=True)
                 if built:
