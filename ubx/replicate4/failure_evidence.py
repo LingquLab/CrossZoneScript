@@ -13,7 +13,7 @@ MATCH_ERROR = re.compile(
 
 def local_failure():
     result = {}
-    for task in ("posix-launch", "occupied-recovery"):
+    for task in ("procfs-cleanup",):
         folder = Path.cwd() / f"runs/replicate4-bs32-50-{task}/1/execution"
         receipt = folder / "execution.json"
         if not receipt.is_file():
