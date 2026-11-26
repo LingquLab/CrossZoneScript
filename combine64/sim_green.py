@@ -39,10 +39,13 @@ def main():
     timeout = args.get('timeout', 900)
     assert type(timeout) is int and 30 <= timeout <= 7200
     if 'stop_at_us' in args:
-        expected_attempt = 4 if args.get('ready_probe') else 2
+        expected_attempt = 4 if args.get('ready_probe') else (3 if args.get('cq_probe') else 2)
         assert action in ('local-return', 'joint-final') and tokens == 4
         assert attempt == expected_attempt and args.get('profiling') is True
         assert type(args['stop_at_us']) is int and 20 <= args['stop_at_us'] <= 300
+    if args.get('cq_probe'):
+        assert (candidate, action, args['intra_cores'], args['peer_slots']) == ('d04fde0', 'joint-final', 4, 2)
+        assert 'stop_at_us' in args
     if 'sst_threads' in args:
         assert action == 'joint-final' and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40

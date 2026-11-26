@@ -237,18 +237,35 @@ def check_outputs(case, environment, record):
     record.update(checked_ranks=WORLD, checked_bytes=fields)
 
 
-def bind_return_probe(case):
-    from runtime import BASES, WORLD, PHYSICAL_QPS
+CQ_PROBE_QUEUES = ((2, 0, 16), (2, 1, 36), (4, 0, 16), (4, 1, 36), (1, 2, 17), (1, 3, 37),
+                   (5, 2, 17), (5, 3, 37), (8, 9, 36), (11, 8, 16), (11, 9, 36))
+
+
+def bind_return_probe(case, cq_probe=False):
+    from runtime import BASES, WORLD, PHYSICAL_QPS, physical_queue_addresses
     layout = read_json(case / 'export-layout.json')
     workload = read_json(case / 'workload.yml')
     state_bytes = WORLD * PHYSICAL_QPS * 64
     for row in layout['ranks']:
         chip = workload['workload_config'][f"chip{row['rank']}"]
-        for name, plane in (('sq_head', 1), ('sq_tail', 2)):
+        planes = [('sq_head', 1), ('sq_tail', 2)]
+        if cq_probe:
+            planes.append(('cq_tail', 4))
+        for name, plane in planes:
             segment = dict(addr=row['sys_va_base_addr'] + BASES['queue_state'] + plane * state_bytes,
                            size=state_bytes)
             row['exports'][name] = segment
             chip['output_param'][name] = segment
+        if cq_probe:
+            for rank, peer, slot in CQ_PROBE_QUEUES:
+                if rank != row['rank']:
+                    continue
+                physical = physical_queue_addresses(rank, peer, slot)
+                for prefix in ('sq', 'cq'):
+                    name = f'{prefix}-{peer}-{slot}'
+                    segment = dict(addr=physical[prefix], size=1536)
+                    row['exports'][name] = segment
+                    chip['output_param'][name] = segment
     write_json(case / 'export-layout.json', layout)
     write_json(case / 'workload.yml', workload)
 
@@ -343,6 +360,45 @@ def observe_joint(case, environment, intra_cores):
                 outstanding_sq_examples=samples, probe_missing_ranks=missing)
 
 
+def observe_cq(case, environment):
+    from addressed_exports import reconstruct_die_output
+    layout = read_json(case / 'export-layout.json')
+    decoder = Path(environment['decoder_library'])
+
+    def read(rank, name):
+        row = layout['ranks'][rank]
+        segment = row['exports'][name]
+        sources = [case / 'bin' / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
+        return reconstruct_die_output(sources, segment['addr'] - row['sys_va_base_addr'], segment['size'], decoder)
+
+    samples = []
+    for rank, peer, slot in CQ_PROBE_QUEUES:
+        sample = dict(rank=rank, peer=peer, slot=slot)
+        offset = (peer * 40 + slot) * 64
+        for name in ('sq_head', 'sq_tail', 'cq_tail'):
+            sample[name] = struct.unpack_from('<I', read(rank, name), offset)[0]
+        try:
+            entries = read(rank, f'cq-{peer}-{slot}')
+            index = sample['cq_tail']
+            if index < len(entries) // 64:
+                words = struct.unpack_from('<2I', entries, index * 64)
+                sample.update(cq_next_owner=(words[0] >> 2) & 1, cq_next_status=words[0] >> 16,
+                              cq_next_sq_index=words[1] & 0xFFFF)
+        except (FileNotFoundError, ValueError):
+            sample['cq_dump_missing'] = True
+        try:
+            entries = read(rank, f'sq-{peer}-{slot}')
+            index = sample['sq_head'] - 1
+            if 0 <= index < len(entries) // 64:
+                entry = entries[index * 64:(index + 1) * 64]
+                sample.update(sq_last_words=list(struct.unpack_from('<5I', entry)),
+                              sq_last_nonzero=any(entry))
+        except (FileNotFoundError, ValueError):
+            sample['sq_dump_missing'] = True
+        samples.append(sample)
+    return dict(cq_samples=samples)
+
+
 def main(config):
     action, tokens, attempt, timeout = (config[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     revision = config['revision']
@@ -350,6 +406,7 @@ def main(config):
     use_profile = config.get('profiling', False)
     stop_at_us = config.get('diagnostic_stop_us')
     ready_probe = config.get('ready_probe', False)
+    cq_probe = config.get('cq_probe', False)
     intra_cores = config.get('intra_cores', 8)
     peer_slots = config.get('peer_slots', 1)
     blocks = block_count(action, intra_cores)
@@ -393,7 +450,7 @@ def main(config):
             for key in keys:
                 assert original[key] == record[key], key
             record.update(diagnostic_only=True, stop_at_us=stop_at_us, diagnostic_source=origin)
-            bind_return_probe(case)
+            bind_return_probe(case, cq_probe)
         env = stage_platform(case, config['platform_sha256'])
         import yaml
         model_config = case / 'v310_config/davidV100_simulator_config.yml'
@@ -415,6 +472,8 @@ def main(config):
         else:
             if action == 'joint-final':
                 record.update(observe_joint(case, env, intra_cores))
+                if cq_probe:
+                    record.update(observe_cq(case, env))
             else:
                 record.update(observe_local_return(case, env, ready_probe))
             record['status'] = 'diagnostic_snapshot'
