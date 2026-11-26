@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import shutil
 import struct
+import subprocess
 import sys
 import time
 
@@ -25,7 +26,7 @@ def main():
     sys.path[:0]=[str(tools),str(SUPPORT)]
     from sim_case import run_sst,write_json
     from addressed_exports import reconstruct_die_output
-    from runtime import BASES,BB_BYTES,PHYSICAL_QPS,WORLD
+    from runtime import BASES,BB_BYTES,PHYSICAL_QPS,WORLD,physical_queue_addresses
     previous=json.loads((ORIGINAL/'phase-result.json').read_text())
     assert previous['status']=='timed_out' and previous['candidate_commit']=='71b62db945c23268df029ecb6a4e8809a7579222'
     assert previous['inter_server_rank_send'] and previous['profiling_enabled']
@@ -39,8 +40,30 @@ def main():
         shutil.copyfile(ORIGINAL/name,CASE/name)
     workload=json.loads((ORIGINAL/'workload.yml').read_text().replace(str(ORIGINAL),str(CASE)))
     plane=WORLD*PHYSICAL_QPS*BB_BYTES
-    for chip in workload['workload_config'].values():
+    plans=CASE/'plans'
+    plans.mkdir()
+    probe=plans/'plan-probe'
+    with (plans/'compile.log').open('wb') as log:
+        subprocess.run(['c++','-std=c++14','-O2','-DTILEXR_COMBINE_HT_SIM_SEND=1',
+                        '-DTILEXR_COMBINE_HT_SST_FP32=1','-DTILEXR_COMBINE_HT_INTER_SERVER_RANK_SEND=1',
+                        '-I/work/source/include','-I/work/source/src/ep/combine_ht',
+                        str(SUPPORT.parent/'plan_probe.cpp'),'-o',str(probe)],
+                       stdout=log,stderr=subprocess.STDOUT,timeout=30,check=True)
+    cq_regions={}
+    for rank in range(WORLD):
+        chip=workload['workload_config'][f'chip{rank}']
         chip['output_param']['qstate']=dict(addr=chip['sys_va_base_addr']+BASES['queue_state'],size=5*plane)
+        plan=plans/f'rank{rank:02}.json'
+        subprocess.run([str(probe),str(rank),'32','128',str(WORLD*32*6),str(plans/f'rank{rank:02}.config'),str(plan),'64'],timeout=10,check=True)
+        schedule=json.loads(plan.read_text())
+        assert schedule['inter_server_rank_send'] and schedule['so_lanes']==1
+        for peer,chunk,owner in schedule['so']:
+            for slot in (owner,20+owner):
+                name=f'cq_peer{peer}_slot{slot}'
+                address=physical_queue_addresses(rank,peer,slot)['cq']
+                region=dict(addr=address,size=1024)
+                chip['output_param'][name]=region
+                cq_regions[rank,peer,slot]=(name,region)
     write_json(CASE/'workload.yml',workload)
     write_json(CASE/'v310_config/workload_config.yml',workload)
     assert hashlib.sha256((CASE/'kernel/inter_server_send.o').read_bytes()).hexdigest()==previous['kernel_sha256']
@@ -76,7 +99,18 @@ def main():
                                                     count=values[0],sq_head=values[1],sq_tail=values[2],cq_head=values[3],cq_tail=values[4]))
                 except (FileNotFoundError,ValueError): missing[name]+=1
         visible=Counter()
+        rank_layout={row['rank']:row for row in layout['ranks']}
         for q in pending:
+            key=(q['rank'],q['peer'],q['slot'])
+            if key in cq_regions and q['cq_tail']<16:
+                name,region=cq_regions[key]
+                row=rank_layout[q['rank']]
+                try:
+                    raw=read(row,name,region['addr']-row['sys_va_base_addr'],region['size'])
+                    flags,entry=struct.unpack_from('<2I',raw,q['cq_tail']*64)
+                    q.update(next_cqe_owner=(flags>>2)&1,next_cqe_status=(flags>>24)&255,
+                             next_cqe_substatus=(flags>>16)&255,next_cqe_entry=entry&65535)
+                except (FileNotFoundError,ValueError): missing['cq_peek']+=1
             if q['peer'] not in completion:
                 visible['unknown']+=1
                 continue
