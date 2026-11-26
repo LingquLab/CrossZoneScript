@@ -69,7 +69,7 @@ def main(request):
         if action=='snapshot-joint':
             argv[argv.index('1400')]='1750'
             timeout=1800
-        if action in ('read-cq','read-joint-trace','read-joint-waits','read-joint-mte','snapshot-joint-state'):
+        if action in ('read-cq','read-joint-trace','read-joint-waits','read-joint-mte'):
             argv=['docker','exec',cid,'python3',str(Path('/work')/target.relative_to(root))]
             timeout=50
     stem=action+'-'+hashlib.sha256((STOP if action=='stop-joint' else request['snapshot_script']).encode()).hexdigest()[:12]
