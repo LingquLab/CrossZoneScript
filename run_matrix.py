@@ -1,5 +1,5 @@
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
@@ -96,6 +96,9 @@ def worker_source():
          "    return (result.get('status') == 'BLOCKED' and result.get('hardware_launched') is False\n"
          "            and any(row.get('pids') for row in result.get('before_occupancy', ())))\n\n\n"
          "def run(request):"),
+        ("        while any(p.poll() is None for _, p in children):",
+         "        while any(p.poll() is None for _, p in children):\n"
+         "            require(not (directory / 'peer-failed.flag').exists(), 'Peer benchmark worker failed')"),
     ]
     for from_, to in replacements:
         if source.count(from_) != 1:
@@ -409,8 +412,25 @@ def main(batch, probe_only=False, wait_seconds=120):
                     command = (f'import json\nns={{"__name__":"ubx_worker"}}\nexec(compile({worker!r},'
                                f'"worker18.py","exec"),ns)\nprint(json.dumps(ns["run"]({request!r})))\n')
                     return runner.transport(profile, node, command, outcome, action, 900 if action == "run" else 180)
+
+                def stop_peer(node):
+                    target = f"{profile['workspace']}/{run_id}"
+                    script = (f"import json\nfrom pathlib import Path\nroot=Path({target!r})\n"
+                              "live = not (root / 'run-result.json').exists()\n"
+                              "if live: (root / 'peer-failed.flag').touch()\n"
+                              "print(json.dumps({'status':'PASS'}))\n")
+                    return runner.transport(profile, node, script, outcome, "peer-failed", 25)
+
                 with ThreadPoolExecutor(max_workers=2) as pool:
-                    result = list(pool.map(run, range(2)))
+                    pending = {pool.submit(run, node): node for node in range(2)}
+                    result = [None, None]
+                    for future in as_completed(pending):
+                        node = pending[future]
+                        result[node] = future.result()
+                        if (action == "run" and result[1 - node] is None
+                                and result[node].get("status") == "FAIL"
+                                and result[node].get("hardware_launched") is True):
+                            stop_peer(1 - node)
                 write_json(outcome / (action + ".private.json"), result)
                 return result
 
