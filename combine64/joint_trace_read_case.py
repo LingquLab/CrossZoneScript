@@ -26,12 +26,16 @@ def main():
             if size:functions.append((start,start+size,fields[7]))
     samples=[]
     counts=Counter()
-    for path in sorted((CASE/'dumps').rglob('*sudetail.dump')):
+    for path in sorted((CASE/'dumps').rglob('*_su.dump')):
         with path.open('rb') as stream:
             stream.seek(max(0,path.stat().st_size-16384))
             tail=stream.read().decode(errors='replace')
-        matches=list(re.finditer(r'PC:\s*(0x[0-9a-fA-F]+|[0-9]+)',tail))
+        popped=[line for line in tail.splitlines() if 'Popped Instruction' in line]
+        context=popped[-1] if popped else tail
+        matches=list(re.finditer(r'PC:\s*(0x[0-9a-fA-F]+|[0-9]+)',context))
         row=dict(file=path.name,bytes=path.stat().st_size)
+        core=re.search(r'aicore([0-9]+)_aiv([01])',path.name)
+        if core: row['physical_core']=2*int(core[1])+int(core[2])
         if matches:
             token=matches[-1][1]
             pc=int(token,16 if token.startswith('0x') else 10)
@@ -43,7 +47,7 @@ def main():
                 row['function']=min(found,key=len).split('(',1)[0][:120]
                 counts[row['function']]+=1
             else:counts['unmapped_pc']+=1
-            line=tail[matches[-1].start():].splitlines()[0]
+            line=context[matches[-1].start():].splitlines()[0]
             op=re.search(r'InstrName:\s*([^],]+)',line)
             if op:row['instruction']=op[1].strip()[:80]
         else:
