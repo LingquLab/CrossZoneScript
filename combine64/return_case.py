@@ -125,6 +125,9 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
 
     joint = action.startswith('joint-')
     producer = action == 'joint-producer'
+    reuse = action == 'joint-reuse'
+    final_cores = BLOCKS[action] if reuse else FINAL_CORES
+    final_status_bytes = max(STRIPE, final_cores * 32)
     final = action.startswith('final-')
     local = action == 'local-return'
     remote = action == 'inter-server-send'
@@ -256,11 +259,11 @@ def prepare_return_case(case, asset, action, binary, source_case, revision):
                                     pointer('returnForward'), pointer('counts'), pointer('ranges'),
                                     base + status_addr + 2 * STRIPE) + config_bytes
             args = raw_local + send_args + struct.pack('<5Q2I', base + status_addr + STRIPE, pointer('serverMask'),
-                pointer('output'), base + status_addr + 3 * STRIPE, local_ready, FINAL_CORES, int(not producer))
+                pointer('output'), base + status_addr + 3 * STRIPE, local_ready, final_cores, 2 if reuse else int(not producer))
             assert len(args) == 456
             local_status = success_status(512, 8, 4)
             local_status[24 * 4:32 * 4] = bytes(8 * 4)
-            out_status = local_status + success_status(512, 8) + success_status(512, 16) + success_status(512, 0 if producer else FINAL_CORES)
+            out_status = local_status + success_status(512, 8) + success_status(512, 16) + success_status(final_status_bytes, 0 if producer else final_cores)
             gather_offset = struct.unpack_from('<Q', old_args, 192)[0]
             export('gather', LOCAL_WS + gather_offset, (local_golden / 'golden-returned.bin').read_bytes())
             export('partial', RETURN_WS + cfg['partialOffset'], partial)

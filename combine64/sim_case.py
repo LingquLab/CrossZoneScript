@@ -32,12 +32,14 @@ ENTRIES = {
     'joint-producer': 'tilexr_ht_pipeline_sst',
     'final-from-producer': 'tilexr_ep_ht_final_reduce_kernel',
     'joint-final': 'tilexr_ht_pipeline_sst',
+    'joint-reuse': 'tilexr_ht_pipeline_sst',
 }
 BLOCKS = {
     'local-send': 8, 'gateway-reduce': 8, 'local-return': 8,
     'inter-server-send': 16, 'final-independent': FINAL_CORES,
     'joint-producer': 24 + REDUCERS, 'final-from-producer': FINAL_CORES,
     'joint-final': 24 + REDUCERS + FINAL_CORES,
+    'joint-reuse': 24 + REDUCERS,
 }
 
 
@@ -240,8 +242,12 @@ def main(config):
     case = ROOT / 'cases' / f't{tokens}-{action}-a{attempt}'
     assert not case.exists(), 'case_already_exists'
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
-              'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True, 'inter_server_rank_send': True,
-              'profiling_enabled': use_profile, 'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
+              'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'experts': 256, 'seed': 20261124, 'dtype': 'fp32', 'sim_send': True, 'inter_server_rank_send': True,
+              'profiling_enabled': use_profile, 'blocks': BLOCKS[action], 'gateway_reducers': REDUCERS}
+    record.update(final_cores=BLOCKS[action] if action == 'joint-reuse' else 0,
+                  final_pipeline_mode=2 if action == 'joint-reuse' else 0,
+                  dedicated_final_cores=0,
+                  reused_final_cores=BLOCKS[action] if action == 'joint-reuse' else 0)
     started = time.monotonic()
     write_json(ROOT / 'progress.json', {'stage': 'prepare_case', 'case': case.name, 'updated_unix': time.time()})
     try:
