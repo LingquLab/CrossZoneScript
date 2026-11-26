@@ -29,7 +29,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'profile-build', 'batch', *STAGES)
+    assert action in ('status', 'profile-build', 'batch', 'matrix', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args['candidate']
@@ -53,6 +53,11 @@ def main():
         stages = args.get('stages', STAGES[start:end + 1])
         assert stages and list(stages) == [stage for stage in STAGES if stage in stages]
         remote_seconds = 100 + stage_budget(stages, args.get('stage_timeouts', {}), timeout, tokens)
+    if action == 'matrix':
+        assert tokens == 32 and attempt == 1 and args.get('profiling') is True
+        assert set(args['matrix_timeouts']) == {'32', '128'}
+        remote_seconds = 180 + sum(stage_budget(STAGES, args['matrix_timeouts'][str(size)], timeout, size)
+                                   for size in (32, 128))
     if 'after' in args:
         assert action == 'batch'
         wait_seconds = args['after']['max_wait_seconds']

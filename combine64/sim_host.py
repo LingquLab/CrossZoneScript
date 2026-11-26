@@ -1,5 +1,6 @@
 # Copyright (c) 2026 TileXR Project.
 """Check the task's container and launch one foreground SST case."""
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import hashlib
 import json
@@ -321,6 +322,58 @@ def profile_build(root, cid, tools, timeout, ready_probe=False):
     return 0 if report['all_compiled'] and code == 0 else 1
 
 
+def validation_variants(origin, candidate):
+    return [
+        (8, 1, origin, STAGES),
+        (4, 1, SESSION_ROOT / f'run-{candidate}-i4-p1', ('local-send', 'joint-final')),
+        (4, 2, SESSION_ROOT / f'run-{candidate}-i4-p2', ('joint-final',)),
+        (8, 2, SESSION_ROOT / f'run-{candidate}-i8-p2', ('inter-server-send', 'joint-final')),
+    ]
+
+
+def verify_completed(row, revision, tokens, stage, intra_cores, peer_slots):
+    assert (row['candidate_commit'], row['tokens'], row['stage']) == (revision, tokens, stage)
+    assert (row.get('intra_cores', 8), row.get('peer_slots', 1)) == (intra_cores, peer_slots)
+    assert row['status'] == 'sst_and_checker_passed'
+    assert row['checked_ranks'] == 64 and row['guards'] > 0
+    assert row['profiling_lanes'] == 64 * row['blocks'] and row['profiling_dropped_records'] == 0
+
+
+def run_large_matrix(origin, revision, args):
+    variants = validation_variants(origin, args['candidate'])
+    for intra, slots, root, stages in variants:
+        for stage in stages:
+            report = json_file(root / 'cases' / f't4-{stage}-a1' / 'phase-result.json')
+            verify_completed(report, revision, 4, stage, intra, slots)
+
+    def run_variant(variant, tokens):
+        intra, slots, root, stages = variant
+        cid = task_container(root, revision)
+        point = dict(args, tokens=tokens, stages=stages, stage_timeouts=args['matrix_timeouts'][str(tokens)])
+        with (root / 'sst.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            tools, platform = stage_tools(root, args['files'])
+            config = dict(tokens=tokens, attempt=1, timeout=args['timeout'], revision=revision,
+                          profiling=True, intra_cores=intra, peer_slots=slots, platform_sha256=platform)
+            rows = run_batch(root, cid, tools, config, point)
+        return rows
+
+    results = []
+    for tokens in (32, 128):
+        with ThreadPoolExecutor(max_workers=len(variants)) as pool:
+            pending = [pool.submit(run_variant, variant, tokens) for variant in variants]
+            completed = [future.result() for future in pending]
+        for variant, rows in zip(variants, completed):
+            intra, slots, _, stages = variant
+            assert len(rows) == len(stages)
+            for stage, row in zip(stages, rows):
+                assert row['container_exit'] == 0
+                verify_completed(row, revision, tokens, stage, intra, slots)
+                results.append(row)
+    print(json.dumps(dict(batch=results, revision=revision), separators=(',', ':')))
+    return 0
+
+
 def main(args):
     action, tokens, attempt, timeout = (args[key] for key in ('action', 'tokens', 'attempt', 'timeout'))
     candidate = args['candidate']
@@ -340,6 +393,8 @@ def main(args):
         print(json.dumps(result, separators=(',', ':')))
         return 0
     try:
+        if action == 'matrix':
+            return run_large_matrix(origin, revision, args)
         if root != origin and not root.exists():
             cid = prepare_variant(root, origin, revision, intra_cores, peer_slots)
         else:
