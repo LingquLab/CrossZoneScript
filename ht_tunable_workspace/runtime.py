@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TileXR Project.
 """Serialize native registered UDMA resources for the existing 40-slot SST model.
 
-Kernel tables are dense 32-QP arrays; each logical queue owns a distinct physical
+Kernel tables are dense logical QP arrays; each logical queue owns a distinct physical
 buffer/state. This models resources only and does not replace native queue APIs.
 """
 
@@ -31,6 +31,7 @@ BASES = {
     "cq_doorbells": 0x1B01000000,
 }
 DOORBELL_BASE = 512 * GM_BYTES + 0x1C00000000
+DIRECT_SLOTS = (8, 28, 9, 29, 10, 30, 11)
 
 
 def physical_qp(qp, six=16, two=16):
@@ -67,11 +68,14 @@ def physical_queue_addresses(rank, peer, slot):
     }
 
 
-def runtime_images(abi, rank, workspace_bytes, world=WORLD):
+def runtime_images(abi, rank, workspace_bytes, world=WORLD, direct=False):
     a = abi["runtime_abi"]
     config = {field["name"]: field["value"] for field in abi["fields"]}
     six, two = (config.get("config." + key, 0) or 16 for key in ("sixPortQps", "twoPortQps"))
     mapping = [physical_qp(qp, six, two) for qp in range(six + two)]
+    if direct:
+        assert (six, two) == (8, 8) and not set(mapping).intersection(DIRECT_SLOTS)
+        mapping.extend(DIRECT_SLOTS)
     magic = config["config.magic"]
     sizes = {
         k: a[k]

@@ -1,0 +1,107 @@
+{
+  "execution": {
+    "task_id": "ht-tunable-bs4-186dfa18",
+    "event_id": "green-21777ee288b04813933c078b22ec5b3c",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs4-fp32",
+      "status": "sst_and_checker_passed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 11920,
+      "sim_us": 156.272,
+      "errors": [],
+      "checked": {
+        "ranks": 64,
+        "bytes_checked": {
+          "gather": 1048576,
+          "gather_ready": 1048576,
+          "partial": 262144,
+          "ready": 262144,
+          "local_ready": 262144,
+          "returned": 1048576,
+          "completed": 16777216,
+          "output": 131072,
+          "status": 98304
+        },
+        "phase_status": {
+          "gather": {
+            "0": 512
+          },
+          "reduce": {
+            "0": 512
+          },
+          "local_return": {
+            "0": 512
+          },
+          "cross_return": {
+            "0": 1024
+          },
+          "final": {
+            "0": 1024
+          }
+        },
+        "mismatched_ranks": {},
+        "first_mismatches": {}
+      },
+      "exports_sha256": {
+        "returned": "ecebc58e3276131fc9bf5c44e2a0955cb86750bec8555677c39af500ab68e9df",
+        "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+        "output": "2ab0e9be59309a67f1f80161161237cb8254b87f2cbe8656365796503510057c",
+        "status": "2561606f9d81e063c0bd963e1287283fc8b90ecc5b2796988ba33f46196812f6"
+      },
+      "runner_exit_code": 0,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 4,
+      "blocks": 48,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "Window",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": false,
+      "runner_wall_seconds": 862.779,
+      "sst_wall_seconds": 833.921
+    }
+  },
+  "cq_slots": {
+    "task_id": "ht-tunable-bs4-cq",
+    "event_id": "green-b5bb11f6121047e9910291e3a2df365f",
+    "iteration": 3,
+    "result": {
+      "totals": {
+        "truncated_hosts": 0,
+        "hosts": 64,
+        "unexpected_slots": 0
+      },
+      "stages": {
+        "gather": {
+          "expected": 3584,
+          "observed": 3584,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "local_return": {
+          "expected": 576,
+          "observed": 576,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "cross_return": {
+          "expected": 7424,
+          "observed": 7424,
+          "qps": 7168,
+          "qps_missing": 0
+        }
+      },
+      "first_missing": []
+    }
+  }
+}

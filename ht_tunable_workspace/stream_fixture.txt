@@ -1,0 +1,17 @@
+        trace = []
+
+        def rank_bindings():
+            with zipfile.ZipFile(io.BytesIO(plans_raw)) as plans:
+                for rank in range(64):
+                    binding, expected, offsets = build_rank(rank, json.loads(plans.read(f'{rank}/abi.json')),
+                                                            plans.read(f'{rank}/args'), plans.read(f'{rank}/prefill'),
+                                                            (native, runtime), profiling=PROFILE)
+                    trace.append(offsets)
+                    rank_directory = golden / f'rank{rank:02d}'
+                    rank_directory.mkdir()
+                    for field, data in expected.items():
+                        (rank_directory / f'golden-{field}.bin').write_bytes(data)
+                    yield binding
+
+        generated = temp / 'loader'
+        loader.prepare_loader(generated, runtime_root, kernel, KERNEL_SHA256, ENTRY, rank_bindings(), blocks=BLOCKS)

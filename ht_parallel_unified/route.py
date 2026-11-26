@@ -6,9 +6,13 @@ LOCAL = 8
 TOPK = 8
 
 
-def build_routes(rank, row_values, tokens=4, chunks=4):
-    assert tokens % chunks == 0
-    tokens_per_chunk = tokens // chunks
+def build_routes(rank, row_values, tokens=4, chunks=4, chunk_ends=None):
+    if chunk_ends is None:
+        assert tokens % chunks == 0
+        chunk_ends = [tokens * (index + 1) // chunks for index in range(chunks)]
+    assert len(chunk_ends) == chunks and chunk_ends[-1] == tokens
+    chunk_ranges = list(zip([0] + chunk_ends[:-1], chunk_ends))
+    assert all(first < end for first, end in chunk_ranges)
     capacity = tokens * TOPK
     local = rank % LOCAL
     server = rank // LOCAL
@@ -25,10 +29,9 @@ def build_routes(rank, row_values, tokens=4, chunks=4):
                     (other_local, 0, range(1, tokens, 2)),
                     (other_server, 1, range(tokens)))
     for peer, lane, selected in destinations:
-        for chunk in range(chunks):
-            first = chunk * tokens_per_chunk
+        for chunk, (first, end_token) in enumerate(chunk_ranges):
             begin = counts[peer]
-            for token in range(first, first + tokens_per_chunk):
+            for token in range(first, end_token):
                 if token not in selected:
                     continue
                 row = counts[peer]
@@ -47,11 +50,10 @@ def build_routes(rank, row_values, tokens=4, chunks=4):
     backward_ranges = []
     for gateway in range(LOCAL):
         rows = []
-        for chunk in range(chunks):
+        for first, end_token in chunk_ranges:
             begin = len(rows) // 3
             if gateway != local:
-                first = chunk * tokens_per_chunk
-                for token in range(first, first + tokens_per_chunk):
+                for token in range(first, end_token):
                     rows.extend((server * LOCAL + gateway, token, local * tokens + token))
             backward_ranges.extend((begin, len(rows) // 3))
         backward_rows.append(rows)

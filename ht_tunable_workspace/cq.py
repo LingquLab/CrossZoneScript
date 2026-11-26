@@ -2,8 +2,12 @@
 import json
 
 
-def expected_cq_slots(rank, tokens):
+def expected_cq_slots(rank, tokens, mode=None):
     queues = {}
+    steps = len(sync_steps(tokens, mode))
+    ends = chunk_ends(tokens)
+    intervals = list(zip([0] + ends[:-1], ends))
+    direct_slots = (8, 28, 9, 29, 10, 30, 11)
     for peer in range(64):
         if peer == rank:
             continue
@@ -11,36 +15,44 @@ def expected_cq_slots(rank, tokens):
         if peer // 8 == rank // 8:
             physical = PRODUCER_QUEUE[local]
             ring = peer * 40 + physical
-            gathered = tokens + 4
-            returned = (tokens // 2 if local == (rank % 8 + 1) % 8 else 0) + 1
-            queues[ring] = [('gather', range(gathered)), ('local_return', range(gathered, gathered + returned))]
+            gathered = tokens + len(ends)
+            returned = (tokens // 2 if local == (rank % 8 + 1) % 8 else 0) + steps
+            queues[ring] = [('gather', range(gathered))]
+            if mode == 'direct':
+                direct = direct_slots[local - int(local > rank % 8)]
+                queues[peer * 40 + direct] = [('local_return', range(returned))]
+            else:
+                queues[ring].append(('local_return', range(gathered, gathered + returned)))
             continue
-        group = (peer // 8 + 4 - rank // 8 % 4) % 4
-        position = (0 if group == 0 else 8 + (group - 1) * 16 + peer // 32 * 8)
-        relative = (local - rank % 8) % 8
-        position += relative
-        owner = relative if position >= 48 else (position + 8) % 16
-        for lane in (0, 1):
-            physical = lane * 20 + owner
-            payload = (tokens * 3 // 4 if lane == 0 else tokens // 4) if peer == rank ^ 8 else 0
-            queues[peer * 40 + physical] = [('cross_return', range(payload + 1))]
+        signals = cross_signal_chunks(rank, peer, tokens, mode)
+        counts = Counter()
+        for chunk, (first, end) in enumerate(intervals):
+            owner = (local - rank % 8) % 8 if mode == 'direct' else legacy_owner(rank, peer, chunk)
+            for lane in (0, 1):
+                physical = lane * 20 + owner
+                rare_lane_rows = end // 4 - first // 4
+                payload = (end - first - rare_lane_rows if lane == 0 else rare_lane_rows) if peer == rank ^ 8 else 0
+                counts[physical] += payload + int(chunk in signals)
+        for physical, count in counts.items():
+            if count:
+                queues[peer * 40 + physical] = [('cross_return', range(count))]
     return queues
 
 
-def count_candidate_cq(case, tokens):
+def count_candidate_cq(case, tokens, expected_for_rank=None, mode=None):
     phases = {name: Counter() for name in ('gather', 'local_return', 'cross_return')}
     totals = Counter()
     details = []
-    missing = []
+    missing = {name: [] for name in phases}
     for rank in range(64):
         path = case / 'OUTPUT/stat_trace' / f'Host{rank}_ba_layer_trace.json'
         if not path.is_file():
             continue
         with path.open('rb') as stream:
-            raw = stream.read(MAX_TRACE_BYTES)
+            raw = stream.read(MAX_TRACE_BYTES * (8 if tokens == 1024 else 1))
             totals['truncated_hosts'] += bool(stream.read(1))
         totals['hosts'] += 1
-        expected = expected_cq_slots(rank, tokens)
+        expected = expected_for_rank[rank] if expected_for_rank is not None else expected_cq_slots(rank, tokens, mode)
         cq, fetch, bells = defaultdict(set), defaultdict(set), Counter()
         db_rings = {0x1C00000000 + physical // 20 * 0x100000000 + (peer * 20 + physical % 20) * 64: ring
                     for ring in expected for peer, physical in (divmod(ring, 40),)}
@@ -71,13 +83,68 @@ def count_candidate_cq(case, tokens):
                 phase.update(expected=len(slots), observed=len(present), qps=1, qps_missing=int(bool(absent)))
                 row = [rank, peer, physical, name, slots.start, len(slots), len(present), absent]
                 details.append(row)
-                if absent and len(missing) < 6:
-                    missing.append(row + [bells[ring], sorted(fetch[ring])])
+                if absent and len(missing[name]) < 2:
+                    sample = [*row[:7], absent[:32], bells[ring], sorted(fetch[ring])[:32]]
+                    missing[name].append(sample)
             totals['unexpected_slots'] += len(found.difference(*(slots for _, slots in entries)))
         totals['unexpected_slots'] += sum(map(len, cq.values()))
-    evidence = dict(totals=totals, stages=phases, first_missing=missing)
+    evidence = dict(totals=totals, stages=phases, first_missing=[row for rows in missing.values() for row in rows])
     (case / 'tunable-cq-slots.json').write_text(json.dumps({
         **evidence, 'columns': ['rank', 'peer', 'physical_slot', 'stage', 'first_slot', 'expected', 'observed', 'missing'],
         'qps': details,
     }, separators=(',', ':')))
     return evidence
+
+
+def pipeline_missing_arrivals(case, tokens, mode, missing):
+    layout = json.loads((case / 'fixture-data/trace-offsets.json').read_text())
+    ends = chunk_ends(tokens)
+    intervals = list(zip([0] + ends[:-1], ends))
+    steps = sync_steps(tokens, mode)
+    result = []
+    for sender, peer, physical, stage, origin, _, _, absent, _, _ in missing:
+        target = layout[peer]
+        base, offsets = target['workspace'], target['offset_map']
+        entries = []
+        for chunk, (start, end) in enumerate(intervals):
+            if stage == 'gather':
+                entries.extend(('payload', token, base + offsets['gather'] + (sender % 8 * tokens + token) * 512)
+                               for token in range(start, end))
+                entries.append(('SO', chunk, base + offsets['gather_ready'] + (chunk * 8 + sender % 8) * 512))
+            elif stage == 'local_return':
+                if peer % 8 == (sender % 8 + 1) % 8:
+                    entries.extend(('payload', token, base + offsets['returned'] + (token * 8 + sender // 8) * 512)
+                                   for token in range(start, end) if token % 2)
+                if chunk in steps:
+                    entries.append(('SO', chunk, base + offsets['local_ready'] + sender % 8 * 512 + steps.index(chunk) * 8))
+            else:
+                lane = physical // 20
+                owner = (peer - sender) % 8 if mode == 'direct' else legacy_owner(sender, peer, chunk)
+                if owner != physical % 20:
+                    continue
+                if peer == sender ^ 8:
+                    entries.extend(('payload', token, base + offsets['returned'] + (token * 8 + sender // 8) * 512)
+                                   for token in range(start, end) if (token % 4 == 3) == bool(lane))
+                if chunk in cross_signal_chunks(sender, peer, tokens, mode):
+                    entries.append(('SO', chunk, base + offsets['completed'] + ((sender * len(ends) + chunk) * 2 + lane) * 512))
+        inspected = [entries[slot - origin] for slot in absent[:4]]
+        addresses = {entry[2] for entry in inspected}
+        observed = set()
+        file = case / 'OUTPUT/stat_trace' / f'Host{peer}_ba_layer_trace.json'
+        if file.is_file():
+            with file.open('rb') as stream:
+                raw = stream.read(MAX_TRACE_BYTES * (8 if tokens == 1024 else 1))
+                truncated = bool(stream.read(1))
+            for match in TRACE_ARGS.finditer(raw):
+                if b'"WR_DATA"' not in match[0]:
+                    continue
+                args = json.loads(match[0])
+                address = args['oriAddr_']
+                address = int(address, 0) if isinstance(address, str) else int(address)
+                if address in addresses:
+                    observed.add(address)
+        else:
+            truncated = True
+        result.append([sender, peer, physical, stage, truncated,
+                       [[kind, index, address in observed] for kind, index, address in inspected]])
+    return result

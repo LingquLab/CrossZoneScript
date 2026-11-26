@@ -5,20 +5,31 @@
 
 int main(int argc, char **argv)
 {
-    if (argc != 5) return 2;
+    if (argc < 5 || argc > 7) return 2;
     using namespace TileXRCombineHT;
     const uint32_t rank = std::stoul(argv[1]);
     const uint32_t local = rank % 8;
-    constexpr uint32_t chunks = 4;
     const uint32_t tokens = std::stoul(argv[4]);
+    const uint32_t chunks = TileXREpHt::ChunkCount(tokens);
+    const bool direct = argc >= 6 && std::string(argv[5]) == "direct";
     PipelineArgs args{};
     auto &config = args.local.config;
     config = {rank, 64, tokens, 128, 8, 2 * tokens, 8 * tokens, TileXREpHt::kTokensPerChunk,
-              chunks, 24, 8, TILEXR_COMBINE_HT_SEND_REDUCE, 0};
+              TileXREpHt::FirstSplits(tokens), 24, 8, TILEXR_COMBINE_HT_SEND_REDUCE, 0};
     TileXRCombineHTExecutionOptions options{};
     options.final_reduce_pipeline = 1;
     options.six_port_qp_count = 16;
     options.two_port_qp_count = 16;
+    if (direct) {
+        options.send_core_count = 8;
+        options.six_port_qp_count = 8;
+        options.two_port_qp_count = 8;
+        options.rotation_policy = TileXREpHt::PeerRotationPolicy::ServerStaggered;
+        options.reuse_gather_for_local_return = 0;
+        if (ResolvePipelineReturnQueues(false, true, 16, 7, args.localQpBase,
+                                        args.localQpStride, args.localQpSkipSelf)) return 8;
+    }
+    if (argc == 7) options.sync_granularity = std::stoul(argv[6]);
     if (TileXRMoonEpCombineHTGetCorePlan(&config, 16, &options, &args.cores)) return 7;
     TileXRCombineHTPipelineLayout layout{};
     if (TileXRMoonEpCombineHTGetPipelineLayoutWithOptions(&config, 2026, &options, &layout) ||
@@ -37,7 +48,7 @@ int main(int argc, char **argv)
     std::array<PrefillEndpoint, kLocalRanks> endpoints{};
     std::array<std::vector<int64_t>, kLocalRanks> rows;
     std::array<int32_t, kLocalRanks> counts{};
-    std::array<int32_t, kLocalRanks * chunks * 2> ranges{};
+    std::vector<int32_t> ranges(kLocalRanks * chunks * 2);
     std::ifstream memory(argv[2], std::ios::binary);
     for (uint32_t gateway = 0; gateway < kLocalRanks; ++gateway) {
         if (gateway == local) continue;
@@ -52,10 +63,12 @@ int main(int argc, char **argv)
             rows[gateway].insert(rows[gateway].end(), {
                 int64_t(rank), int64_t(token), int64_t(local * config.tokens + token)});
         }
+        uint32_t first = 0;
         for (uint32_t chunk = 0; chunk < chunks; ++chunk) {
             const uint32_t index = 2 * (gateway * chunks + chunk);
-            ranges[index] = chunk * (tokens / chunks);
-            ranges[index + 1] = (chunk + 1) * (tokens / chunks);
+            ranges[index] = first;
+            first = TileXREpHt::ChunkEnd(args.send.config, chunk);
+            ranges[index + 1] = first;
         }
         counts[gateway] = config.tokens;
     }
