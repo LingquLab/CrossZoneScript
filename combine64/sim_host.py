@@ -552,11 +552,14 @@ def main(args):
         assert json_file(root / 'build-summary.json')['all_compiled'], 'candidate_build_not_passed'
         if action == 'joint-evidence':
             return inspect_joint_snapshot(root, cid, revision, args)
+        if 'stalled_cq_cycle' in args:
+            interrupt_stalled_joint(root, cid, revision, args['stalled_cq_cycle'])
+        if action == 'interrupt-stalled-joint':
+            print(json.dumps(status(root, args), separators=(',', ':')))
+            return 0
         verify_prerequisite(root, revision, args)
         if args.get('replace_legacy_batch'):
             wait_or_interrupt_legacy(root, cid, revision)
-        if 'stalled_cq_cycle' in args:
-            interrupt_stalled_joint(root, cid, revision, args['stalled_cq_cycle'])
         if args.get('ready_probe') and not retry_failed(root, revision, args['wait_for_idle_seconds']):
             return 0
         with (root / 'sst.lock').open('a') as lock:

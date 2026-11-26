@@ -29,7 +29,8 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'profile-build', 'batch', 'matrix', 'bs4-remainder', 'joint-evidence', *STAGES)
+    assert action in ('status', 'interrupt-stalled-joint', 'profile-build', 'batch', 'matrix',
+                      'bs4-remainder', 'joint-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
     candidate = args['candidate']
@@ -51,7 +52,8 @@ def main():
     if args.get('joint_probe'):
         assert action == 'joint-final' and 'stop_at_us' in args
     if 'stalled_cq_cycle' in args:
-        assert args.get('cq_probe') and type(args['stalled_cq_cycle']) is int and args['stalled_cq_cycle'] > 0
+        assert args.get('cq_probe') or action == 'interrupt-stalled-joint'
+        assert type(args['stalled_cq_cycle']) is int and args['stalled_cq_cycle'] > 0
     if 'sst_threads' in args:
         assert action in ('joint-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
@@ -64,6 +66,9 @@ def main():
         remote_seconds = 170
     if action == 'status':
         remote_seconds = 95 if args.get('all_variants') else 35
+    if action == 'interrupt-stalled-joint':
+        assert tokens == 4 and attempt == 1 and 'stalled_cq_cycle' in args
+        remote_seconds = 140
     if action == 'profile-build':
         remote_seconds = timeout + 45
     if action == 'batch':
