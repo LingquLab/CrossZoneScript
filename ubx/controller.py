@@ -10,7 +10,13 @@ import uuid
 
 
 def main():
-    settings = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+    argument_file = Path(__file__).resolve().parents[2] / 'args.json'
+    if argument_file.is_file():
+        settings = json.loads(argument_file.read_text(encoding='utf-8-sig'))
+    elif len(sys.argv) > 1 and sys.argv[1].lstrip().startswith('{'):
+        settings = json.loads(sys.argv[1])
+    else:
+        raise ValueError('Missing experiment settings')
     keyroot = Path('C:/Users/l00826879/.ssh')
     keys = [p for p in keyroot.iterdir() if p.is_file() and p.suffix.lower() not in ['.pub', '.old', '.bak'] and p.name not in ['config', 'known_hosts', 'authorized_keys'] and p.stat().st_size < 65536 and b'PRIVATE KEY' in p.read_bytes()]
     worker = Path(__file__).with_name('worker.py').read_text()
