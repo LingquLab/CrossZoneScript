@@ -6,7 +6,7 @@ LOCAL = 8
 TOPK = 8
 
 
-def build_routes(rank, row_values, tokens=4, chunks=4, chunk_ends=None):
+def build_routes(rank, row_values, tokens=4, chunks=4, chunk_ends=None, pack_input=None, hidden=128):
     if chunk_ends is None:
         assert tokens % chunks == 0
         chunk_ends = [tokens * (index + 1) // chunks for index in range(chunks)]
@@ -18,8 +18,9 @@ def build_routes(rank, row_values, tokens=4, chunks=4, chunk_ends=None):
     server = rank // LOCAL
     other_local = server * LOCAL + (local + 1) % LOCAL
     other_server = rank ^ LOCAL
-    values = [float(row_values(server, local, token, h)) for token in range(tokens) for h in range(128)]
-    input_image = struct.pack(f"<{2 * tokens * 128}f", *(values + values))
+    values = [float(row_values(server, local, token, h)) for token in range(tokens) for h in range(hidden)]
+    input_image = (struct.pack(f"<{2 * tokens * hidden}f", *(values + values)) if pack_input is None
+                   else pack_input(values) * 2)
     forward = bytearray(WORLD * capacity * 24)
     padded = bytearray(WORLD * capacity * 32)
     counts = [0] * WORLD

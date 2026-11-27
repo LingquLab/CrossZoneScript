@@ -14,7 +14,8 @@ int main(int argc, char **argv)
     const bool direct = argc >= 6 && std::string(argv[5]) == "direct";
     PipelineArgs args{};
     auto &config = args.local.config;
-    config = {rank, 64, tokens, 128, 8, 2 * tokens, 8 * tokens, TileXREpHt::kTokensPerChunk,
+    const uint32_t hidden = argc == 6 && std::string(argv[5]) == "h256" ? 256 : 128;
+    config = {rank, 64, tokens, hidden, 8, 2 * tokens, 8 * tokens, TileXREpHt::kTokensPerChunk,
               TileXREpHt::FirstSplits(tokens), 24, 8, TILEXR_COMBINE_HT_SEND_REDUCE, 0};
     TileXRCombineHTExecutionOptions options{};
     options.final_reduce_pipeline = 1;

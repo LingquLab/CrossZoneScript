@@ -40,13 +40,22 @@ def f32(row):
     return struct.pack('<128f', *row)
 
 
-def make_golden(rank, config, original_status):
+def make_golden(rank, config, original_status, pack_row=None, unpack_row=None):
     server = rank//8
-    gather = b''.join(bytes(ROW) if lane==rank%8 else f32(values(server*8+lane, token))
+    pack = f32 if pack_row is None else pack_row
+    row_bytes = len(pack([0.] * HIDDEN))
+    def inputs(source, token):
+        row = values(source, token)
+        return unpack_row(pack(row)) if unpack_row else row
+
+    def partial_for(source_server, token):
+        return pack(map(sum, zip(*(inputs(source_server * 8 + lane, token) for lane in range(8)))))
+
+    gather = b''.join(bytes(row_bytes) if lane==rank%8 else pack(values(server*8+lane, token))
                      for lane in range(8) for token in range(TOKENS))
     gather_ready = b''.join(struct.pack('<Q', 0 if lane==rank%8 else 1).ljust(ROW,b'\0')
                           for chunk in range(CHUNKS) for lane in range(8))
-    partial = b''.join(f32(partial_values(server, token)) for token in range(TOKENS)) * 2
+    partial = b''.join(partial_for(server, token) for token in range(TOKENS)) * 2
     ready = struct.pack('<qii',MAGIC,CHUNKS,0).ljust(ROW,b'\0')*8
     local_ready = struct.pack('<q',MAGIC).ljust(ROW,b'\0')*8
     returned = bytearray(config['signalOffset']-config['returnOffset'])
@@ -54,9 +63,14 @@ def make_golden(rank, config, original_status):
     output = bytearray()
     for token in range(TOKENS):
         for source in (server,server^1):
-            begin=(token*8+source)*ROW
-            returned[begin:begin+ROW]=f32(partial_values(source,token))
-        output.extend(f32(map(sum,zip(partial_values(server,token),partial_values(server^1,token)))))
+            begin=(token*8+source)*row_bytes
+            returned[begin:begin+row_bytes]=partial_for(source, token)
+        if unpack_row:
+            local = unpack_row(partial_for(server, token))
+            remote = unpack_row(partial_for(server ^ 1, token))
+            output.extend(pack(map(sum, zip(local, remote))))
+        else:
+            output.extend(f32(map(sum,zip(partial_values(server,token),partial_values(server^1,token)))))
     for peer in range(64):
         if peer//8 != server:
             for lane in range(2):

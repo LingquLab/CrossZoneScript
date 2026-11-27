@@ -23,7 +23,20 @@ for name in ('EXTRA', 'PRODUCER_QUEUE', 'MAGIC', 'ROW', 'CHUNKS', 'HIDDEN'):
 shared_fixture.TOKENS = TOKENS
 
 
-def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False):
+def pack_bf16(values):
+    words = []
+    for value in values:
+        bits, = struct.unpack('<I', struct.pack('<f', value))
+        words.append((bits + 0x7fff + ((bits >> 16) & 1)) >> 16)
+    return struct.pack(f'<{len(words)}H', *words)
+
+
+def unpack_bf16(raw):
+    return [struct.unpack('<f', struct.pack('<I', word << 16))[0]
+            for word, in struct.iter_unpack('<H', raw)]
+
+
+def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False, bf16=False):
     _, runtime = modules
     base = rank * runtime.GM_BYTES
     addresses = {name: base + address for name, address in (runtime.BASES | config.EXTRA).items()}
@@ -35,10 +48,12 @@ def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False
               for field in abi['pipeline_fields']]
     values = {field['name']: field['value'] for field in fields}
     tokens = values['local.config.tokens']
+    hidden = 256 if bf16 else config.HIDDEN
     ends = chunk_ends(tokens)
     chunks = len(ends)
     shared_fixture.TOKENS = tokens
     shared_fixture.CHUNKS = chunks
+    shared_fixture.HIDDEN = hidden
     local_offset = values['local.local_offset']
     gather_offset, local_end = (values['local.layout.' + name] for name in ('gather_offset', 'partial_offset'))
     send = {name.removeprefix('send.config.'): value for name, value in values.items() if name.startswith('send.config.')}
@@ -46,9 +61,10 @@ def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False
     send_cores, qp_count, rotation = (8, 8, 1) if direct else (16, 16, 0)
     assert (send['rank'], send['tokens'], send['hidden'], send['topk'], send['chunks'], send['world'],
             send['sendCores'], send['sixPortQps'], send['twoPortQps'], send['rotationPolicy']) == (
-                rank, tokens, 128, 8, chunks, 64, send_cores, qp_count, qp_count, rotation)
+                rank, tokens, hidden, 8, chunks, 64, send_cores, qp_count, qp_count, rotation)
     mode = {0: None, 1: 'logical', 2: 'physical'}[send['syncMode']]
-    assert send['inputOffset'] == 0 and send['partialOffset'] == 2 * tokens * ROW
+    row_bytes = hidden * (2 if bf16 else 4)
+    assert send['inputOffset'] == 0 and send['partialOffset'] == 2 * tokens * row_bytes
     local_ready, signal = (values[name] for name in ('localReadyOffset', 'localSignalOffset'))
     assert (local_ready, signal) == (send['workspaceBytes'], send['workspaceBytes'] + 8 * ROW)
     assert local_offset == signal + (8 + 64) * ROW
@@ -56,12 +72,12 @@ def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False
     assert [value for name, value in values.items() if name.startswith('cores.')] == expected_cores
     assert (values['localQpBase'], values['localQpStride'], values['localQpSkipSelf']) == (
         (16, 1, 1) if direct else (0, 1, 0))
-    assert gather_offset + 8 * tokens * ROW == local_end
+    assert gather_offset + 8 * tokens * row_bytes == local_end
     status_offset = local_offset + local_end
     status = b'\xff' * 1536
     workspace = bytearray(status_offset) + status
     data = route.build_routes(rank, lambda server, local, token, h: server * 64 + local * 8 + token + h / 64,
-                              tokens, chunks, ends)
+                              tokens, chunks, ends, pack_bf16 if bf16 else None, hidden)
     workspace[:len(data['input'])] = data['input']
     for gateway in range(8):
         struct.pack_into('<Q', workspace, local_offset + (3 * 64 + gateway) * ROW, 1)
@@ -73,8 +89,8 @@ def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False
     images.update(shared_fixture.fullmesh(abi, rank, runtime, images))
     queue_evidence = verify_direct_queues(rank, abi, runtime, images) if direct else None
     images.update({name: image for name, image in data.items() if name in addresses})
-    images.update(prefill=prefill, workspace=workspace,
-                  output=b'\x00\x00\xc0\x7f' * (tokens * config.HIDDEN))
+    nan_word = b'\xc0\x7f' if bf16 else b'\x00\x00\xc0\x7f'
+    images.update(prefill=prefill, workspace=workspace, output=nan_word * (tokens * hidden))
 
     status_addr = workspace_address + status_offset
     pointers = {
@@ -103,7 +119,8 @@ def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False
     for field in fields:
         if field['name'] in pointers:
             field['value'] = pointers[field['name']]
-    golden = shared_fixture.make_golden(rank, send, status)
+    golden = shared_fixture.make_golden(rank, send, status, pack_bf16 if bf16 else None,
+                                       unpack_bf16 if bf16 else None)
     status_expected = bytearray(status)
     roles = ROLES | {'cross_return': (512, send_cores, 32)}
     for offset, workers, stride in roles.values():
@@ -145,6 +162,8 @@ def build_rank(rank, abi, raw, prefill, modules, send_plan=None, profiling=False
                    stack_base_addr=0x100000, param_base_addr=base+0x80000000, binary_addr=base+0x40000000)
     trace = dict(workspace=workspace_address, return_offset=send['returnOffset'], partial_offset=send['partialOffset'],
                  ready_offset=send['readyOffset'], offset_map=offsets)
+    if bf16:
+        trace['row_bytes'] = row_bytes
     if queue_evidence is not None:
         trace['sq_bindings'] = queue_evidence
     return binding, golden, trace

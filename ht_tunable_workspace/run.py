@@ -1,4 +1,4 @@
-"""Run one full launch using the pinned single-workspace FP32 object."""
+"""Run one full launch using a pinned single-workspace object."""
 import base64
 import gzip
 import hashlib
@@ -19,6 +19,7 @@ from sync_layout import chunk_ends, sync_steps
 revision = '186dfa18a0358add6af8ef237ebca23edffa86f5'
 entry = 'tilexr_ht_pipeline_sst'
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ['--args-file'] else {}
+bf16 = bool(options.get('bf16'))
 tokens = options.get('tokens', 4)
 assert tokens in (4, 32, 1024)
 mode = options.get('mode')
@@ -29,12 +30,16 @@ assert tokens != 4 or (mode in (None, 'direct') and not profile)
 assert tokens != 1024 or (mode != 'direct' and profile)
 assert not (profile and mode == 'direct')
 assert not memory_retry or tokens == 1024
+assert not bf16 or (tokens == 4 and mode is None and not profile)
 case = f'ht-tunable-workspace-186dfa18-bs{tokens}-fp32' + (f'-{mode}' if mode else '') + ('-profile' if profile else '')
+if bf16:
+    case = 'ht-tunable-workspace-186dfa18-bs4-bf16-castfix'
+    entry = 'tilexr_moonep_combine_ht_pipeline_kernel'
 if memory_retry:
     case += '-mem256'
 ends = chunk_ends(tokens)
 step_ends = [ends[index] for index in sync_steps(tokens, mode)]
-timeout = {4: 1200, 32: 6000, 1024: 108000}[tokens]
+timeout = 1800 if bf16 else {4: 1200, 32: 6000, 1024: 108000}[tokens]
 adapter_margin = 1800 if tokens == 1024 else 90
 transport_margin = 3600 if tokens == 1024 else 250
 prefix = (root / 'inter_server/run_mte_t4_remote.py').read_text().rsplit('if __name__ == ', 1)[0]
@@ -240,11 +245,22 @@ if checks.exists():
 print(json.dumps(report, separators=(',', ':')))
 '''
 else:
-    data = (here / 'pipeline.o.gz').read_bytes()
+    data = (here / ('pipeline-bf16.o.gz' if bf16 else 'pipeline.o.gz')).read_bytes()
     binary_sha = '45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899'
+    if bf16:
+        binary_sha = '593de6ace0b6bf04477914c3e20fd40b00d4fdf767716cb8a3c52342fe59a867'
     assert hashlib.sha256(gzip.decompress(data)).hexdigest() == binary_sha
-    plans = (here / (f'plans-t{tokens}' + (f'-{mode}' if mode else '') + '.zip')).read_bytes()
+    suffix = '-bf16' if bf16 else f'-{mode}' if mode else ''
+    plans = (here / f'plans-t{tokens}{suffix}.zip').read_bytes()
     exports = (support / 'exports.py').read_text()
+    cast_fix = None
+    if bf16:
+        repaired = json.loads((root / 'combine_cast/results/v310-cast-library-fix.json').read_text())
+        libraries = repaired['library_source']['result']['libs']
+        cast_fix = dict(image=repaired['regression']['result']['image'],
+                        libraries={'/opt/sim/plugins/' + name: sha for name, sha in libraries.items()})
+        exports = exports.replace('6d4cd3b729177646ca1c43d57971e5266a946405b6f820f3d0d914114b7ccfce',
+                                  libraries['libDavinciSimulator.so'])
     fields = ('gather', 'gather_ready', 'partial', 'ready', 'local_ready', 'returned', 'completed', 'output', 'status')
     export_fields = fields + ('profile',) if profile else fields
     exports = exports.replace('("returned", "completed", "status", "output")', repr(export_fields)).replace(
@@ -295,6 +311,9 @@ else:
             target.write_text(runner)''')
     phase = (root / 'ht_four_stage/local_phases.py').read_text().replace('"--timeout", "540"', f'"--timeout", "{timeout}"').replace(
         'timeout=600)', f'timeout={timeout + adapter_margin})')
+    if cast_fix:
+        phase = phase.replace('sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5',
+                              cast_fix['image'])
     if memory_retry:
         assert phase.count('"--memory=32g"') == 1
         phase = phase.replace('"--memory=32g"', '"--memory=256g"')
@@ -305,7 +324,7 @@ else:
     fixture = 'import struct\n\n' + fixture[fixture.index('ENTRY = '):]
     green = (shared / 'green.py').read_text().split('\ndef main(', 1)[0].replace('    import runtime\n','')
     green = green.replace('(native,runtime))',
-                          "(native,runtime), plans.read(f'{rank}/send.bin') if MODE == 'direct' else None, PROFILE)")
+                          "(native,runtime), plans.read(f'{rank}/send.bin') if MODE == 'direct' else None, PROFILE, BF16)")
     if tokens == 1024:
         stream = (here / 'stream_fixture.txt').read_text()
         start = green.index('        ranks,trace=')
@@ -321,7 +340,8 @@ else:
         '    globals()[name] = module\n',
         fixture, (here / 'profile.py').read_text(), (here / 'sync_layout.py').read_text(),
         f'CASE = {case!r}\nKERNEL_SHA256 = {binary_sha!r}\n'
-        f'TOKENS = {tokens}\nHIDDEN = 128\nCHUNKS = {len(ends)}\nMODE = {mode!r}\nPROFILE = {profile!r}\n'
+        f'TOKENS = {tokens}\nHIDDEN = {256 if bf16 else 128}\nCHUNKS = {len(ends)}\nMODE = {mode!r}\n'
+        f'PROFILE = {profile!r}\nBF16 = {bf16!r}\nCAST_FIX = {cast_fix!r}\n'
         f'CONTAINER_MEMORY_GIB = {256 if memory_retry else 32}\n',
         green,
         '''
@@ -332,6 +352,13 @@ def run(request):
     assert not case.exists()
     support = MOUNT.parent / BUILD / 'source/tools/unitest/simulator/experiments/inter_server_send/sst'
     prepare(request, case, support)
+    if CAST_FIX:
+        environment = case / 'sst-environment.json'
+        record = json.loads(environment.read_text())
+        record['decoder_library_sha256'] = CAST_FIX['libraries'][record['decoder_library']]
+        record.setdefault('runtime_files', {}).update(CAST_FIX['libraries'])
+        write_json(environment, record)
+        rehash(case)
     started = monotonic()
     result = execute_phase(case)
     direct = MODE == 'direct'
@@ -340,6 +367,8 @@ def run(request):
                   sync={'logical': 'LogicalChunk', 'physical': 'PhysicalChunk'}.get(MODE, 'Window'),
                   rotation='ServerStaggered' if direct else 'Legacy', reuse_gather=not direct, profiling=PROFILE,
                   container_memory_gib=CONTAINER_MEMORY_GIB)
+    if BF16:
+        result.update(dtype='bf16', entry=ENTRY, sst_image=CAST_FIX['image'])
     if direct:
         trace = json.loads((case / 'fixture-data/trace-offsets.json').read_bytes())
         counts = {name: sum(len(row['sq_bindings'][name]) for row in trace) for name in trace[0]['sq_bindings']}
