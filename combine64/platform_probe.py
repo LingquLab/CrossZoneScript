@@ -59,7 +59,31 @@ def host_probe(args):
               'old_template_present': Path('/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/inter-server-native/t4-sst-mte-bulk-forward-hotpath-1a2f3549/case-manifest.json').is_file(),
               'bootstrap_progress': json.loads(progress.read_text()) if progress.is_file() else None}
     p = json.loads(docker('exec', inspected['Id'], 'python3', '-c', PLATFORM_PROBE))
-    print(json.dumps({**record, 'platform': p}))
+    legacy = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+    image = subprocess.run(['docker', 'image', 'inspect', '--format', '{{.Id}} {{.Architecture}}', legacy],
+                           capture_output=True, timeout=10)
+    archive_roots = [Path('/mnt/share/simulator/images'), Path(args['server_root']) / 'images']
+    archives = [str(path) for folder in archive_roots if folder.is_dir()
+                for path in folder.glob('tilexr-sim-9.1-aarch64-v1*.tar*')]
+    bundle_probe = r'''
+import json
+from pathlib import Path
+import yaml
+base = Path('/opt/sim/simulator/Testcases')
+result = {}
+keys = ('V310_flag','UBusSim_flag','urma_flag','simt_urma_flag','clos_router_in_fm_flag')
+for name in ('Smoke_aivUrma','urma_dispatch_8p_prefilled_smoke'):
+    matches = list((base/name).glob('**/UBusSim_simulator_config.yml'))
+    result[name] = []
+    for path in matches[:6]:
+        doc = yaml.safe_load(path.read_text())
+        info = doc.get('simulator_info',{})
+        result[name].append({'path': str(path), 'flags':{key: info.get(key) for key in keys}})
+print(json.dumps(result))
+'''
+    smoke = json.loads(docker('exec', inspected['Id'], 'python3', '-c', bundle_probe))
+    print(json.dumps({**record, 'legacy_image_present': image.stdout.decode().strip() == legacy+' arm64',
+                      'archives': archives, 'bundled_smoke': smoke}))
     return 0
 
 
