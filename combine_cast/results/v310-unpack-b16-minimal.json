@@ -1,0 +1,150 @@
+{
+  "object": {
+    "elf_sha256": "0e627515465f9dea68d20472a4fe8a5b01cc14368163c5032c1a95ea1de3f396",
+    "object_sha256": "91673432820a0f58292adffc14d51f649cf8569260bd16eac21e0230d40714c1",
+    "arch": "dav-c310-vec"
+  },
+  "sst": {
+    "task_id": "ht-unpack-b16-minimal",
+    "iteration": 2,
+    "event_id": "green-54ee83dad85f41bca9346c4876d3dde6",
+    "script_commit": "5449a0e423e27a8ac0d8422ab3589367f0e31cb7",
+    "result": {
+      "artifact_dir": "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/cast-v310-repair-0784b139/unpack-b16-91673432-aligned",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "object_sha256": "91673432820a0f58292adffc14d51f649cf8569260bd16eac21e0230d40714c1",
+      "sst_exit": 0,
+      "sst_wall_seconds": 22.147,
+      "loaded_repair_libraries": 7,
+      "sim": [
+        "1.88405",
+        "us"
+      ],
+      "check_exit": 1,
+      "lanes": 64,
+      "guards_ok": true,
+      "checks": {
+        "bf16_norm": {
+          "wrong_lanes": 0,
+          "packed_lanes": 64,
+          "expected_first4": [
+            "3f813f80",
+            "3f833f82",
+            "3f853f84",
+            "3f873f86"
+          ],
+          "observed_first4": [
+            "3f813f80",
+            "3f833f82",
+            "3f853f84",
+            "3f873f86"
+          ]
+        },
+        "bf16_unpack": {
+          "wrong_lanes": 64,
+          "packed_lanes": 64,
+          "expected_first4": [
+            "00003f80",
+            "00003f81",
+            "00003f82",
+            "00003f83"
+          ],
+          "observed_first4": [
+            "3f813f80",
+            "3f833f82",
+            "3f853f84",
+            "3f873f86"
+          ]
+        },
+        "u16_unpack": {
+          "wrong_lanes": 64,
+          "packed_lanes": 64,
+          "expected_first4": [
+            "00003f80",
+            "00003f81",
+            "00003f82",
+            "00003f83"
+          ],
+          "observed_first4": [
+            "3f813f80",
+            "3f833f82",
+            "3f853f84",
+            "3f873f86"
+          ]
+        }
+      },
+      "raw_sha256": "6eff4a5c5ed50d27fefcbb73dae1cc789a639ec3e3eb316d8b5fbfa14663134d"
+    }
+  },
+  "functional_model": {
+    "lanes": 64,
+    "guards_ok": true,
+    "checks": {
+      "bf16_norm": {
+        "wrong_lanes": 0,
+        "packed_lanes": 64,
+        "expected_first4": [
+          "3f813f80",
+          "3f833f82",
+          "3f853f84",
+          "3f873f86"
+        ],
+        "observed_first4": [
+          "3f813f80",
+          "3f833f82",
+          "3f853f84",
+          "3f873f86"
+        ]
+      },
+      "bf16_unpack": {
+        "wrong_lanes": 0,
+        "packed_lanes": 0,
+        "expected_first4": [
+          "00003f80",
+          "00003f81",
+          "00003f82",
+          "00003f83"
+        ],
+        "observed_first4": [
+          "00003f80",
+          "00003f81",
+          "00003f82",
+          "00003f83"
+        ]
+      },
+      "u16_unpack": {
+        "wrong_lanes": 0,
+        "packed_lanes": 0,
+        "expected_first4": [
+          "00003f80",
+          "00003f81",
+          "00003f82",
+          "00003f83"
+        ],
+        "observed_first4": [
+          "00003f80",
+          "00003f81",
+          "00003f82",
+          "00003f83"
+        ]
+      }
+    },
+    "raw_sha256": "332a7e05e604056b87cd3d6be6523ad9e32a53b9f092c41cc606b01c9c28ab71",
+    "object_sha256": "91673432820a0f58292adffc14d51f649cf8569260bd16eac21e0230d40714c1",
+    "model": "CANN 9.1 dav_3510 (Ascend950PR_9589)",
+    "instruction_log": [
+      {
+        "word": "0x00080018",
+        "dist": "NORAML"
+      },
+      {
+        "word": "0x00080398",
+        "dist": "UNPK_B16"
+      },
+      {
+        "word": "0x00080398",
+        "dist": "UNPK_B16"
+      }
+    ]
+  }
+}
