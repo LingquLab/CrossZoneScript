@@ -95,7 +95,7 @@ def load_target(data, host):
     return Target(host, port, username, password, fingerprint, settings)
 
 
-def connect(paramiko, target):
+def connect(paramiko, target, operation=None):
     class PinnedKey(paramiko.MissingHostKeyPolicy):
         def missing_host_key(self, client, hostname, key):
             digest = hashlib.sha256(key.asbytes()).digest()
@@ -118,7 +118,7 @@ def connect(paramiko, target):
         client.connect(hostname=target.host, port=target.port, username=target.username,
                        password=target.password, look_for_keys=False, allow_agent=False,
                        timeout=10, auth_timeout=10, banner_timeout=10)
-        return read_deployment(client, target.deployment)
+        return (operation or read_deployment)(client, target.deployment)
 
 
 REMOTE_CHECK = """import json, platform, subprocess

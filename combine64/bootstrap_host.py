@@ -1,0 +1,99 @@
+# Copyright (c) 2026 TileXR Project.
+"""Create the task-owned CPU container and compile immutable candidate source."""
+import base64
+import hashlib
+import io
+import json
+import platform
+import subprocess
+import tarfile
+import time
+from pathlib import Path, PurePosixPath
+
+SESSION = 'be22947c-5e6b-4fb8-a268-af2f61eba704'
+REVISIONS = {'49f846b': '49f846bdba882ecc0b708b0ec18f56d474b252c0'}
+
+
+def execute(argv, timeout=20):
+    p = subprocess.run(argv, capture_output=True, timeout=timeout)
+    assert p.returncode == 0, 'command_failed_' + argv[0]
+    return p.stdout
+
+
+def build(request):
+    assert execute(['hostname', '-s']).decode().strip() == request['hostname']
+    image = request['image_id']
+    workspace = Path(request['workspace'])
+    assert workspace.is_dir()
+    assert platform.machine() == 'aarch64'
+    candidate = request['candidate']
+    assert request['revision'] == REVISIONS[candidate]
+    root = workspace / 'tilexr-sim-jobs' / SESSION / f'run-{candidate}-a1'
+    assert execute(['docker','image','inspect','--format','{{.Id}} {{.Os}}/{{.Architecture}}',image]).decode().strip() == image+' linux/arm64'
+    root.mkdir(parents=True, exist_ok=False)
+    record = {k: request[k] for k in ('revision','tree','source_sha256')}
+    record.update(root=str(root), image=image, started_unix=time.time(), sim_send=True, model='perf', world=64, hidden=128, topk=6, dtype='fp32', experts=256)
+    (root/'identity.json').write_text(json.dumps(record,indent=2))
+    raw = base64.b64decode(request['source'],validate=True)
+    assert hashlib.sha256(raw).hexdigest() == request['source_sha256']
+    source = root/'source'
+    source.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(raw),mode='r:gz') as archive:
+        for member in archive:
+            rel=PurePosixPath(member.name)
+            assert not rel.is_absolute() and '..' not in rel.parts and (member.isdir() or member.isfile())
+            target=source/str(rel)
+            if member.isdir(): target.mkdir(parents=True,exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True,exist_ok=True)
+                with target.open('xb') as dest: dest.write(archive.extractfile(member).read())
+    (root/'build.sh').write_text(request['build_script'])
+    profile_tools = root / 'bootstrap-tools'
+    profile_tools.mkdir()
+    assert request['profile_files'].keys() == {'build_profile.py', 'profile_capture.h'}
+    for name, code in request['profile_files'].items():
+        (profile_tools / name).write_text(code)
+    limit_gib = 64
+    name=f'combine-ht-{SESSION[:8]}-{candidate}-a1'
+    container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
+                       '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8',f'--memory={limit_gib}g',f'--memory-swap={limit_gib}g',
+                       '--pids-limit=1024','--shm-size=16g','--ulimit','nofile=524288:524288',
+                       '--label','crosszone.session='+SESSION,'--mount','type=bind,src='+str(root)+',dst=/work',
+                       '--mount','type=bind,src='+str(source)+',dst=/work/source,readonly',image,'/bin/bash','-c','exec tail -f /dev/null']).decode().strip()
+    info=json.loads(execute(['docker','inspect',container]))[0]
+    assert info['Image']==image and info['HostConfig']['NetworkMode']=='none'
+    record.update(container_id=container, container_name=name)
+    assert info['State']['Running'] and info['HostConfig']['Runtime']=='runc'
+    assert info['HostConfig']['Memory']==limit_gib*2**30
+    record['memory_bytes'] = info['HostConfig']['Memory']
+    assert info['Config']['Labels']['crosszone.session']==SESSION
+    record['container_network'] = info['HostConfig']['NetworkMode']
+    hashes=execute(['docker','exec',container,'sha256sum','/opt/sim/cann-env.sh','/opt/sim/plugins/libUBusSimulator.so']).decode().splitlines()
+    record['environment_hashes']=dict(line.split(None,1)[::-1] for line in hashes)
+    (root/'identity.json').write_text(json.dumps(record,indent=2))
+    start=time.monotonic()
+    with (root/'container-build.log').open('wb') as log:
+        proc=subprocess.run(['docker','exec',container,'timeout','--kill-after=15','1250','/bin/bash','/work/build.sh'],
+                            stdout=log,stderr=subprocess.STDOUT,timeout=1290)
+    record.update(build_exit=proc.returncode, wall_seconds=time.monotonic()-start)
+    summary=root/'build-summary.json'
+    record['build']=json.loads(summary.read_text()) if summary.is_file() else {'all_compiled':False,'missing_summary':True}
+    if proc.returncode == 0 and record['build']['all_compiled']:
+        profile_start = time.monotonic()
+        command = ('source /opt/sim/cann-env.sh; '
+                   'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
+                   '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
+                   'exec python3 /work/bootstrap-tools/build_profile.py')
+        with (root/'profile-build.log').open('xb') as log:
+            profile = subprocess.run(['docker','exec',container,'timeout','--kill-after=15','420',
+                                      'bash','-c',command], stdout=log,stderr=subprocess.STDOUT,timeout=445)
+        summary = root/'profile-build/build-summary.json'
+        record['profile'] = json.loads(summary.read_text()) if summary.is_file() else {'all_compiled': False}
+        record.update(profile_exit=profile.returncode, profile_build_seconds=time.monotonic()-profile_start)
+    (root/'bootstrap-result.json').write_text(json.dumps(record,indent=2))
+    print(json.dumps(record,separators=(',',':')))
+    return 0 if proc.returncode==0 and record['build']['all_compiled'] and record.get('profile_exit') == 0 else 1
+
+
+def main(request):
+    return build(request)

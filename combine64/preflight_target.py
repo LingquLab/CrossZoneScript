@@ -7,23 +7,28 @@ from check_sim_target import DEFAULT_CONFIG, check_fallback, config_path
 from check_target_format import HOST, valid_deployment
 
 
+def read_target_config(fingerprint):
+    raw = config_path(DEFAULT_CONFIG).read_text(encoding='utf-8-sig')
+    if len(raw) > 65536:
+        raise ValueError('unexpected_config_size')
+    repaired = False
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        if error.msg != 'Extra data' or raw[error.pos:error.pos + 1] != ':':
+            raise
+        candidate = json.loads('{' + raw + '}')
+        if not valid_deployment(candidate):
+            raise ValueError('unverified_object_member') from None
+        data, repaired = candidate, True
+    if fingerprint and valid_deployment(data):
+        data[HOST]['server']['host_key_sha256'] = fingerprint
+    return data, repaired
+
+
 def main(fingerprint):
     try:
-        raw = config_path(DEFAULT_CONFIG).read_text(encoding='utf-8-sig')
-        if len(raw) > 65536:
-            return {'status': 'unexpected_config_size'}
-        repaired = False
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as error:
-            if error.msg != 'Extra data' or raw[error.pos:error.pos + 1] != ':':
-                raise
-            candidate = json.loads('{' + raw + '}')
-            if not valid_deployment(candidate):
-                return {'status': 'invalid_json', 'reason': 'unverified_object_member'}
-            data, repaired = candidate, True
-        if fingerprint and valid_deployment(data):
-            data[HOST]["server"]["host_key_sha256"] = fingerprint
+        data, repaired = read_target_config(fingerprint)
         result = check_fallback(data, HOST)
         if repaired:
             result['config_parsed_as_object_member'] = True
