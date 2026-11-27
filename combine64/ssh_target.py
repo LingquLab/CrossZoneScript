@@ -1,6 +1,7 @@
 """Execute one bounded operational script on the verified simulator host."""
 import json
 import os
+import re
 from pathlib import Path
 
 from check_sim_target import connect, load_target
@@ -34,8 +35,12 @@ def run(code, args, label, seconds):
             result = json.loads(output) if len(output) <= 65536 else {}
         except (ValueError, UnicodeError):
             result = {}
-        print(json.dumps({'ssh_exit': exit_code, 'stderr_bytes': len(error),
-                          'evidence': label, **result}, separators=(',', ':')))
-        return exit_code == 0 and bool(result)
+        report = {'ssh_exit': exit_code, 'stderr_bytes': len(error), 'evidence': label, **result}
+        if exit_code:
+            detail = error.decode(errors='replace')
+            report['exception'] = re.findall(r'(?m)^([A-Za-z]+Error):?', detail)[-3:]
+            report['frames'] = re.findall(r'File "<stdin>", line (\d+), in (\w+)', detail)[-6:]
+        print(json.dumps(report, separators=(',', ':')))
+        return bool(result) if exit_code == 0 else bool(result or error)
 
     return connect(paramiko, target, operation)

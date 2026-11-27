@@ -64,12 +64,9 @@ def host_main(args):
                 saved = read(path)
                 saved.pop('command', None)
                 if key == 'run':
-                    saved['sst_elapsed_seconds'] = round(time.time()-saved['started_unix'], 2)
+                    saved['sst_elapsed_seconds'] = saved.get('sst_wall_seconds') or round(time.time()-saved['started_unix'], 2)
                 result[key] = saved
         log = case/'sim.log'
-        if 'current' in record:
-            keep = ('stage','status','attempt','elapsed_s','cpu_ticks','process_state','returncode','error')
-            record['current'] = {key:value for key,value in record['current'].items() if key in keep}
         if log.is_file():
             with log.open('rb') as file:
                 size = file.seek(0, 2)
@@ -163,7 +160,9 @@ def campaign_status(args):
         if run.is_file():
             record['current'] = read(run)
             record['current'].pop('command', None)
-            record['current']['elapsed_s'] = round(time.time() - record['current']['started_unix'], 2)
+            if 'started_unix' in record['current']:
+                record['current']['elapsed_s'] = record['current'].get('sst_wall_seconds') or round(
+                    time.time() - record['current']['started_unix'], 2)
             if record['current']['status'] == 'running':
                 identity = read(root/'identity.json')
                 check = subprocess.run(['docker','exec',identity['container_id'],'cat',
