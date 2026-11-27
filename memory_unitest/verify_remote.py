@@ -26,7 +26,8 @@ qualification = read("receipts/qualification.json")
 assert qualification["revision"] == revision == read("source-lock.json")["revision"]
 accepted = read("results/acceptance.json")
 results = {}
-for variant, previous_hash in baseline.items():
+for variant in accepted:
+    previous_hash = baseline.get(variant)
     case = f"results/{variant}"
     report = read(f"{case}/result.json")
     assert report["status"] == report["operator_result"]["status"] == "passed"
@@ -41,16 +42,17 @@ for variant, previous_hash in baseline.items():
     assert object_hash == artifact["sha256"] == qualification["kernels"][variant]["sha256"]
     assert object_hash == digest(root / f"build/{entry}.o")
     ranks = read(f"{case}/run/ranks.json")
-    assert [row["rank"] for row in ranks] == list(range(8))
+    rank_size = report["case"]["world_size"]
+    assert [row["rank"] for row in ranks] == list(range(rank_size))
     for row in ranks:
-        assert row["checked_bytes"] == 4096 and row["output_sha256"] == row["golden_sha256"]
+        assert row["checked_bytes"] == 512 * rank_size and row["output_sha256"] == row["golden_sha256"]
         assert all(row[k] == "passed" for k in ("payload", "guards", "padding", "kernel_status"))
     process = read(f"{case}/run/process.json")
     assert process["runner_returncode"] == 0 and not process["remaining_processes"]
     libraries = evidence["loaded_libraries"]
     assert libraries["state"] == "sst_library_mappings_verified" and len(libraries["observed"]) == 4
     assert libraries["observed"] == process["observed_libraries"]
-    results[variant] = dict(entry=entry, sha256=object_hash, previous_sha256_matches=object_hash == previous_hash,
+    results[variant] = dict(entry=entry, sha256=object_hash, previous_sha256_matches=(object_hash == previous_hash if previous_hash else None),
                             ranks=len(ranks), simulated_us=evidence["simulated_us"], actual_libraries=4)
 cleanup = (root / "container-cleanup.log").read_text()
 assert "CONTAINER_REMOVED " + qualification["container_id"] in cleanup

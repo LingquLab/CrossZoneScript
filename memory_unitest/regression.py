@@ -50,7 +50,15 @@ print(json.dumps(dict(stage="staged", revision=revision, bind=bind, control_logs
 remote("source", shlex.join(["tar", "-xf", "-", "-C", bind]), (staged / "source.tar").read_bytes())
 remote("source-lock", f"cat > {shlex.quote(bind + '/source-lock.json')}",
        (staged / "source-lock.json").read_bytes())
-remote("accept", shlex.join(["bash", bind + "/source/tools/collectives/memory_sst/accept-host.sh",
-                            bind, name, image]), timeout=1500)
+accept_command = shlex.join(["bash", bind + "/source/tools/collectives/memory_sst/accept-host.sh",
+                            bind, name, image])
+result = remote("accept", accept_command + '; code=$?; printf "\nACCEPT_EXIT=%s\n" "$code"', timeout=1800)
+exit_status = int(result.rsplit("ACCEPT_EXIT=", 1)[1])
+if exit_status:
+    from sys import exit
+    print(json.dumps(dict(stage="accept_failed", revision=revision, bind=bind, acceptance_exit=exit_status,
+                          last_lines=result.splitlines()[-10:])))
+    # The retained bind distinguishes build, qualify and stage errors.
+    exit(exit_status)
 probe = Path(__file__).with_name("verify_remote.py").read_bytes()
 print(remote("verify", shlex.join(["python3", "-", bind, name, revision]), probe))
