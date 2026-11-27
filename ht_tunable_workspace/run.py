@@ -339,7 +339,7 @@ else:
         '    exec(compile(body, name, "exec"), module.__dict__)\n'
         '    globals()[name] = module\n',
         fixture, (here / 'profile.py').read_text(), (here / 'sync_layout.py').read_text(),
-        f'CASE = {case!r}\nKERNEL_SHA256 = {binary_sha!r}\n'
+        f'CASE = {case!r}\nENTRY = {entry!r}\nKERNEL_SHA256 = {binary_sha!r}\n'
         f'TOKENS = {tokens}\nHIDDEN = {256 if bf16 else 128}\nCHUNKS = {len(ends)}\nMODE = {mode!r}\n'
         f'PROFILE = {profile!r}\nBF16 = {bf16!r}\nCAST_FIX = {cast_fix!r}\n'
         f'CONTAINER_MEMORY_GIB = {256 if memory_retry else 32}\n',
