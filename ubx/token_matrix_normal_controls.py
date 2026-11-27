@@ -97,7 +97,7 @@ def main():
         outcome=run(bs,mt,phase=='smoke')
         outcomes.append(bool(outcome))
         emit({'event':'control_outcome','bs':bs,'mt':mt,'profile':profile,'passed':bool(outcome)})
-    emit({'event':'DONE','passed':True,'phase':phase,'cases':len(cases),'ep':32})
+    emit({'event':'DONE','passed':all(outcomes),'phase':phase,'cases':len(cases),'ep':32})
     return 0 if all(outcomes) else 1
 
 raise SystemExit(main())
