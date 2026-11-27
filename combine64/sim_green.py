@@ -115,6 +115,8 @@ def main():
         assert set(args['stage_timeouts']) == set(stages)
         args['stage_timeouts']['joint-reuse-final'] = args['stage_timeouts']['joint-final']
         remote_seconds = 160 + stage_budget(stages, args['stage_timeouts'], timeout, tokens)
+    if args.get('systemd_unit'):
+        assert action == 'multi-jetty-bs'
     if args.get('replace_legacy_batch'):
         assert (action, candidate, tokens, attempt) == ('joint-final', 'd04fde0', 4, 1)
         assert (args.get('intra_cores', 8), args.get('peer_slots', 1)) == (8, 1)
@@ -138,7 +140,12 @@ def main():
     args.update(tokens=tokens, attempt=attempt, timeout=timeout)
     args['files'] = {name: (here / name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
     code = (here / 'sim_host.py').read_text(encoding='utf-8')
-    if action == 'multi-jetty-bs':
+    if args.get('systemd_unit'):
+        driver = code + '\nraise SystemExit(main(' + repr(args) + '))\n'
+        code = (here / 'run_sim_unit.py').read_text(encoding='utf-8')
+        code += f'\nraise SystemExit(run_unit({driver!r}, {tokens}, {attempt}, {remote_seconds}))\n'
+        remote_seconds += 70
+    elif action == 'multi-jetty-bs':
         # Keep foreground SSH sessions active while SST writes to its own log.
         code += """
 import threading
@@ -157,8 +164,13 @@ raise SystemExit(result)
 """
     else:
         code += '\nraise SystemExit(main(' + repr(args) + '))\n'
+    ssh_client = 'ssh'
+    if args.get('windows_openssh'):
+        executable = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/OpenSSH/ssh.exe'
+        assert executable.is_file()
+        ssh_client = str(executable)
     ssh = [
-        'ssh', '-T', '-i', str(Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'),
+        ssh_client, '-T', '-i', str(Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'),
         '-p', '22', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
         '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=12',
         '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3',
@@ -173,7 +185,7 @@ raise SystemExit(result)
         stem.with_suffix('.stderr').write_bytes(proc.stderr)
         lines = [line for line in proc.stdout.splitlines() if line and line != b'sst-alive']
         report = json.loads(lines[-1]) if lines else {'stage': 'ssh'}
-        if action == 'multi-jetty-bs':
+        if action == 'multi-jetty-bs' and not args.get('systemd_unit'):
             report['ssh_heartbeats'] = proc.stdout.splitlines().count(b'sst-alive')
         report.update(ssh_exit=proc.returncode, ssh_stderr_bytes=len(proc.stderr))
         print(json.dumps(report, separators=(',', ':')))
