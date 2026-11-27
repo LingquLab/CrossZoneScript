@@ -82,12 +82,6 @@ def preflight(cleanup=False):
     library, = (p for p in RUNTIME_INSTALL.glob("lib*/libtile-comm.so") if p.is_file())
     digest = hashlib.sha256(library.read_bytes()).hexdigest()
     assert digest == receipt["runtime_sha256"]
-    pids = occupants()
-    cleanup_report = {"term_sent": 0, "kill_sent": 0}
-    if pids and cleanup:
-        cleanup_report = clear_occupants(pids)
-        pids = occupants()
-    assert not pids, "NPU occupied after preflight"
     alarms = []
     for device in range(16):
         health = subprocess.check_output(
@@ -105,6 +99,17 @@ def preflight(cleanup=False):
     for port in range(PORT, PORT + port_count):
         with socket.socket() as probe:
             probe.bind(("0.0.0.0", port))
+    pids = occupants()
+    cleanup_report = {"term_sent": 0, "kill_sent": 0}
+    for _ in range(3):
+        if not pids or not cleanup:
+            break
+        counts = clear_occupants(pids)
+        for key, count in counts.items():
+            cleanup_report[key] += count
+        pids = occupants()
+    (ROOT / f"{OUTPUT.name}-npu-cleanup.json").write_text(json.dumps(cleanup_report))
+    assert not pids, f"NPU occupied after preflight ({len(pids)} processes)"
     print(json.dumps({"ready": True, "idle": 16, "healthy": 16-len(alarms), "alarms": alarms, "port": PORT,
                       "runtime_sha256": digest, **cleanup_report}))
 
