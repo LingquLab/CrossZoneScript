@@ -9,7 +9,7 @@ from pathlib import Path
 root=Path('/root/ubx-control-ab-ep16-d23ffa56/empty-launch')
 root.mkdir(exist_ok=True)
 (root/'main.cpp').write_text(SOURCE)
-cmd='source /usr/local/Ascend/cann/set_env.sh >/dev/null 2>&1 && g++ -std=c++14 '+str(root/'main.cpp')+' -I/usr/local/Ascend/cann/include -I/usr/local/Ascend/cann/include/experiment -L/usr/local/Ascend/cann/lib64 -Wl,-rpath,/usr/local/Ascend/cann/lib64 -lascendcl -lruntime -o '+str(root/'empty_launch')
+cmd='source /usr/local/Ascend/cann/set_env.sh >/dev/null 2>&1 && g++ -std=c++14 '+str(root/'main.cpp')+' -I/usr/local/Ascend/cann/include -I/usr/local/Ascend/cann/include/experiment -I/usr/local/Ascend/cann/x86_64-linux/include/experiment/runtime -I/usr/local/Ascend/cann/x86_64-linux/runtime/include -L/usr/local/Ascend/cann/lib64 -Wl,-rpath,/usr/local/Ascend/cann/lib64 -lascendcl -lruntime -o '+str(root/'empty_launch')
 p=subprocess.run(['bash','-lc',cmd],capture_output=True,text=True,timeout=120)
 (root/'build.log').write_text(p.stdout+p.stderr)
 print(json.dumps({'build_exit':p.returncode,'errors':p.stderr.splitlines()[:8],'npu_launched':False}))
