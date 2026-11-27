@@ -70,25 +70,28 @@ def observe(host):
     return data
 
 
-def run(host, bundle, digest, comparison):
+def run(host, bundle, digest, comparison, resume=False):
     destination = GREEN / host
-    destination.mkdir()
-    ssh_output = destination / 'execution.log'
-    step = 'create-directory'
+    destination.mkdir(exist_ok=resume)
+    log = 'resume.log' if resume else 'execution.log'
+    step = 'verify-resume' if resume else 'create-directory'
     try:
-        assert ssh(host, f'mkdir {ROOT}').returncode == 0, step
-        step = 'upload-sources'
-        uploaded = command(SSH.with_name('scp.exe'), [str(bundle), f'root@{host}:{ROOT}/sources.tar'], 240)
-        assert uploaded.returncode == 0, step
+        if resume:
+            assert observe(host)['phase'] == 'occupancy 1'
+        else:
+            assert ssh(host, f'mkdir {ROOT}').returncode == 0, step
+            step = 'upload-sources'
+            uploaded = command(SSH.with_name('scp.exe'), [str(bundle), f'root@{host}:{ROOT}/sources.tar'], 240)
+            assert uploaded.returncode == 0, step
         step = 'build-and-run'
         script = Path(__file__).with_name('relay_bs32_remote.sh').read_bytes().replace(b'\r\n', b'\n')
-        cmd = shlex.join(['bash', '-s', '--', ROOT, digest, comparison])
-        executed = ssh(host, f'{cmd} > {ROOT}/execution.log 2>&1', 1360, script)
+        cmd = shlex.join(['bash', '-s', '--', ROOT, digest, comparison, 'resume' if resume else 'build'])
+        executed = ssh(host, f'{cmd} > {ROOT}/{log} 2>&1', 1360, script)
         step = 'collect-results'
         data = observe(host)
         data['exit_code'] = executed.returncode
         if executed.returncode != 0:
-            pull(host, 'execution.log', ssh_output)
+            pull(host, log, destination / log)
             return data
         for name in ('summary.json', 'last-round.json', 'slowest-rank-rounds.json'):
             assert pull(host, 'run/' + name, destination / name), name
@@ -127,14 +130,26 @@ def main():
         label += f'-retry{attempt}'
     ROOT = '/root/ubx-' + label + '-exclusive'
     GREEN = GREEN_BASE / label
+    receipt = GREEN / 'receipt.json'
     if args.get('status'):
-        receipt = GREEN / 'receipt.json'
         if receipt.is_file():
             print_report(json.loads(receipt.read_text()), comparison)
         else:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 print(json.dumps({'hosts': list(pool.map(observe, HOSTS))}))
         return True
+    resume_host = args.get('resume_host')
+    if resume_host:
+        assert resume_host in HOSTS
+        report = json.loads(receipt.read_text())
+        assert report['revision'] == REVISION
+        current, = (h for h in report['hosts'] if h['host'] == resume_host)
+        assert current['phase'] == 'occupancy 1'
+        recovered = run(resume_host, None, report['source_sha256'], comparison, resume=True)
+        report['hosts'] = [recovered if h['host'] == resume_host else h for h in report['hosts']]
+        receipt.write_text(json.dumps(report))
+        print_report(report, comparison)
+        return 'results' in recovered
     GREEN.mkdir(parents=True, exist_ok=False)
     try:
         with tempfile.TemporaryDirectory(prefix='ubx-relay-bs32-', dir=Path.cwd()) as directory:
@@ -144,7 +159,7 @@ def main():
         report = {'revision': REVISION, 'runtime_revision': RUNTIME, 'source_sha256': digest, 'hosts': hosts}
     except (AssertionError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         report = {'revision': REVISION, 'preparation_error': str(error)}
-    (GREEN / 'receipt.json').write_text(json.dumps(report))
+    receipt.write_text(json.dumps(report))
     print_report(report, comparison)
     return all('results' in host for host in report.get('hosts', [])) and 'hosts' in report
 

@@ -3,17 +3,23 @@ set -eo pipefail
 
 root=$1
 comparison=${3:-default}
+operation=${4:-build}
 phase=verify
 trap 'status=$?; printf "%s %s\n" "$phase" "$status" > "$root/status.txt"' EXIT
 printf '%s\n' "$phase" > "$root/status.txt"
-printf '%s  %s\n' "$2" "$root/sources.tar" | sha256sum --check --status
-tar -xf "$root/sources.tar" -C "$root"
-mkdir "$root/source" "$root/runtime"
-tar -xf "$root/source.tar.gz" -C "$root/source"
-tar -xf "$root/runtime.tar.gz" -C "$root/runtime"
-for dep in spdlog picojson; do
-    tar -xf "$root/$dep.tar.gz" -C "$root/runtime/3rdparty/$dep"
-done
+if [[ $operation == resume ]]; then
+    test ! -e "$root/run"
+    sha256sum --check --status "$root/artifacts.sha256"
+else
+    printf '%s  %s\n' "$2" "$root/sources.tar" | sha256sum --check --status
+    tar -xf "$root/sources.tar" -C "$root"
+    mkdir "$root/source" "$root/runtime"
+    tar -xf "$root/source.tar.gz" -C "$root/source"
+    tar -xf "$root/runtime.tar.gz" -C "$root/runtime"
+    for dep in spdlog picojson; do
+        tar -xf "$root/$dep.tar.gz" -C "$root/runtime/3rdparty/$dep"
+    done
+fi
 
 phase=environment
 printf '%s\n' "$phase" > "$root/status.txt"
@@ -26,32 +32,35 @@ done
 test -n "${ASCEND_HOME_PATH:-}"
 printf '%s\n' "$ASCEND_HOME_PATH" > "$root/toolkit.txt"
 
-phase=runtime-build
-printf '%s\n' "$phase" > "$root/status.txt"
-cmake -S "$root/runtime" -B "$root/runtime-build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-    -DTILEXR_BUILD_TESTS=OFF -DTILEXR_BUILD_UNITEST=OFF -DTILEXR_BUILD_RDMA=ON \
-    -DCMAKE_INSTALL_PREFIX="$root/install"
-cmake --build "$root/runtime-build" -j8
-cmake --install "$root/runtime-build"
-
-phase=benchmark-build
-printf '%s\n' "$phase" > "$root/status.txt"
 release="$root/source/dispatch/dispatch-release"
-cmake -S "$release" -B "$root/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-    -DUBX_BUILD_HARDWARE_TESTS=ON -DTILEXR_INSTALL="$root/install"
-cmake --build "$root/build" --target ubx_relay_bench_worker -j8
-sha256sum "$root/build/ubx_dispatch_ep32.o" "$root/build/ubx_dispatch_round_barrier.o" \
-    "$root/build/ubx_relay_bench_worker" > "$root/artifacts.sha256"
+if [[ $operation == build ]]; then
+    phase=runtime-build
+    printf '%s\n' "$phase" > "$root/status.txt"
+    cmake -S "$root/runtime" -B "$root/runtime-build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        -DTILEXR_BUILD_TESTS=OFF -DTILEXR_BUILD_UNITEST=OFF -DTILEXR_BUILD_RDMA=ON \
+        -DCMAKE_INSTALL_PREFIX="$root/install"
+    cmake --build "$root/runtime-build" -j8
+    cmake --install "$root/runtime-build"
+
+    phase=benchmark-build
+    printf '%s\n' "$phase" > "$root/status.txt"
+    cmake -S "$release" -B "$root/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        -DUBX_BUILD_HARDWARE_TESTS=ON -DTILEXR_INSTALL="$root/install"
+    cmake --build "$root/build" --target ubx_relay_bench_worker -j8
+    sha256sum "$root/build/ubx_dispatch_ep32.o" "$root/build/ubx_dispatch_round_barrier.o" \
+        "$root/build/ubx_relay_bench_worker" > "$root/artifacts.sha256"
+fi
 
 phase=occupancy
 printf '%s\n' "$phase" > "$root/status.txt"
-python3 - "$root" <<'PY'
+python3 - "$root" "$operation" <<'PY'
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 def probe(device):
     try:
@@ -66,11 +75,16 @@ def probe(device):
         pass
     return 'unknown'
 
-with ThreadPoolExecutor(max_workers=8) as pool:
-    devices = list(pool.map(probe, range(16)))
-occupancy = {state: [i for i, value in enumerate(devices) if value == state]
-             for state in ('idle', 'busy', 'unknown')}
-(Path(sys.argv[1]) / 'occupancy.json').write_text(json.dumps(occupancy))
+deadline = time.monotonic() + (120 if sys.argv[2] == 'resume' else 0)
+while True:
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        devices = list(pool.map(probe, range(16)))
+    occupancy = {state: [i for i, value in enumerate(devices) if value == state]
+                 for state in ('idle', 'busy', 'unknown')}
+    (Path(sys.argv[1]) / 'occupancy.json').write_text(json.dumps(occupancy))
+    if occupancy['idle'] == list(range(16)) or time.monotonic() >= deadline:
+        break
+    time.sleep(5)
 assert occupancy['idle'] == list(range(16)), occupancy
 PY
 
