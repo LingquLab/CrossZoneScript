@@ -3,7 +3,60 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
+import subprocess
 import tempfile
+
+
+REMOTE_REPORT = r"""
+import collections
+import json
+from pathlib import Path
+import re
+import sys
+
+bind = Path(sys.argv[1])
+suite = bind / 'jetty_peers-suite'
+report = {'suite_present': suite.is_dir()}
+for name in ('execution.json', 'runner.log'):
+    report[name] = (suite / name).is_file()
+sim_logs = sorted((suite / 'runs').glob('*/sim.log'))
+for log in sim_logs[-1:]:
+    with log.open('rb') as stream:
+        start = stream.read(32768).decode(errors='replace')
+        stream.seek(max(0, log.stat().st_size - 32768))
+        tail = stream.read().decode(errors='replace')
+    cycles = [int(item) for item in re.findall(r'\b([0-9]+)\(cycle\)', tail)]
+    entries = re.findall(r'\[Element: ([^\]]+)\]', tail)
+    report['sim_log'] = {
+        'bytes': log.stat().st_size, 'last_cycle': max(cycles, default=None),
+        'tail_elements': collections.Counter(re.sub(r'\d+', '#', element) for element in entries).most_common(8),
+        'terminal_messages': [line.strip()[:350] for line in tail.splitlines()
+                              if any(tag in line for tag in ('FATAL:', 'Simulation is complete', 'TIMEOUT'))][-5:],
+        'mentions_kernel': 'jetty_peers' in start or 'jetty_peers' in tail,
+    }
+if (suite / 'runner.log').is_file():
+    with (suite / 'runner.log').open('rb') as stream:
+        stream.seek(max(0, (suite / 'runner.log').stat().st_size - 8192))
+        report['runner_tail'] = [line.strip()[:350] for line in stream.read().decode(errors='replace').splitlines()
+                                 if any(tag in line.lower() for tag in ('timeout', 'timed out', 'exit_code', 'error'))][-5:]
+trace = [path for path in suite.rglob('*') if path.is_file()
+         and re.search(r'(^|[/_.-])(trace|instr|dump|inst)([/_.-]|$)', path.relative_to(suite).as_posix(), re.I)]
+report['trace_files'] = [(path.relative_to(suite).as_posix(), path.stat().st_size) for path in trace[:12]]
+print(json.dumps(report))
+"""
+
+
+def read_remote(bind):
+    if not re.fullmatch(r"/opt/tilexr-urma-unitest\.[A-Za-z0-9]{8}", bind):
+        raise ValueError("unexpected Shared Jetty bind directory")
+    command = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-i",
+               str(Path.home() / ".ssh/id_ed25519_server"), "root@141.61.94.30",
+               shlex.join(["python3", "-B", "-c", REMOTE_REPORT, bind])]
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    if completed.returncode:
+        return {"read_exit_code": completed.returncode}
+    return json.loads(completed.stdout)
 
 
 def get_report(output):
@@ -32,7 +85,8 @@ def get_report(output):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", required=True, type=Path)
-    revisions = set(json.loads(parser.parse_args().args_file.read_bytes())["revisions"])
+    config = json.loads(parser.parse_args().args_file.read_bytes())
+    revisions = set(config["revisions"])
     if not revisions or any(not re.fullmatch(r"[0-9a-f]{40}", revision) for revision in revisions):
         parser.error("supply complete commit IDs")
     records = []
@@ -50,6 +104,9 @@ def main():
                    cleanup_receipt=(work / "cleanup.stdout.log").is_file())
         if row["result_present"]:
             row.update(get_report(output))
+        if config.get("read_remote") is True and (work / "bind.stdout.log").is_file():
+            with (work / "bind.stdout.log").open() as bind:
+                row["remote"] = read_remote(bind.read().strip())
         records.append(row)
     print(json.dumps({"records": records}))
 
