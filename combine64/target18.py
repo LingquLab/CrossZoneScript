@@ -71,9 +71,10 @@ def main():
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action, bs = args['action'], args['bs']
-    assert action in ('build-and-run', 'run', 'resume', 'status', 'sq-overlap', 'reuse-fault') and bs in (4, 32, 128)
+    assert action in ('build-and-run', 'run', 'resume', 'status', 'sq-overlap', 'reuse-fault', 'finish')
+    assert bs in (4, 32, 128)
     args['host'] = HOST
-    if action not in ('status', 'sq-overlap', 'reuse-fault'):
+    if action in ('build-and-run', 'run', 'resume'):
         points = args['points']
         assert points and points == [point for point in POINTS if point in points]
         assert type(args['timeout']) is int and 60 <= args['timeout'] <= 7200
@@ -107,14 +108,15 @@ def main():
                 print(json.dumps(report, separators=(',', ':')))
                 return code
             args['action'] = 'run'
-        if action != 'status':
+        has_points = action in ('build-and-run', 'run', 'resume')
+        if has_points:
             args['files'] = {name: (DIRECTORY / name).read_text(encoding='utf-8') for name in TOOLS}
         seconds = 90
-        if action != 'status':
+        if has_points:
             seconds += len(args['points']) * (args['timeout'] + {4:300, 32:490, 128:1000}[bs])
         if action == 'resume':
             seconds += 485
-        if action != 'status' and any(point.startswith('joint') for point in args['points']):
+        if has_points and any(point.startswith('joint') for point in args['points']):
             seconds += 485
         code, matrix = execute(client, 'matrix_host.py', args, seconds, log)
     report.update(matrix)

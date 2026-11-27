@@ -259,6 +259,36 @@ def matrix_status(root, cid, journal, bs, compact=False, point=None):
     return 0
 
 
+def finish_matrix(root, cid, journal):
+    expected = {f'{bs}-{point}' for bs in (4, 32, 128) for point in POINTS}
+    with (root / 'matrix.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        rows = json_file(journal)
+        assert rows.keys() == expected
+        assert all(passed(row) and row['candidate_commit'] == REVISION for row in rows.values())
+        assert len({row['model_config']['sha256'] for row in rows.values()}) == 1
+        assert len({row['environment_sha256'] for row in rows.values()}) == 1
+        assert all(row['port_jetties'] == ([1, 1] if name.endswith('16x16') else [2, 1])
+                   for name, row in rows.items() if '-local-' not in name)
+        for row in rows.values():
+            case = Path(row['case'])
+            assert case.parent == root / 'cases'
+            assert (case / 'phase-result.json').is_file() and (case / 'sim.log').is_file()
+        processes = subprocess.check_output(['docker', 'top', cid], timeout=15).decode()
+        assert not re.search(r'sstsim|sim_case\.py|build_profile\.py', processes)
+        subprocess.run(['docker', 'stop', '--time', '5', cid], capture_output=True, check=True, timeout=20)
+        running = subprocess.check_output(
+            ['docker', 'inspect', '--format', '{{.State.Running}}', cid], timeout=15).strip()
+        assert running == b'false' and journal.is_file()
+    first = next(iter(rows.values()))
+    print(json.dumps({
+        'revision': REVISION, 'image': IMAGE, 'model': first['model_config'], 'passed': len(rows),
+        'checked_ranks_per_case': 64, 'profiling_dropped_records': 0, 'container_stopped': True,
+        'evidence_preserved': True,
+    }, separators=(',', ':')))
+    return 0
+
+
 def main(request):
     bs = request['bs']
     host = request.get('host', 'host-94-26')
@@ -267,6 +297,8 @@ def main(request):
     root = SESSION_ROOT / f'run-{REVISION[:7]}{suffix}-a1'
     journal = root / 'matrix-results.json'
     cid = task_container(root, REVISION)
+    if request['action'] == 'finish':
+        return finish_matrix(root, cid, journal)
     if request['action'] == 'status':
         return matrix_status(root, cid, journal, bs, request.get('compact', False), request.get('point'))
     points = request['points']
