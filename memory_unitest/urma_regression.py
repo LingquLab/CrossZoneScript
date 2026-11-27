@@ -15,8 +15,9 @@ parser.add_argument("--args-file", type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text())
 revision = args["revision"]
 matrix = args.get("full_cases", [])
+staged_cases = {"jetty_peers", "jetty_peers_prefill", "jetty_peers_progress"}
 for value in matrix:
-    if value not in ("clos_4plus8", "clos_8plus8", "syncall", "clock", "nosync"):
+    if value not in staged_cases | {"clos_4plus8", "clos_8plus8", "syncall", "clock", "nosync"}:
         raise SystemExit("invalid Full variant")
 if not re.fullmatch(r"[a-f0-9]{40}", revision):
     raise SystemExit("invalid TileXR revision")
@@ -80,7 +81,7 @@ try:
         remote(dep + "-stage", f"mkdir -p {target} && tar -xf - -C {target}",
                data=run(dep + "-archive", ["git", "archive", expected], cwd=repo / submodule))
     build = Path(__file__).with_name("urma_build.sh").read_bytes()
-    targets = ([f"tilexr_alltoall_urma_full_{value}_kernel_sst" for value in matrix]
+    targets = ([f"tilexr_alltoall_urma_{value if value in staged_cases else 'full_' + value}_kernel_sst" for value in matrix]
                if matrix else ["tilexr_alltoall_urma_lr8_kernel_sst"])
     remote("build", shlex.join(["bash", "-s", "--", bind, name, image, *targets]), timeout=900, data=build)
     container = remote("identity", f"cat {shlex.quote(bind + '/container-id.txt')}")
@@ -115,9 +116,9 @@ try:
     cases = ([(value, None) for value in matrix] if matrix else
              [("no_credit", 0), ("credit", 2**32-1), ("clock", 35863)])
     for mode, period in cases:
-        kernel = f"urma_full_{mode}" if matrix else "urma_lr8"
-        ranks = 16 if mode.startswith("clos_") else 64 if matrix else 32
-        elements = (8192 if ranks == 16 else 2048) if matrix else 128
+        kernel = f"urma_{mode}" if mode in staged_cases else f"urma_full_{mode}" if matrix else "urma_lr8"
+        ranks = 8 if mode in staged_cases else 16 if mode.startswith("clos_") else 64 if matrix else 32
+        elements = {8: 128, 16: 8192, 32: 128, 64: 2048}[ranks]
         qualification_name = kernel
         qualification = work / qualification_name
         if not qualification.exists():
@@ -146,7 +147,12 @@ try:
                           simulation_timeout=1200, tool_checkout=str(repo), tool_commit=revision, inventory=str(inventory),
                           request_file=str(request_file), suite_output="/work/" + mode + "-suite",
                           build_report=str(qualification / "verify"), abi_report=str(qualification / "abi")))
-        case = f"alltoall_full_{mode}_sst.json" if matrix else f"alltoall_lr8_{mode}_32p_sst.json"
+        if mode in staged_cases:
+            case = f"alltoall_{mode}_sst.json"
+        elif matrix:
+            case = f"alltoall_full_{mode}_sst.json"
+        else:
+            case = f"alltoall_lr8_{mode}_32p_sst.json"
         run(mode, [sys.executable, "-B", "-m", "tools.unitest.controller", "--case",
                    "tools/unitest/cases/" + case, "--target", "sst", "--mode", "single", "--no-profiling",
                    "--sim-config", str(config), "--output-dir", str(output)], cwd=repo, timeout=1800)
