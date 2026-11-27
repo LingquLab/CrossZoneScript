@@ -20,7 +20,7 @@ revision = subprocess.check_output(["git", "-C", checkout, "rev-parse", "HEAD"],
 assert revision == "186dfa18a0358add6af8ef237ebca23edffa86f5"
 assert not any("FP32=1" in arg for arg in compiler)
 mode = sys.argv[2].removeprefix("--") if len(sys.argv) == 3 else "probe"
-assert mode in ("probe", "trace", "isolate", "raw", "sync", "vec")
+assert mode in ("probe", "trace", "isolate", "raw", "sync", "vec", "post")
 with tempfile.TemporaryDirectory(prefix="tilexr-reduce-probe-") as scratch:
     raw = Path(scratch) / "probe.o"
     rel = Path(scratch) / "probe_rel.o"

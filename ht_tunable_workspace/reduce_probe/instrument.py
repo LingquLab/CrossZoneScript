@@ -139,7 +139,12 @@ def write_headers(destination, root, mode):
     (destination / "probe_snapshot.h").write_text(SNAPSHOT)
     pipes = {"isolate": "PIPE_ALL", "raw": "PIPE_MTE2", "sync": "PIPE_MTE3", "vec": "PIPE_V"}
     def gateway_instrument(source):
-        return gateway(source) if mode == "trace" else gateway_barrier(source, pipes[mode])
+        if mode == "trace":
+            return gateway(source)
+        if mode == "post":
+            return replace(source, "                GlobalTensor<bfloat16_t> partial_output_gm;",
+                           "                PipeBarrier<PIPE_ALL>();\n                GlobalTensor<bfloat16_t> partial_output_gm;")
+        return gateway_barrier(source, pipes[mode])
 
     sources = {"combine_ht_kernel.h": (root / "src/moonep/combine_ht/kernels", gateway_instrument),
                "final_reduce_worker.h": (root / "src/ep/combine_ht", lambda source: final(source, mode))}
