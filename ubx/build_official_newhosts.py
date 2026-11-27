@@ -7,7 +7,7 @@ files={p.name:p.read_text().replace('aclrtSetDevice(6)', 'aclrtSetDevice(1)').re
 remote="""import json,subprocess,shlex
 from pathlib import Path
 root=Path('/root/ubx-control-ab-ep16-d23ffa56/official-hello')
-root.mkdir(exist_ok=True)
+root.mkdir(parents=True,exist_ok=True)
 for name,data in FILES.items(): (root/name).write_text(data)
 commands=[['cmake','-S',str(root),'-B',str(root/'build'),'-DCMAKE_ASC_ARCHITECTURES=dav-3510'],['cmake','--build',str(root/'build'),'-j4']]
 rows=[]
@@ -21,6 +21,8 @@ print(json.dumps({'build_exit':rows[-1]['exit'],'stages':rows,'npu_launched':Fal
 """.replace('FILES',repr(files),1)
 for host in ['90.90.93.81','90.90.93.83']:
  p=subprocess.run(ssh+['root@'+host,'python3 -'],input=remote,text=True,capture_output=True,timeout=150)
+ if p.returncode!=0:
+  print(json.dumps({'host':host,'remote_exit':p.returncode,'diagnostic_tail':p.stderr.splitlines()[-4:]}))
  assert p.returncode==0
  r=json.loads(p.stdout);r['host']=host;print(json.dumps(r))
  assert r['build_exit']==0
