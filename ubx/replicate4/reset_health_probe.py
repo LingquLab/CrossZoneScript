@@ -17,6 +17,8 @@ def command(argv, timeout):
     started = time.monotonic()
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except OSError as error:
+        output, stderr, exit_code = "", error.strerror or type(error).__name__, -1
     except subprocess.TimeoutExpired as error:
         output = (error.stdout or b"").decode(errors="replace")
         stderr = (error.stderr or b"").decode(errors="replace")
@@ -45,7 +47,7 @@ kernel = [line[-240:] for line in logs["output"].splitlines()
 processes = Counter()
 for stat in Path("/proc").glob("[0-9]*/stat"):
     try:
-        data = stat.read_text()
+        data = stat.read_text(errors="replace")
         fields = data.rsplit(") ",1)[1].split()
     except (OSError, IndexError):
         continue
@@ -59,4 +61,14 @@ print(json.dumps(dict(visible=base, devices=devices, kernel_tail=kernel[-6:],
 """
 
 if __name__ == "__main__":
-    print(ssh("90.90.93.84", "python3 -", payload=PROBE.encode(), timeout=110).decode().strip())
+    previous = Path.cwd() / "runs/replicate4-reset-health-probe/1/execution/stderr.log"
+    result = {}
+    if previous.is_file():
+        failures = [line.strip() for line in previous.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if "Error:" in line]
+        result["previous_error"] = failures[-1][:250] if failures else None
+    try:
+        result["probe"] = json.loads(ssh("90.90.93.84", "python3 -", payload=PROBE.encode(), timeout=110))
+    except RuntimeError as error:
+        result["probe_error"] = str(error)[:250]
+    print(json.dumps(result, separators=(",", ":")))
