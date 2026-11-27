@@ -194,6 +194,40 @@ for process in Path('/proc').glob('[0-9]*'):
     assert result.returncode == 0 and json_file(summary)['all_compiled'], 'profile_build_failed'
 
 
+def matrix_status(root, cid, journal, bs):
+    all_rows = json_file(journal) if journal.exists() else {}
+    rows = {name: row for name, row in all_rows.items() if name.startswith(f'{bs}-')}
+    progress_file = root / 'progress.json'
+    progress = json_file(progress_file) if progress_file.exists() else {}
+    report = {'results': rows, 'progress': progress}
+    name = progress.get('case')
+    if name and Path(name).name == name:
+        case = root / 'cases' / name
+        run = case / 'run.json'
+        if run.is_file():
+            saved = json_file(run)
+            report['current_run'] = {key: saved[key] for key in (
+                'stage', 'status', 'returncode', 'sst_wall_seconds', 'started_unix',
+            ) if key in saved}
+            if saved['status'] == 'running':
+                elapsed = time.time() - saved['started_unix']
+                pid = str(int(saved['pid']))
+                active = subprocess.run(['docker', 'exec', cid, 'test', '-d', '/proc/' + pid],
+                                        capture_output=True, timeout=10)
+                report['current_run'].update(elapsed_seconds=round(elapsed, 3), pid_present=active.returncode == 0)
+        log = case / 'sim.log'
+        if log.is_file():
+            with log.open('rb') as stream:
+                size = stream.seek(0, 2)
+                stream.seek(max(0, size - 65536))
+                cycles = re.findall(rb'Sim: (\d+)\(cycle\)', stream.read())
+            report['sim_log_bytes'] = size
+            if cycles:
+                report['last_cycle'] = int(cycles[-1])
+    print(json.dumps(report, separators=(',', ':')))
+    return 0
+
+
 def main(request):
     bs = request['bs']
     host = request.get('host', 'host-94-26')
@@ -203,10 +237,7 @@ def main(request):
     journal = root / 'matrix-results.json'
     cid = task_container(root, REVISION)
     if request['action'] == 'status':
-        rows = json_file(journal) if journal.exists() else {}
-        progress = root / 'progress.json'
-        print(json.dumps({'results': rows, 'progress': json_file(progress) if progress.exists() else {}}))
-        return 0
+        return matrix_status(root, cid, journal, bs)
     points = request['points']
     rows = []
     with (root / 'matrix.lock').open('a') as lock:
