@@ -2,11 +2,12 @@
 import argparse
 import json
 from pathlib import Path, PurePosixPath
+import re
 import tempfile
 
 import benchmark
 from benchmark import timings
-from retest_disjoint_routes import ROOT, main
+from retest_disjoint_routes import ROOT, REVISION as CONTROL_REVISION, WORK as CONTROL_WORK, main
 
 REVISION = "093dbcd714f8688697772569952c5811f846529b"
 WORK = ROOT + "-local-receive-" + REVISION[:7]
@@ -64,24 +65,33 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
     options = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-    destination = Path(options["destination"]) / ("replicate4-local-receive-bs32-" + REVISION[:7])
+    control = options.get("control", False)
+    revision, work = (CONTROL_REVISION, CONTROL_WORK) if control else (REVISION, WORK)
+    run_name = options.get("run_name", "full-bs32-f50")
+    assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
+    destination = Path(options["destination"]) / (
+        ("replicate4-control-bs32-" if control else "replicate4-local-receive-bs32-") + revision[:7]
+    )
     assert destination.is_absolute() and not destination.exists()
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".local-receive-", dir=destination.parent) as folder:
         collection = Path(folder) / "verified"
         collection.mkdir()
         if options.get("reuse_build", False):
-            benchmark.ROOT = PurePosixPath(WORK)
+            benchmark.ROOT = PurePosixPath(work)
             benchmark.HARDWARE = benchmark.ROOT / "source/dispatch/dispatch-release/tests/hardware"
-            benchmark.OUTPUT = benchmark.ROOT / "full-bs32-f50"
+            benchmark.OUTPUT = benchmark.ROOT / run_name
             benchmark.RUNTIME_INSTALL = PurePosixPath(ROOT) / "runtime-install"
-            benchmark.REVISION = REVISION
-            summary = benchmark.main(ports=(29500, 26500, 31000), cleanup=True, collection=collection,
+            benchmark.REVISION = revision
+            ports = (30500, 27000, 31000) if run_name != "full-bs32-f50" else (29500, 26500, 31000)
+            summary = benchmark.main(ports=ports, cleanup=True, collection=collection,
                                      allow_alarm=options.get("allow_alarm", False))
         else:
+            assert not control and run_name == "full-bs32-f50"
             summary = main(revision=REVISION, work=WORK, ports=(29500, 26500, 31000),
                            collection=collection, source_ref=SOURCE_REF)
-        summary["offloaded_local_receive"] = local_receive_metrics(collection)
+        if not control:
+            summary["offloaded_local_receive"] = local_receive_metrics(collection)
         summary["local_results"] = str(destination)
         (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         assert len(list(collection.glob("rank*/dispatch.last.trace.json"))) == 32
