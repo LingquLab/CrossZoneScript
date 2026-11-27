@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 import tempfile
 
 import benchmark
+import relay24_traces
 from build import HOSTS, ROOT, TILEXR, archive, pin
 from local_receive_timeout import compact, inspect
 from retest_disjoint_routes import build_dispatch
@@ -60,7 +61,8 @@ def build_candidate():
         assert builds[0] == builds[1]
 
 
-def run_benchmark(destination, work, revision, run_name, label, ports=(31500, 25000, 27000)):
+def run_benchmark(destination, work, revision, run_name, label, ports=(31500, 25000, 27000),
+                  traces_only=False):
     result_dir = destination / label
     assert destination.is_absolute() and destination.is_dir()
     assert not result_dir.exists()
@@ -72,11 +74,13 @@ def run_benchmark(destination, work, revision, run_name, label, ports=(31500, 25
     with tempfile.TemporaryDirectory(prefix=".relay24-", dir=destination) as staging:
         collection = Path(staging) / "verified"
         collection.mkdir()
-        summary = benchmark.main(ports=ports, collection=collection)
-        if revision == REVISION:
+        trace_collector = relay24_traces.collect if traces_only else None
+        summary = benchmark.main(ports=ports, collection=collection, trace_collector=trace_collector)
+        if revision == REVISION and not traces_only:
             summary.update(review_traces(collection), relay_workers=24)
         summary["local_results"] = str(result_dir)
-        (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        if not traces_only:
+            (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         assert len(list(collection.glob("rank*/dispatch.last.trace.json"))) == 32
         collection.rename(result_dir)
     print(json.dumps(summary, separators=(",", ":")))
@@ -110,6 +114,9 @@ if __name__ == "__main__":
     elif mode == "recalibrate":
         run_benchmark(destination, WORK, REVISION, "full-bs32-f50-relay24-recalibrate", candidate_label,
                       ports=(30500, 25000))
+    elif mode == "focused":
+        run_benchmark(destination, WORK, REVISION, "full-bs32-f50-relay24-focused", candidate_label + "-focused",
+                      ports=(30500, 25000), traces_only=True)
     elif mode == "diagnostics":
         save_failure_evidence(destination, WORK, "full-bs32-f50")
     elif mode == "control_diagnostics":

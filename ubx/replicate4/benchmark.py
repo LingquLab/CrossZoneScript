@@ -191,14 +191,27 @@ def read_verifier():
     return load_clock_results(source)
 
 
-def main(ports=(43000,), cleanup=False, collection=None, allow_alarm=False):
+def main(ports=(43000,), cleanup=False, collection=None, allow_alarm=False, trace_collector=None):
     here = Path(__file__).resolve().parent
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (here / "run_remote.py").read_text()
+    if trace_collector is not None:
+        loader = '''    from types import ModuleType
+    source = HARDWARE / "run_dispatch_node.py"
+    code = source.read_text()
+    for old, new in (("== set(range(24, 56))", "== set(range(16, 56))"),
+                     ("expected_watchers = set(range(24, 40))", "expected_watchers = set(range(16, 40))")):
+        assert code.count(old) == 1
+        code = code.replace(old, new)
+    run_dispatch_node = ModuleType("run_dispatch_node")
+    run_dispatch_node.__file__ = str(source)
+    exec(compile(code, str(source), "exec"), run_dispatch_node.__dict__)'''
+        assert remote.count("    import run_dispatch_node") == 1
+        remote = remote.replace("    import run_dispatch_node", loader)
     payload = (rounds_script + "\n" + remote).encode()
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         wait_for_build(pool)
-        verifier = read_verifier()
+        verifier = read_verifier() if trace_collector is None else None
         action = "preflight-cleanup" if cleanup else "preflight"
         for port in ports:
             try:
@@ -213,7 +226,8 @@ def main(ports=(43000,), cleanup=False, collection=None, allow_alarm=False):
         results = list(pool.map(lambda i: controller(i, "run", payload, port), range(2)))
         assert all(result["passed"] for result in results)
         assert sum(result["route_qps_verified"] for result in results) == 32 * ROUTE_QPS_PER_RANK[ROUTE_MODE]
-        summary = summarize(pool, verifier, collection)
+        summary = (summarize(pool, verifier, collection) if trace_collector is None
+                   else trace_collector(pool, collection))
     summary["coordinator_port"] = port
     if allow_alarm:
         summary["preflight_alarms"] = {host: receipt["alarms"] for host, receipt in zip(HOSTS, readiness)}
