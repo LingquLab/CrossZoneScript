@@ -25,7 +25,10 @@ for path in workers:
     for name in ("failure-flags", "failure-progress"):
         evidence = rank/(name+".json")
         if evidence.is_file():
-            item[name] = json.loads(evidence.read_text())
+            try:
+                item[name] = json.loads(evidence.read_text())
+            except json.JSONDecodeError:
+                item[name + "_incomplete"] = True
     failures = [line.strip()[:220] for line in path.read_text(errors="replace").splitlines()
                 if re.search(r"507046|warmup:|kernel launch:|\[error\]",line,re.I)]
     item["errors"] = failures[:3]
@@ -89,6 +92,8 @@ def compact(host):
                             for epoch, count in b.get("epochs", []) if epoch)
     return dict(host=host["host"], workers=len(workers), ranks_with_records=sum(w["records"] > 0 for w in workers),
                 captured_flags=sum("failure-flags" in w for w in workers),
+                incomplete_snapshots={name: sum(name + "_incomplete" in w for w in workers)
+                                      for name in ("failure-flags", "failure-progress")},
                 controller_started=host["controller_started"], host_result=host["host_result"],
                 cleanup=host["cleanup"], traces=host["traces"], build_revision=host["build_revision"],
                 template_copies_by_core=active, recv_nonzero_fragments=recv_nonzero,
