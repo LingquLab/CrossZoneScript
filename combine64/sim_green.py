@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import time
 import traceback
 
 SESSION = '033634e3-7471-4660-b1c3-784cea442874'
@@ -46,6 +47,33 @@ def run_staged(ssh, source, remote_seconds, args):
     command = f'timeout --kill-after=30 {remote_seconds} python3 {shlex.quote(script)}'
     return subprocess.run(ssh[:-1] + [command], stdin=subprocess.DEVNULL, capture_output=True,
                           timeout=remote_seconds + 50)
+
+
+def run_managed(ssh, helper, driver, tokens, attempt, remote_seconds):
+    """Follow the same host job through short SSH connections until it exits."""
+    short = ssh[:-1] + ['timeout --kill-after=4 25 python3 -']
+    launch = helper + f'\nraise SystemExit(run_unit({driver!r}, {tokens}, {attempt}, {remote_seconds}))\n'
+    try:
+        started = subprocess.run(short, input=launch.encode(), capture_output=True, timeout=34)
+    except subprocess.TimeoutExpired as error:
+        started = subprocess.CompletedProcess(short, 124, error.stdout or b'', error.stderr or b'')
+    query = helper + f'\nprint(json.dumps(inspect_unit({tokens}, {attempt})))\n'
+    deadline = time.monotonic() + remote_seconds + 100
+    while time.monotonic() < deadline:
+        time.sleep(25)
+        try:
+            checked = subprocess.run(short, input=query.encode(), capture_output=True, timeout=34)
+        except subprocess.TimeoutExpired:
+            continue
+        if checked.returncode:
+            continue
+        state = json.loads(checked.stdout)
+        if state['state'] == 'finished':
+            report = dict(state['report'], systemd_unit=state['systemd_unit'], systemd_exit=state['code'])
+            return subprocess.CompletedProcess(short, state['code'], json.dumps(report).encode(), checked.stderr)
+        if state['state'] not in ('activating', 'active', 'deactivating'):
+            return subprocess.CompletedProcess(short, started.returncode or 1, json.dumps(state).encode(), started.stderr)
+    return subprocess.CompletedProcess(short, 124, b'{"stage":"unit-monitor-timeout"}', started.stderr)
 
 
 def main():
@@ -166,10 +194,7 @@ def main():
     args['files'] = {name: (here / name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
     code = (here / 'sim_host.py').read_text(encoding='utf-8')
     if args.get('systemd_unit'):
-        driver = code + '\nraise SystemExit(main(' + repr(args) + '))\n'
-        code = (here / 'run_sim_unit.py').read_text(encoding='utf-8')
-        code += f'\nraise SystemExit(run_unit({driver!r}, {tokens}, {attempt}, {remote_seconds}))\n'
-        remote_seconds += 70
+        code += '\nraise SystemExit(main(' + repr(args) + '))\n'
     elif action == 'multi-jetty-bs':
         # Keep foreground SSH sessions active while SST writes to its own log.
         code += """
@@ -205,7 +230,10 @@ raise SystemExit(result)
     cores, slots = args.get('intra_cores', 8), args.get('peer_slots', 1)
     stem = logs / f'{variant}-t{tokens}-intra{cores}-peer{slots}-a{attempt}'
     try:
-        if args.get('staged_script'):
+        if args.get('systemd_unit'):
+            helper = (here / 'run_sim_unit.py').read_text(encoding='utf-8')
+            proc = run_managed(ssh, helper, code, tokens, attempt, remote_seconds)
+        elif args.get('staged_script'):
             proc = run_staged(ssh, code.encode(), remote_seconds, args)
         else:
             proc = subprocess.run(ssh, input=code.encode(), capture_output=True, timeout=remote_seconds + 50)
