@@ -194,9 +194,14 @@ for process in Path('/proc').glob('[0-9]*'):
     assert result.returncode == 0 and json_file(summary)['all_compiled'], 'profile_build_failed'
 
 
-def matrix_status(root, cid, journal, bs):
+def matrix_status(root, cid, journal, bs, compact=False):
     all_rows = json_file(journal) if journal.exists() else {}
     rows = {name: row for name, row in all_rows.items() if name.startswith(f'{bs}-')}
+    if compact:
+        fields = ('status', 'platform_simulated_us', 'profiling_operator_us', 'sst_wall_seconds',
+                  'runner_wall_seconds', 'checked_ranks', 'guards', 'profiling_lanes',
+                  'profiling_dropped_records', 'returncode', 'error')
+        rows = {name: [row.get(key) for key in fields] for name, row in rows.items()}
     progress_file = root / 'progress.json'
     progress = json_file(progress_file) if progress_file.exists() else {}
     report = {'results': rows, 'progress': progress}
@@ -237,7 +242,7 @@ def main(request):
     journal = root / 'matrix-results.json'
     cid = task_container(root, REVISION)
     if request['action'] == 'status':
-        return matrix_status(root, cid, journal, bs)
+        return matrix_status(root, cid, journal, bs, request.get('compact', False))
     points = request['points']
     rows = []
     with (root / 'matrix.lock').open('a') as lock:
