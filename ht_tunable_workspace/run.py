@@ -93,6 +93,53 @@ summary = [{'action': item['Action'], 'delta_seconds': item['time'] - end,
 print(json.dumps(dict(status=state.get('status'), returncode=state.get('returncode'), error=state.get('error'),
                       timeout_seconds=state.get('timeout_seconds'), model_events=summary), separators=(',', ':')))
 '''
+elif options.get('stop_bs1024'):
+    assert tokens == 1024 and profile and mode is None and not memory_retry
+    source = prefix + r'''
+from concurrent.futures import ThreadPoolExecutor
+
+model = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+cases = {
+    'Window': 'ht-tunable-workspace-186dfa18-bs1024-fp32-profile',
+    'LogicalChunk': 'ht-tunable-workspace-186dfa18-bs1024-fp32-logical-profile',
+    'PhysicalChunk': 'ht-tunable-workspace-186dfa18-bs1024-fp32-physical-profile-mem256',
+}
+
+def selected_containers():
+    active = docker('ps', '--filter', 'ancestor=' + model, '--no-trunc', '-q').stdout.split()
+    rows = json.loads(docker('inspect', *[item.decode() for item in active]).stdout) if active else []
+    selected = {}
+    for label, name in cases.items():
+        command = '/work/inter-server-native/' + name + '/adapter/run.py'
+        found = [row['Id'] for row in rows if row['Image'] == model and row['State']['Running'] and
+                 command in (row['Config']['Cmd'] or []) and any(
+                     mount['Destination'] == '/work' and Path(mount['Source']) == MOUNT.parent
+                     for mount in row['Mounts'])]
+        assert len(found) <= 1, label
+        if found:
+            selected[label] = found[0]
+    return selected
+
+before = selected_containers()
+with ThreadPoolExecutor(max_workers=3) as pool:
+    requests = {label: pool.submit(subprocess.run, ['docker', 'stop', '--time', '8', container],
+                                  capture_output=True, timeout=35) for label, container in before.items()}
+    exit_codes = {label: request.result().returncode for label, request in requests.items()}
+after = selected_containers()
+report = {}
+for label, name in cases.items():
+    case = MOUNT / name
+    record = case / 'run.json'
+    state = json.loads(record.read_text()) if record.is_file() else {}
+    log = case / 'sim.log'
+    result = dict(running_before=label in before, running_after=label in after,
+                  docker_stop_exit=exit_codes.get(label), run_status=state.get('status'),
+                  log_bytes=log.stat().st_size if log.is_file() else None)
+    if case.is_dir():
+        write_json(case / 'user-stop.json', result)
+    report[label] = result
+print(json.dumps(report, separators=(',', ':')))
+'''
 elif options.get('raise_live_limit'):
     assert tokens == 1024 and profile and mode in (None, 'logical') and not memory_retry
     source = prefix + f'\ncase = MOUNT / {case!r}\n' + r'''
@@ -327,7 +374,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'BatchMode=no', '-o', 'NumberOfPasswordPrompts=1', '-o',
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 transport_timeout = 700 if options.get('recover_profile') else timeout + transport_margin
-if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'raise_live_limit', 'cq', 'direct_activity', 'read_profile')):
+if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'raise_live_limit', 'stop_bs1024', 'cq', 'direct_activity', 'read_profile')):
     transport_timeout = 900 if tokens == 1024 and (options.get('cq') or options.get('read_profile')) else 120
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
