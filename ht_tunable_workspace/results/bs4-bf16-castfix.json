@@ -1,0 +1,313 @@
+{
+  "execution": {
+    "task_id": "ht-cast-fix-bs4-bf16",
+    "event_id": "green-6334d85f4f394684815b0c6077c34ee1",
+    "iteration": 2,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs4-bf16-castfix",
+      "status": "failed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "593de6ace0b6bf04477914c3e20fd40b00d4fdf767716cb8a3c52342fe59a867",
+      "cqe": 11915,
+      "sim_us": 163.081,
+      "errors": [],
+      "runner_exit_code": 1,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 4,
+      "blocks": 48,
+      "hidden": 256,
+      "chunks": 4,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "Window",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": false,
+      "container_memory_gib": 32,
+      "dtype": "bf16",
+      "entry": "tilexr_moonep_combine_ht_pipeline_kernel",
+      "sst_image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "runner_wall_seconds": 1149.541,
+      "sst_wall_seconds": 1129.852,
+      "checked": {
+        "ranks": 64,
+        "bytes_checked": {
+          "gather": 1048576,
+          "gather_ready": 1048576,
+          "partial": 262144,
+          "ready": 262144,
+          "local_ready": 262144,
+          "returned": 1048576,
+          "completed": 16777216,
+          "output": 131072,
+          "status": 98304
+        },
+        "phase_status": {
+          "gather": {
+            "0": 512
+          },
+          "reduce": {
+            "0": 512
+          },
+          "local_return": {
+            "0": 512
+          },
+          "cross_return": {
+            "0": 1024
+          },
+          "final": {
+            "0": 1024
+          }
+        },
+        "mismatched_ranks": {
+          "partial": 64,
+          "returned": 64,
+          "output": 64
+        },
+        "first_mismatches": {
+          "partial": {
+            "rank": 0,
+            "byte": 384,
+            "actual": "3d433d43",
+            "expected": "78437843"
+          },
+          "returned": {
+            "rank": 0,
+            "byte": 384,
+            "actual": "3d433d43",
+            "expected": "78437843"
+          },
+          "output": {
+            "rank": 0,
+            "byte": 8,
+            "actual": "72447244",
+            "expected": "70447044"
+          }
+        }
+      }
+    }
+  },
+  "cq_slots": {
+    "task_id": "ht-cast-fix-bs4-bf16-cq",
+    "event_id": "green-3cb00f91a1e04f9a8e977e930b7b21f1",
+    "iteration": 2,
+    "result": {
+      "totals": {
+        "truncated_hosts": 0,
+        "hosts": 64,
+        "unexpected_slots": 0
+      },
+      "stages": {
+        "gather": {
+          "expected": 3584,
+          "observed": 3584,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "local_return": {
+          "expected": 576,
+          "observed": 576,
+          "qps": 448,
+          "qps_missing": 0
+        },
+        "cross_return": {
+          "expected": 7424,
+          "observed": 7424,
+          "qps": 7168,
+          "qps_missing": 0
+        }
+      },
+      "first_missing": []
+    }
+  },
+  "bf16_analysis": {
+    "task_id": "ht-cast-fix-bs4-bf16-values",
+    "event_id": "green-3c842ca9e3994511a419156dd70de714",
+    "iteration": 1,
+    "result": {
+      "checked": {
+        "partial": 131072,
+        "returned": 524288,
+        "output": 65536,
+        "output_from_actual_returned": 65536
+      },
+      "mismatches": {
+        "partial": 54656,
+        "returned": 50432,
+        "output": 64296,
+        "output_from_actual_returned": 62639
+      },
+      "by_column_band": {
+        "partial": [
+          3648,
+          3648,
+          3648,
+          3648,
+          3648,
+          3648,
+          16384,
+          16384
+        ],
+        "returned": [
+          2944,
+          2944,
+          2944,
+          2944,
+          2944,
+          2944,
+          16384,
+          16384
+        ],
+        "output": [
+          6952,
+          8192,
+          8192,
+          8192,
+          8192,
+          8192,
+          8192,
+          8192
+        ],
+        "output_from_actual_returned": [
+          6086,
+          8097,
+          8048,
+          8155,
+          7935,
+          8192,
+          7934,
+          8192
+        ]
+      },
+      "first": {
+        "partial": [
+          [
+            0,
+            0,
+            192,
+            189.0,
+            248.0
+          ],
+          [
+            0,
+            0,
+            193,
+            189.0,
+            248.0
+          ],
+          [
+            0,
+            0,
+            194,
+            189.0,
+            248.0
+          ],
+          [
+            0,
+            0,
+            195,
+            189.0,
+            248.0
+          ]
+        ],
+        "returned": [
+          [
+            0,
+            0,
+            192,
+            189.0,
+            248.0
+          ],
+          [
+            0,
+            0,
+            193,
+            189.0,
+            248.0
+          ],
+          [
+            0,
+            0,
+            194,
+            189.0,
+            248.0
+          ],
+          [
+            0,
+            0,
+            195,
+            189.0,
+            248.0
+          ]
+        ],
+        "output": [
+          [
+            0,
+            0,
+            4,
+            968.0,
+            960.0
+          ],
+          [
+            0,
+            0,
+            5,
+            968.0,
+            960.0
+          ],
+          [
+            0,
+            0,
+            6,
+            968.0,
+            960.0
+          ],
+          [
+            0,
+            0,
+            7,
+            968.0,
+            960.0
+          ]
+        ],
+        "output_from_actual_returned": [
+          [
+            0,
+            0,
+            4,
+            968.0,
+            960.0
+          ],
+          [
+            0,
+            0,
+            5,
+            968.0,
+            960.0
+          ],
+          [
+            0,
+            0,
+            6,
+            968.0,
+            960.0
+          ],
+          [
+            0,
+            0,
+            7,
+            968.0,
+            960.0
+          ]
+        ]
+      }
+    }
+  }
+}
