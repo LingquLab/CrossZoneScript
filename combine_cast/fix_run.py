@@ -1,5 +1,6 @@
-"""Pass the original green-local Cast fixtures to the patched simulator runner."""
+"""Pass the archived Cast fixtures to the patched simulator runner."""
 import hashlib
+import io
 import json
 from pathlib import Path
 import shlex
@@ -7,14 +8,13 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import zipfile
 
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE.parent / "ht_t32_e2e"), str(HERE.parent / "alltoall")]
 from green_auth import askpass_environment
 from ssh_transport import HOST
 
-PATCH = Path("D:/project/仿真配置/修正cast问题")
-cases = next(path.parent for path in PATCH.rglob("cases.json") if (path.parent / "cases").is_dir())
 expected = {name: sha for sha, name in (line.split(maxsplit=1) for line in
                                        (HERE / "fix-case-sha256.txt").read_text().splitlines())}
 argv = [
@@ -23,12 +23,14 @@ argv = [
     "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no", HOST,
 ]
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
-with tempfile.TemporaryFile() as spool:
+with tempfile.TemporaryFile() as spool, zipfile.ZipFile(HERE / "fix-cases.zip") as cases:
     with tarfile.open(fileobj=spool, mode="w:gz", compresslevel=3) as archive:
         for name, sha in expected.items():
-            path = cases / name
-            assert hashlib.sha256(path.read_bytes()).hexdigest() == sha, name
-            archive.add(path, arcname=name, recursive=False)
+            data = cases.read("tilexr-cast-unit-tests/" + name)
+            assert hashlib.sha256(data).hexdigest() == sha, name
+            entry = tarfile.TarInfo(name)
+            entry.size = len(data)
+            archive.addfile(entry, io.BytesIO(data))
     spool.seek(0)
     source = "INPUTS = " + repr(expected) + "\nOPTIONS = " + repr(options) + "\n"
     source += (HERE / "fix_run_remote.py").read_text()
