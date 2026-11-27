@@ -38,6 +38,49 @@ def final_reference(params):
     return output
 
 
+def describe_trace(role, workspace, fields):
+    def values(raw):
+        return [struct.unpack("<f", struct.pack("<I", word << 16))[0]
+                for word, in struct.iter_unpack("<H", raw)]
+
+    def bf16(data):
+        row = bytearray()
+        for value in data:
+            fraction, exponent = math.frexp(value)
+            row.extend(struct.pack("<f", math.ldexp(round(fraction * 256), exponent - 8))[2:])
+        return row
+
+    def fp32(data):
+        return struct.pack("<256f", *data)
+
+    if role == "gateway":
+        forward = list(struct.iter_unpack("<6i", (original / "forward.bin").read_bytes()))
+        assert forward[0][:3] == (7, 0, 0)
+        gather = (previous / "gather.bin").read_bytes()
+        rows = [workspace[:512]]
+        for _, _, _, contributor, input_row, gather_row in forward[:7]:
+            source, index = (workspace, input_row) if contributor == 0 else (gather, gather_row)
+            rows.append(source[index * 512:(index + 1) * 512])
+        accumulator = [0.0] * 256
+        snapshots = {}
+        for i, raw in enumerate(rows):
+            widened = values(raw)
+            accumulator = [a + b for a, b in zip(accumulator, widened)]
+            snapshots.update({f"input{i}": ("H", raw), f"cast{i}": ("f", fp32(widened)),
+                              f"sum{i}": ("f", fp32(accumulator))})
+        snapshots["narrow"] = ("H", bf16(accumulator))
+        return snapshots
+    assert fields["serverMask"]["value"] == fields["load_server_mask"]["value"]
+    assert struct.unpack_from("<Q", (original / "server_mask.bin").read_bytes())[0] == 3
+    returned = (previous / "returned.bin").read_bytes()
+    first, second = returned[:512], returned[512:1024]
+    a, b = values(first), values(second)
+    total = [x + y for x, y in zip(a, b)]
+    return {"input0": ("H", first), "cast0": ("f", fp32(a)), "sum0": ("f", fp32(a)),
+            "input1": ("H", second), "cast1": ("f", fp32(b)), "reload_sum0": ("f", fp32(a)),
+            "add": ("f", fp32(total)), "narrow": ("H", bf16(total))}
+
+
 def prepare_probe(role, spec, binary):
     folder = SUITE / role
     folder.mkdir()
@@ -85,6 +128,20 @@ def prepare_probe(role, spec, binary):
     assert min(status_offsets) >= 0 and max(status_offsets) + 4 <= exports["status"]["size"]
     workload.update(kernel_param=retained, output_param={name: exports[name] for name in names},
                     block_dim=spec["blocks"], vec_func=spec["entry"], kernel_file=f"{mount}/probe.o")
+    trace_spec = {}
+    if REQUEST["options"].get("trace"):
+        trace = describe_trace(role, workspace, fields)
+        base = 0x420000000
+        assert all(item["addr"] + item["size"] <= base for item in workload["output_param"].values())
+        size = len(trace) * 1024
+        (folder / "trace.bin").write_bytes(b"\xa5" * size)
+        offset = max(int(item["param_offset"]) for item in retained.values()) + 8
+        retained["load_diagnostic_trace"] = dict(value=base, param_offset=str(offset), param_type="11",
+                                                 input_bin=f"{mount}/trace.bin")
+        workload["output_param"]["trace"] = dict(addr=base, size=size)
+        for slot, (name, (dtype, data)) in enumerate(trace.items()):
+            (folder / f"golden-trace-{name}.bin").write_bytes(data)
+            trace_spec[name] = dict(offset=slot * 1024, dtype=dtype, size=len(data))
     (folder / "probe.o").write_bytes(binary)
     for directory in ("v310_config", "UBusSim_config"):
         shutil.copytree(REFERENCE / directory, folder / directory)
@@ -94,7 +151,7 @@ def prepare_probe(role, spec, binary):
     (folder / "check.py").write_text(CHECKER)
     write(folder / "check.json", dict(exports=workload["output_param"], field=field,
                                       references=("expected", "pipeline"), column=spec["column"],
-                                      status_offsets=status_offsets, inputs_sha256=seeds))
+                                      status_offsets=status_offsets, inputs_sha256=seeds, trace=trace_spec))
     return folder, mount
 
 

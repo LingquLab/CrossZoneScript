@@ -32,5 +32,17 @@ if __name__ == "__main__":
     status = [struct.unpack_from("<I", actual["status"], offset)[0] for offset in spec["status_offsets"]]
     guards = {name: set(data) == {222} for name, data in actual.items() if name.startswith("guard_")}
     ready_ok = (actual["ready"] == (case / "golden-ready.bin").read_bytes()) if "ready" in actual else None
+    trace = {}
+    for name, layout in spec["trace"].items():
+        expected = (case / f"golden-trace-{name}.bin").read_bytes()
+        offset, size, dtype = (layout[key] for key in ("offset", "size", "dtype"))
+        received = actual["trace"][offset:offset + size]
+        fmt = f"<{size // struct.calcsize(dtype)}{dtype}"
+        expected_values, received_values = struct.unpack(fmt, expected), struct.unpack(fmt, received)
+        mismatch = sum(before != after for before, after in zip(expected_values, received_values, strict=True))
+        got, want = received_values[column], expected_values[column]
+        if dtype == "H":
+            got, want = decode(got), decode(want)
+        trace[name] = [mismatch, want, got]
     print(json.dumps(dict(compared=comparisons, sample=sample, sample_column=column,
-                          status=status, guards=guards, ready_ok=ready_ok), separators=(",", ":")))
+                          status=status, guards=guards, ready_ok=ready_ok, trace=trace), separators=(",", ":")))
