@@ -21,6 +21,7 @@ NICS = [f"hrn5_{device // 2}" for device in range(16)]
 RUNTIME_INSTALL = ROOT / "runtime-install"
 RUNTIME_REVISION = "-"
 ROUTE_MODE = "replicate4"
+ALLOW_ALARM = False
 
 
 def load_json(path):
@@ -87,6 +88,7 @@ def preflight(cleanup=False):
         cleanup_report = clear_occupants(pids)
         pids = occupants()
     assert not pids, "NPU occupied after preflight"
+    alarms = []
     for device in range(16):
         health = subprocess.check_output(
             ["npu-smi", "info", "-t", "health", "-i", str(device)], text=True, timeout=6,
@@ -97,7 +99,7 @@ def preflight(cleanup=False):
     for port in range(PORT, PORT + port_count):
         with socket.socket() as probe:
             probe.bind(("0.0.0.0", port))
-    print(json.dumps({"ready": True, "idle": 16, "healthy": 16, "port": PORT,
+    print(json.dumps({"ready": True, "idle": 16, "healthy": 16-len(alarms), "alarms": alarms, "port": PORT,
                       "runtime_sha256": digest, **cleanup_report}))
 
 
@@ -176,6 +178,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 9:
         ROUTE_MODE = sys.argv[9]
         assert ROUTE_MODE in ("same_lane", "replicate4", "replicate16")
+    ALLOW_ALARM = len(sys.argv) > 10 and sys.argv[10] == "allow-alarm"
     OUTPUT = ROOT / run_name
     if action in ("preflight", "preflight-cleanup"):
         preflight(cleanup=action == "preflight-cleanup")

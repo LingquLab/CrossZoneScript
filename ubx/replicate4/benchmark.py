@@ -54,9 +54,10 @@ def wait_for_build(pool):
     raise TimeoutError("Staged builds did not finish before the benchmark readiness deadline")
 
 
-def controller(index, action, payload, port):
+def controller(index, action, payload, port, allow_alarm=False):
     argv = shlex.join(["python3", "-", action, str(index), str(port), OUTPUT.name,
-                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-", str(ROOT), REVISION, ROUTE_MODE])
+                       str(RUNTIME_INSTALL), RUNTIME_REVISION or "-", str(ROOT), REVISION, ROUTE_MODE,
+                       "allow-alarm" if allow_alarm else "require-ok"])
     if action == "run":
         libraries = ":".join(str(path) for path in (
             RUNTIME_INSTALL / "lib", RUNTIME_INSTALL / "lib64", ROOT / "dispatch-build",
@@ -190,7 +191,7 @@ def read_verifier():
     return load_clock_results(source)
 
 
-def main(ports=(43000,), cleanup=False, collection=None):
+def main(ports=(43000,), cleanup=False, collection=None, allow_alarm=False):
     here = Path(__file__).resolve().parent
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (here / "run_remote.py").read_text()
@@ -201,7 +202,7 @@ def main(ports=(43000,), cleanup=False, collection=None):
         action = "preflight-cleanup" if cleanup else "preflight"
         for port in ports:
             try:
-                readiness = list(pool.map(lambda i: controller(i, action, payload, port), range(2)))
+                readiness = list(pool.map(lambda i: controller(i, action, payload, port, allow_alarm), range(2)))
                 assert all(item["ready"] and item["port"] == port for item in readiness)
                 break
             except RuntimeError as exc:
@@ -214,6 +215,8 @@ def main(ports=(43000,), cleanup=False, collection=None):
         assert sum(result["route_qps_verified"] for result in results) == 32 * ROUTE_QPS_PER_RANK[ROUTE_MODE]
         summary = summarize(pool, verifier, collection)
     summary["coordinator_port"] = port
+    if allow_alarm:
+        summary["preflight_alarms"] = {host: receipt["alarms"] for host, receipt in zip(HOSTS, readiness)}
     if RUNTIME_REVISION:
         summary["runtime_revision"] = RUNTIME_REVISION
         summary["runtime_sha256_by_host"] = {

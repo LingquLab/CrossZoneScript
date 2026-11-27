@@ -1,9 +1,10 @@
 """Build the local-receive candidate, benchmark it, and retain verified evidence on Green."""
 import argparse
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tempfile
 
+import benchmark
 from benchmark import timings
 from retest_disjoint_routes import ROOT, main
 
@@ -69,8 +70,17 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix=".local-receive-", dir=destination.parent) as folder:
         collection = Path(folder) / "verified"
         collection.mkdir()
-        summary = main(revision=REVISION, work=WORK, ports=(29500, 26500, 31000),
-                       collection=collection, source_ref=SOURCE_REF)
+        if options.get("reuse_build", False):
+            benchmark.ROOT = PurePosixPath(WORK)
+            benchmark.HARDWARE = benchmark.ROOT / "source/dispatch/dispatch-release/tests/hardware"
+            benchmark.OUTPUT = benchmark.ROOT / "full-bs32-f50"
+            benchmark.RUNTIME_INSTALL = PurePosixPath(ROOT) / "runtime-install"
+            benchmark.REVISION = REVISION
+            summary = benchmark.main(ports=(29500, 26500, 31000), cleanup=True, collection=collection,
+                                     allow_alarm=options.get("allow_alarm", False))
+        else:
+            summary = main(revision=REVISION, work=WORK, ports=(29500, 26500, 31000),
+                           collection=collection, source_ref=SOURCE_REF)
         summary["offloaded_local_receive"] = local_receive_metrics(collection)
         summary["local_results"] = str(destination)
         (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
