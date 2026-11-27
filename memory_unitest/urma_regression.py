@@ -15,6 +15,9 @@ parser.add_argument("--args-file", type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text())
 revision = args["revision"]
 matrix = args.get("full_cases", [])
+trace = args.get("trace", False)
+if type(trace) is not bool or (trace and matrix != ["jetty_peers"]):
+    raise SystemExit("instruction trace requires the single Shared Jetty case")
 staged_cases = {"jetty_peers", "jetty_peers_prefill", "jetty_peers_progress"}
 for value in matrix:
     if value not in staged_cases | {"clos_4plus8", "clos_8plus8", "syncall", "clock", "nosync"}:
@@ -146,6 +149,7 @@ try:
         save(config, dict(schema="tilexr.unitest.sst.v1", rank_size=ranks, threads=ranks, timeout=1500,
                           simulation_timeout=1200, tool_checkout=str(repo), tool_commit=revision, inventory=str(inventory),
                           request_file=str(request_file), suite_output="/work/" + mode + "-suite",
+                          diagnostics={"instruction_dump_chips": [2]} if trace else {},
                           build_report=str(qualification / "verify"), abi_report=str(qualification / "abi")))
         if mode in staged_cases:
             case = f"alltoall_{mode}_sst.json"
