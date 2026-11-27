@@ -10,4 +10,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
     options = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
-    main(task=TASK, revision=REVISION, work=WORK, iteration=options["iteration"])
+    root = options.get("destination")
+    destination = Path(root) / ("replicate4-local-receive-bs32-" + REVISION[:7] + "-diagnostics") if root else None
+    main(task=TASK, revision=REVISION, work=WORK, iteration=options["iteration"], destination=destination)

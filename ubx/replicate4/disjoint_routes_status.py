@@ -20,7 +20,7 @@ def state(host, work):
     return result
 
 
-def main(task=TASK, revision=REVISION, work=WORK, mode="replicate4", iteration=1):
+def main(task=TASK, revision=REVISION, work=WORK, mode="replicate4", iteration=1, destination=None):
     folder = Path.cwd() / f"runs/{task}/{iteration}/execution"
     receipt = folder / "execution.json"
     saved = json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else {}
@@ -48,6 +48,11 @@ def main(task=TASK, revision=REVISION, work=WORK, mode="replicate4", iteration=1
             benchmark.REVISION = revision
             benchmark.ROUTE_MODE = mode
             result["recovered_benchmark"] = benchmark.summarize(pool, benchmark.read_verifier())
+    if destination is not None:
+        destination.mkdir(parents=True, exist_ok=True)
+        output = destination / f"attempt-{iteration:02d}.json"
+        output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        result["local_diagnostics"] = str(output)
     print(json.dumps(result, separators=(",", ":")))
 
 
