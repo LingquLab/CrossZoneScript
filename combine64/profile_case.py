@@ -49,7 +49,7 @@ def bind(case, lanes):
         profile.write_bytes(image)
         arguments = folder / 'kernel_args.bin'
         offset = arguments.stat().st_size
-        assert offset in (184, 192, 232, 288, 544)
+        assert offset in (200, 208, 248, 296, 568)
         with arguments.open('ab') as stream:
             stream.write(struct.pack('<Q', address))
         values = chip['kernel_param']

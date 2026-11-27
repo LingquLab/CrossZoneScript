@@ -38,7 +38,20 @@ def wrap(text, entry):
     sstTiming.Publish();
     HtSstProfile::Flush(sstProfile, sstLane);
 '''
-    marked = match[1] + ', GM_ADDR sstProfile' + match[2] + begin + match[3] + end + match[4]
+    body = match[3]
+    if entry == 'tilexr_ht_pipeline_sst':
+        # Mode 2 reuses producer blocks within this SST launch. The outer timer
+        # covers production and final reduce on each physical AIV.
+        body += '''
+    if (args.finalPipeline == 2) {
+        const auto &send = args.send;
+        TileXREpHt::FinalReduceDevice::Run(reinterpret_cast<GM_ADDR>(send.workspace),
+            reinterpret_cast<GM_ADDR>(args.serverMask), reinterpret_cast<GM_ADDR>(send.workspace + args.localReadyOffset),
+            reinterpret_cast<GM_ADDR>(args.output), reinterpret_cast<GM_ADDR>(args.finalStatus),
+            send.config, sstLane, args.finalBlocks);
+    }
+'''
+    marked = match[1] + ', GM_ADDR sstProfile' + match[2] + begin + body + end + match[4]
     return '#include "profile_capture.h"\n' + text[:match.start()] + marked + text[match.end():]
 
 

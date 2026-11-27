@@ -12,8 +12,9 @@ import subprocess
 import time
 import traceback
 
-SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
+SESSION = '033634e3-7471-4660-b1c3-784cea442874'
 REVISIONS = {
+    '49f846b': '49f846bdba882ecc0b708b0ec18f56d474b252c0',
     '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
     'd04fde0': 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354',
     '8e005fa': '8e005faf781c14dab3c0e977b52741ee29b597ac',
@@ -131,10 +132,11 @@ def stage_tools(root, files):
 
 STAGES = (
     'local-send', 'gateway-reduce', 'local-return', 'inter-server-send',
-    'final-independent', 'joint-final',
+    'final-independent', 'joint-final', 'joint-reuse-final',
 )
 REPORT_FIELDS = (
     'candidate_commit', 'stage', 'tokens', 'attempt', 'status', 'blocks', 'intra_cores', 'peer_slots',
+    'inter_cores', 'port_jetties', 'port0_die_mode', 'gateway_reducers', 'final_cores',
     'routes_sha256', 'source_object_sha256', 'kernel_sha256',
     'environment_sha256', 'platform_simulated_us', 'sst_wall_seconds',
     'runner_wall_seconds', 'guards', 'checked_ranks', 'checked_bytes',

@@ -7,11 +7,11 @@ from pathlib import Path
 import subprocess
 import traceback
 
-SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
+SESSION = '033634e3-7471-4660-b1c3-784cea442874'
 SCRIPT_FILES = ('fixture.py', 'prefill.cpp', 'sim_case.py', 'return_case.py', 'addressed_exports.py', 'build_profile.py',
                 'profile_capture.h', 'profile_case.py', 'clock_evidence.json', 'inter_snapshot.py', 'joint_evidence.py')
 STAGES = ('local-send', 'gateway-reduce', 'local-return',
-           'inter-server-send', 'final-independent', 'joint-final')
+           'inter-server-send', 'final-independent', 'joint-final', 'joint-reuse-final')
 
 
 
@@ -36,6 +36,8 @@ def main():
     candidate = args['candidate']
     assert len(candidate) == 7 and all(c in '0123456789abcdef' for c in candidate)
     assert type(args.get('profiling', False)) is bool
+    if action == 'joint-reuse-final':
+        assert args.get('profiling') is True
     assert args.get('intra_cores', 8) in (4, 8) and args.get('peer_slots', 1) in (1, 2)
     if 'return_qp_base' in args:
         assert action == 'joint-final' and tokens == 4 and attempt == 2
@@ -66,7 +68,7 @@ def main():
         assert action == 'interrupt-stalled-joint' or (action == 'joint-final' and 'stop_at_us' in args)
         assert type(args['stalled_cq_cycle']) is int and args['stalled_cq_cycle'] > 0
     if 'sst_threads' in args:
-        assert action in ('joint-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
+        assert action in ('joint-final', 'joint-reuse-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if 'stalled_cq_cycle' in args:
         remote_seconds += 135

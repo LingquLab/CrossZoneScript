@@ -11,6 +11,12 @@ import sys
 import shutil
 
 GUARD=struct.pack('<f',-17.)
+INTER_CORES = 8
+DIE_MODE = 'chip_topo'
+
+
+def jetty_counts(peer_slots):
+    return {1: (2, 1), 2: (1, 1)}[peer_slots]
 
 
 class DiskImages:
@@ -47,7 +53,8 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     chunks = min(tokens, 4)
     assert tokens % chunks == 0
     chunk_tokens = tokens // chunks
-    owner_cores = 16
+    owner_cores = INTER_CORES
+    port0, port1 = jetty_counts(peer_slots)
     assert intra_cores in (4, 8) and peer_slots in (1, 2)
     batch_width = owner_cores * peer_slots
     groups = (world - 8 + batch_width - 1) // batch_width
@@ -66,7 +73,8 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
     (output/'routes.json').write_text(json.dumps(routes,separators=(',',':')))
     stats={'world':world,'tokens':tokens,'hidden':hidden,'topk':topk,'experts':experts,'seed':20261124,
            'dtype':'fp32','contributions':len(ledger),'chunks':chunks,'groups':groups,
-           'intra_cores':intra_cores,'peer_slots':peer_slots,'send_rows':0,'direct_rows':0,'reduce_rows':0}
+           'intra_cores':intra_cores,'peer_slots':peer_slots,'port_jetties':[port0,port1],
+           'port0_die_mode':DIE_MODE,'send_rows':0,'direct_rows':0,'reduce_rows':0}
     assert len(ledger)==world*tokens*topk
     specs=[]
     for rank in range(world):
@@ -74,8 +82,10 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         name='rank%02d'%rank
         meta=output/'metadata'/name
         meta.parent.mkdir(exist_ok=True)
-        abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),'2026','-',str(world),'8',str(chunk_tokens),'1',str(owner_cores),str(peer_slots),'1']))
-        images=runtime.runtime_images(abi,rank,1,world=world)
+        # The standalone intra-server communicator uses its own compact 32-QP table.
+        abi=json.loads(subprocess.check_output([str(probe),str(rank),str(tokens),'128','6',str(rows),str(rows),
+            '2026','-',str(world),'8',str(chunk_tokens),'1','16','1','1']))
+        images=runtime.runtime_images(abi,rank,1,world=world,port0_die_mode=DIE_MODE)
         fwd=array('i',[0])*(world*capacity*6)
         counts=[0]*world
         ranges=[0]*(world*chunks*2)
@@ -135,7 +145,8 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
                 backward[g].extend(run)
             backward_counts.append(len(backward[g]))
             for i,record in enumerate(backward[g]): packed[(g*rows+i)*3:(g*rows+i)*3+3]=array('q',record)
-        config=struct.pack('<17I',rank,world,tokens,hidden,topk,rows,rows,chunk_tokens,1,intra_cores+owner_cores,8,3,0,intra_cores,owner_cores,peer_slots,1)
+        config=struct.pack('<19I',rank,world,tokens,hidden,topk,rows,rows,chunk_tokens,1,
+                           intra_cores+owner_cores,8,3,0,intra_cores,owner_cores,peer_slots,1,port0,port1)
         Path(str(meta)+'.config').write_bytes(config)
         Path(str(meta)+'.backward').write_bytes(packed.tobytes())
         Path(str(meta)+'.backward_counts').write_bytes(struct.pack('<8i',*backward_counts))
@@ -145,8 +156,8 @@ def prepare(source, output, world, tokens, kernel,disk_backed=False, revision=No
         struct.pack_into('<Q',raw,80,0)
         layout=struct.unpack('<6I6Q',Path(str(meta)+'.layout').read_bytes())
         gather_offset,partial_offset,workspace_bytes=layout[6:9]
-        assert len(raw)==288 and layout[:2]==(chunks,groups)
-        images=runtime.runtime_images(abi,rank,workspace_bytes,world=world)
+        assert len(raw)==296 and layout[:2]==(chunks,groups)
+        images=runtime.runtime_images(abi,rank,workspace_bytes,world=world,port0_die_mode=DIE_MODE)
         ws=bytearray(workspace_bytes)
         for g in range(64): struct.pack_into('<Q',ws,(3*world+g)*512,1)
         ws[gather_offset:partial_offset]=GUARD*((partial_offset-gather_offset)//4)
@@ -207,6 +218,9 @@ if __name__=='__main__':
     p.add_argument('--kernel',required=True)
     p.add_argument('--world',type=int,default=64)
     p.add_argument('--tokens',type=int,default=16)
+    p.add_argument('--intra-cores',type=int,choices=(4,8),default=8)
+    p.add_argument('--peer-slots',type=int,choices=(1,2),default=1)
     p.add_argument('--disk-backed-images',action='store_true')
     a=p.parse_args()
-    prepare(a.source,a.output,a.world,a.tokens,a.kernel,a.disk_backed_images)
+    prepare(a.source,a.output,a.world,a.tokens,a.kernel,a.disk_backed_images,
+            intra_cores=a.intra_cores,peer_slots=a.peer_slots)

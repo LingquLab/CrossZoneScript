@@ -8,7 +8,7 @@ import struct
 import subprocess
 import sys
 
-from fixture import DiskImages, GUARD
+from fixture import DIE_MODE, INTER_CORES, DiskImages, GUARD, jetty_counts
 from sim_case import ENTRIES, FINAL_CORES, MAGIC, REDUCERS, STRIPE, SUPPORT, WORLD, block_count
 
 WORKSPACE = 0x200000000
@@ -24,8 +24,8 @@ EXTRA = {
 }
 
 
-def local_slot(qp):
-    return (qp % 2) * 20 + 16 + qp // 2
+def local_slot(qp, port0_die=0):
+    return (port0_die if qp % 2 == 0 else 1 - port0_die) * 20 + 16 + qp // 2
 
 
 def read_json(path):
@@ -79,7 +79,8 @@ def local_communication(runtime, images, abi, local_bytes, base, return_qp_base=
         for qp in range(qp_count):
             # The inter-server worker never sends to ranks on its own server.
             # Those physical slots can hold the second local queue bank.
-            physical = local_slot(qp) if qp < 8 else runtime.physical_qp(qp - 8)
+            physical = local_slot(qp, runtime.resolve_port0_die(rank, DIE_MODE)) if qp < 8 else (
+                runtime.physical_qp(qp - 8, rank=rank, port0_die_mode=DIE_MODE))
             slot = peer * runtime.PHYSICAL_QPS + physical
             width = control['mem_bytes']
             at = slot * width
@@ -139,7 +140,10 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
     tokens, chunks, groups = (identity[key] for key in ('tokens', 'chunks', 'groups'))
     intra_cores = identity.get('intra_cores', 8)
     peer_slots = identity.get('peer_slots', 1)
+    port0, port1 = jetty_counts(peer_slots)
     blocks = block_count(action, intra_cores)
+    own_reduce = action == 'joint-reuse-final'
+    final_blocks = blocks if own_reduce else FINAL_CORES
     routes = read_json(asset / 'routes.json')
     assert len(routes) == WORLD * tokens
     if from_producer:
@@ -169,7 +173,8 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
         rows = WORLD * tokens * 6
         abi = json.loads(subprocess.check_output([
             str(asset / 'abi-probe'), str(rank), str(tokens), '128', '6', str(rows), str(rows),
-            str(MAGIC), '-', '64', str(REDUCERS), str(tokens // chunks), '1', '16', str(peer_slots), '1',
+            str(MAGIC), '-', '64', str(REDUCERS), str(tokens // chunks), '1', str(INTER_CORES),
+            str(peer_slots), '1', str(port0), str(port1), str(intra_cores),
         ]))
         cfg, config_bytes = send_config(abi)
         assert (cfg['rank'], cfg['chunks'], cfg['groups'], cfg['reducerCount'], cfg['peerSlots'],
@@ -184,7 +189,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
         assert local_signal == local_ready + 8 * local_stride
         return_bytes = joint_bytes if joint else local_signal + 8 * STRIPE
         ret_address = addresses['workspace']
-        images = runtime.runtime_images(abi, rank, return_bytes, world=WORLD)
+        images = runtime.runtime_images(abi, rank, return_bytes, world=WORLD, port0_die_mode=DIE_MODE)
         if joint or local:
             addresses.update(LOCAL_RESOURCES)
             helper_memory = local_communication(runtime, images, abi, return_bytes, base, return_qp_base)
@@ -206,8 +211,8 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
             for gateway in range(WORLD):
                 if gateway // 8 != rank // 8:
                     for chunk in range(chunks):
-                        for lane in range(2):
-                            slot = (gateway * chunks + chunk) * 2 + lane
+                        for lane in range(port0 + port1):
+                            slot = (gateway * chunks + chunk) * (port0 + port1) + lane
                             struct.pack_into('<q', completion, slot * STRIPE, MAGIC)
         flags = bytearray(8 * local_stride)
         for gateway in range(8):
@@ -257,11 +262,11 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
         if joint:
             local_ws = (local_input / 'workspace.bin').read_bytes()
             raw_local = bytearray((local_input / 'kernel_args.bin').read_bytes())
-            gather_offset, partial_offset, _, _, schedule_offset = struct.unpack_from('<5Q', raw_local, 208)
+            gather_offset, partial_offset, _, _, schedule_offset = struct.unpack_from('<5Q', raw_local, 216)
             assert return_bytes == local_offset + partial_offset
             initial[local_offset:] = local_ws[:partial_offset]
             helper_file = temporary / rank_name
-            Path(str(helper_file) + '.config').write_bytes(raw_local[112:180])
+            Path(str(helper_file) + '.config').write_bytes(raw_local[112:188])
             Path(str(helper_file) + '.native_mem_info').write_bytes(helper_memory)
             for name in ('masks', 'backward', 'backward_counts', 'backward_ranges'):
                 images[name] = (local_input / (name + '.bin')).read_bytes()
@@ -272,21 +277,24 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
             for offset, value in ((0, pointer('workspace') + local_offset),
                                   (8, pointer('workspace') + cfg['inputOffset']),
                                   (88, pointer('localComm')), (96, pointer('localInfo')),
-                                  (104, pointer('localRegistry')), (280, local_offset)):
+                                  (104, pointer('localRegistry')), (288, local_offset)):
                 struct.pack_into('<Q', raw_local, offset, value)
             bound_config = bytearray(config_bytes)
-            struct.pack_into('<Q', bound_config, 64, local_offset + schedule_offset)
+            schedule_field = next(field for field in abi['fields'] if field['name'] == 'config.scheduleOffset')
+            struct.pack_into('<Q', bound_config, schedule_field['offset'] - 48, local_offset + schedule_offset)
             send_args = struct.pack('<6Q', pointer('commArgs'), pointer('workspace'),
                                     pointer('returnForward'), pointer('counts'), pointer('ranges'),
                                     base + status_addr + 2 * STRIPE) + bound_config
             args = raw_local + send_args + struct.pack('<6Q4I', base + status_addr + STRIPE, pointer('serverMask'),
                 pointer('output'), base + status_addr + 3 * STRIPE, local_ready, local_signal,
-                return_qp_base, 1, FINAL_CORES, int(not producer))
-            assert len(args) == 544
+                return_qp_base, 1, final_blocks, 2 if own_reduce else int(not producer))
+            assert len(args) == 568
             local_status = success_status(512, intra_cores, 4)
             reduce_start = intra_cores + cfg['ownerCount']
             local_status[reduce_start * 4:(reduce_start + REDUCERS) * 4] = bytes(REDUCERS * 4)
-            out_status = local_status + success_status(512, 8) + success_status(512, 16) + success_status(512, 0 if producer else FINAL_CORES)
+            final_status_bytes = (final_blocks * 32 + STRIPE - 1) // STRIPE * STRIPE
+            out_status = (local_status + success_status(STRIPE, 8) + success_status(STRIPE, INTER_CORES) +
+                          success_status(final_status_bytes, 0 if producer else final_blocks))
             export('gather', WORKSPACE + local_offset + gather_offset, (local_golden / 'golden-returned.bin').read_bytes())
             export('partial', WORKSPACE + cfg['partialOffset'], partial)
             export('output', addresses['output'], images['output'] if producer else final_output)
@@ -295,15 +303,15 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
             args = struct.pack('<7Q', *(pointer(name) for name in ('localInfo', 'localRegistry', 'workspace',
                 'forward', 'counts', 'ranges', 'status'))) + config_bytes
             args += struct.pack('<2Q4I', local_ready, local_signal, rank // 8 * 8, 0, 1, 0)
-            assert len(args) == 232
+            assert len(args) == 248
         elif remote:
             args = struct.pack('<6Q', *(pointer(name) for name in ('commArgs', 'workspace', 'forward',
                 'counts', 'ranges', 'status'))) + config_bytes
-            assert len(args) == 192
+            assert len(args) == 208
         else:
             args = struct.pack('<5Q', pointer('workspace'), pointer('serverMask'), pointer('workspace') + local_ready,
                                pointer('output'), pointer('status')) + config_bytes
-            assert len(args) == 184
+            assert len(args) == 200
             export('output', addresses['output'], final_output)
             regions['output'] = len(final_output)
         images['status'] = b'\xa5' * len(out_status)

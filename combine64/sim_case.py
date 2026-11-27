@@ -31,12 +31,14 @@ ENTRIES = {
     'joint-producer': 'tilexr_ht_pipeline_sst',
     'final-from-producer': 'tilexr_ep_ht_final_reduce_kernel',
     'joint-final': 'tilexr_ht_pipeline_sst',
+    'joint-reuse-final': 'tilexr_ht_pipeline_sst',
 }
 BLOCKS = {
     'local-send': 8, 'gateway-reduce': 8, 'local-return': 8,
-    'inter-server-send': 16, 'final-independent': FINAL_CORES,
-    'joint-producer': 24 + REDUCERS, 'final-from-producer': FINAL_CORES,
-    'joint-final': 24 + REDUCERS + FINAL_CORES,
+    'inter-server-send': fixture.INTER_CORES, 'final-independent': FINAL_CORES,
+    'joint-producer': 8 + fixture.INTER_CORES + REDUCERS, 'final-from-producer': FINAL_CORES,
+    'joint-final': 8 + fixture.INTER_CORES + REDUCERS + FINAL_CORES,
+    'joint-reuse-final': 8 + fixture.INTER_CORES + REDUCERS,
 }
 
 
@@ -110,7 +112,7 @@ def local_phase(case, asset, action):
         inputs = case / 'input_bin' / rank_name
         golden = case / 'fixture-data' / rank_name
         args = bytearray((inputs / 'kernel_args.bin').read_bytes())
-        assert len(args) == 288
+        assert len(args) == 296
         struct.pack_into('<II', args, 148, 0, REDUCERS)
         struct.pack_into('<I', args, 156, 1 if action == 'local-send' else 2)
         (inputs / 'kernel_args.bin').write_bytes(args)
@@ -491,6 +493,8 @@ def main(config):
     revision = config['revision']
     assert read_json(ROOT / 'identity.json')['revision'] == revision
     use_profile = config.get('profiling', False)
+    if action == 'joint-reuse-final':
+        assert use_profile, 'producer reuse is bound by the profiling wrapper'
     stop_at_us = config.get('diagnostic_stop_us')
     ready_probe = config.get('ready_probe', False)
     joint_probe = config.get('joint_probe', False)
@@ -515,7 +519,10 @@ def main(config):
     record = {'candidate_commit': revision, 'stage': action, 'tokens': tokens, 'attempt': attempt,
               'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
               'profiling_enabled': use_profile, 'blocks': blocks, 'intra_cores': intra_cores, 'peer_slots': peer_slots,
-              'gateway_reducers': REDUCERS, 'final_cores': FINAL_CORES}
+              'gateway_reducers': REDUCERS,
+              'final_cores': blocks if action == 'joint-reuse-final' else FINAL_CORES,
+              'inter_cores': fixture.INTER_CORES, 'port_jetties': fixture.jetty_counts(peer_slots),
+              'port0_die_mode': fixture.DIE_MODE}
     if return_qp_base:
         assert action == 'joint-final' and return_qp_base == 8
         record.update(local_return_qp_base=return_qp_base)
