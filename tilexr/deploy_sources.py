@@ -97,7 +97,16 @@ def main():
             records = repositories(source)
             state['repositories'] = [{k: record[k] for k in ('path', 'revision')} for record in records]
             save()
-            portable = artifacts / ('portable-' + str(int(time.time())))
+            staging_root = Path(arguments.get('staging_root', str(artifacts))).resolve()
+            staging_root.mkdir(parents=True, exist_ok=True)
+            owner_file = staging_root / '.tilexr-staging-owner.json'
+            owner = {'session': '893851e4-b659-488f-8e58-393c9f5a31f2'}
+            if owner_file.exists():
+                assert json.loads(owner_file.read_text(encoding='utf-8')) == owner, 'STAGING_OWNER_MISMATCH'
+            else:
+                owner_file.write_text(json.dumps(owner), encoding='utf-8')
+            portable = staging_root / ('p' + str(int(time.time())))
+            state['staging_root'] = str(staging_root)
             state['portable'] = str(portable)
             state['stage'] = 'portable-clones'
             save()
