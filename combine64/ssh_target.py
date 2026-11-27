@@ -18,7 +18,8 @@ def run(code, args, label, seconds):
     logs.mkdir(parents=True, exist_ok=True)
 
     def operation(client, deployment):
-        source = code + '\nraise SystemExit(main(' + repr({**args, **deployment}) + '))\n'
+        request = {key: value for key, value in args.items() if key != 'fingerprint'}
+        source = code + '\nraise SystemExit(main(' + repr({**request, **deployment}) + '))\n'
         command = f'timeout --kill-after=20 {seconds} python3 -'
         stdin, stdout, stderr = client.exec_command(command, timeout=seconds + 30)
         stdin.write(source)
