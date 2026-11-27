@@ -136,6 +136,39 @@ def host_main(args):
     return summary()
 
 
+def campaign_status(args):
+    root = run_root(args)
+    progress_path = root/'progress.json'
+    journal = root/f"campaign-bs{args['bs']}.json"
+    rows = read(journal) if journal.is_file() else []
+    record = {'rows': rows, 'progress': read(progress_path) if progress_path.is_file() else {}}
+    if case_name := record['progress'].get('case'):
+        case = root/'cases'/case_name
+        run = case/'run.json'
+        log = case/'sim.log'
+        if run.is_file():
+            record['current'] = read(run)
+            record['current'].pop('command', None)
+            record['current']['elapsed_s'] = round(time.time() - record['current']['started_unix'], 2)
+            if record['current']['status'] == 'running':
+                identity = read(root/'identity.json')
+                check = subprocess.run(['docker','exec',identity['container_id'],'cat',
+                                        f"/proc/{record['current']['pid']}/stat"],capture_output=True,timeout=8)
+                if check.returncode == 0:
+                    fields = check.stdout.decode().rsplit(')',1)[-1].split()
+                    record['current'].update(cpu_ticks=int(fields[11])+int(fields[12]), process_state=fields[0])
+        if log.is_file():
+            with log.open('rb') as file:
+                size = file.seek(0,2)
+                file.seek(max(0,size-131072))
+                tail = file.read().decode(errors='replace')
+            cycles = re.findall(r'Sim: (\d+)\(cycle\)',tail)
+            record.update(log_bytes=size,last_cycle=int(cycles[-1]) if cycles else None)
+    print(json.dumps(record,separators=(',',':')))
+    return 0
+
+
+
 def campaign(args):
     from contextlib import redirect_stdout
     import fcntl
@@ -182,6 +215,8 @@ def campaign(args):
 
 def main(args=None):
     if args is not None:
+        if args.get('action') == 'campaign_status':
+            return campaign_status(args)
         return campaign(args) if args.get('action') == 'campaign' else host_main(args)
 
     import argparse
