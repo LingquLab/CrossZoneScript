@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--args-file", type=Path, required=True)
 args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
 revision = args["revision"]
+variants = args.get("variants", [])
 if not re.fullmatch("[0-9a-f]{40}", revision):
     raise SystemExit("invalid revision")
 image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
@@ -51,7 +52,7 @@ remote("source", shlex.join(["tar", "-xf", "-", "-C", bind]), (staged / "source.
 remote("source-lock", f"cat > {shlex.quote(bind + '/source-lock.json')}",
        (staged / "source-lock.json").read_bytes())
 accept_command = shlex.join(["bash", bind + "/source/tools/collectives/memory_sst/accept-host.sh",
-                            bind, name, image])
+                            bind, name, image, *variants])
 result = remote("accept", accept_command + '; code=$?; printf "\nACCEPT_EXIT=%s\n" "$code"', timeout=1800)
 exit_status = int(result.rsplit("ACCEPT_EXIT=", 1)[1])
 if exit_status:
