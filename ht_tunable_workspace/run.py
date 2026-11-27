@@ -63,8 +63,9 @@ elif options.get('read_profile'):
 elif options.get('bf16_diagnostic'):
     assert bf16
     evidence = (shared / 'queue_trace.py').read_text().split('\ndef queue_trace(', 1)[0]
+    diagnostic = 'bf16_values.py' if options.get('bf16_values') else 'bf16_diagnostic.py'
     source = '\n'.join((prefix, evidence, (here / 'cq.py').read_text(), f'case = MOUNT / {case!r}',
-                        (here / 'bf16_diagnostic.py').read_text()))
+                        (here / diagnostic).read_text()))
 elif options.get('recover_profile'):
     assert profile
     source = '\n'.join((prefix, (root / 'ht_four_stage/local_phases.py').read_text(),
