@@ -157,6 +157,15 @@ def passed(report):
                     ('platform_simulated_us', 'profiling_operator_us', 'sst_wall_seconds', 'runner_wall_seconds')))
 
 
+def match_container_cpu_limit(cid, threads):
+    inspect = ['docker', 'inspect', '--format', '{{.HostConfig.NanoCpus}}', cid]
+    desired = threads * 1_000_000_000
+    if int(subprocess.check_output(inspect, timeout=15)) != desired:
+        subprocess.run(['docker', 'update', '--cpus', str(threads), cid], capture_output=True,
+                       check=True, timeout=20)
+        assert int(subprocess.check_output(inspect, timeout=15)) == desired
+
+
 def ensure_profile_build(root, cid, tools, mode='profile'):
     profile = root / f'{mode}-build'
     summary = profile / 'build-summary.json'
@@ -260,12 +269,18 @@ def main(request):
                 rows.append(results[name])
                 continue
             stage, intra, slots = point_settings(bs, point)
+            if point.startswith('inter'):
+                assert all(passed(results.get(f'{bs}-{key}', {})) for key in POINTS[:2]), 'local_cases_incomplete'
+            if point.startswith('joint'):
+                assert all(passed(results.get(f'{bs}-{key}', {})) for key in POINTS[:4]), 'independent_cases_incomplete'
+            threads = 16 if point.startswith('joint') else 8
+            match_container_cpu_limit(cid, threads)
             if stage == 'joint-reuse-final':
                 ensure_profile_build(root, cid, tools, 'reuse-inter')
             attempt = (POINTS.index(point) + 1) + 10 * request.get('retry', 0)
             config = dict(action=stage, tokens=bs, attempt=attempt, timeout=request['timeout'],
                           revision=REVISION, profiling=True, platform_sha256=platform_hashes,
-                          intra_cores=intra, peer_slots=slots, sst_threads=8)
+                          intra_cores=intra, peer_slots=slots, sst_threads=threads)
             row = run_case(root, cid, tools, config)
             row.update(point=point, tokens=bs)
             results[name] = row
