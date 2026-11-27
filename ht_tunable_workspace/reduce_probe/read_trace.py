@@ -38,6 +38,8 @@ for role in ("gateway", "final"):
         if not bad:
             continue
         def value(raw):
+            if dtype == "I":
+                return hex(raw)
             return raw if dtype == "f" else struct.unpack("<f", struct.pack("<I", raw << 16))[0]
 
         per_step[step] = {"bad_per_64": [sum(i // 64 == group for i in bad) for group in range(4)],

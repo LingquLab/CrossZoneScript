@@ -137,7 +137,7 @@ def gateway_barrier(source, pipe):
 
 def write_headers(destination, root, mode):
     (destination / "probe_snapshot.h").write_text(SNAPSHOT)
-    pipes = {"isolate": "PIPE_ALL", "raw": "PIPE_MTE2", "sync": "PIPE_MTE3"}
+    pipes = {"isolate": "PIPE_ALL", "raw": "PIPE_MTE2", "sync": "PIPE_MTE3", "vec": "PIPE_V"}
     def gateway_instrument(source):
         return gateway(source) if mode == "trace" else gateway_barrier(source, pipes[mode])
 
