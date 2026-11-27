@@ -80,9 +80,9 @@ def describe_trace(role, workspace, fields):
                  "input1": ("H", second), "cast1": ("f", fp32(b)), "reload_sum0": ("f", fp32(a)),
                  "add": ("f", fp32(total)), "narrow": ("H", bf16(total))}
     options = REQUEST["options"]
-    if options.get("isolate") or options.get("raw"):
+    if any(options.get(name) for name in ("isolate", "raw", "sync")):
         snapshots.update(unpack0=("H", first), unpack1=("H", second))
-    if options.get("raw"):
+    if options.get("raw") or options.get("sync"):
         snapshots["raw0"] = ("I", struct.pack("<256I", *struct.unpack("<256H", first)))
         snapshots["raw1"] = ("I", struct.pack("<256I", *struct.unpack("<256H", second)))
     return snapshots
@@ -137,7 +137,7 @@ def prepare_probe(role, spec, binary):
                     block_dim=spec["blocks"], vec_func=spec["entry"], kernel_file=f"{mount}/probe.o")
     trace_spec = {}
     options = REQUEST["options"]
-    if options.get("trace") or (role == "final" and (options.get("isolate") or options.get("raw"))):
+    if options.get("trace") or (role == "final" and any(options.get(name) for name in ("isolate", "raw", "sync"))):
         trace = describe_trace(role, workspace, fields)
         base = 0x420000000
         assert all(item["addr"] + item["size"] <= base for item in workload["output_param"].values())

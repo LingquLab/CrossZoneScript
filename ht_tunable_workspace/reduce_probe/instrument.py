@@ -98,7 +98,7 @@ def final(source, mode):
         }""")
     source = replace(source, "    TBuf<TPosition::VECCALC> sum_;",
                      "    TBuf<TPosition::VECCALC> sum_, trace_;")
-    if mode in ("isolate", "raw"):
+    if mode in ("isolate", "raw", "sync"):
         source = replace(source, "        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);",
                          """        if (record) {
             Reg::StoreAlign<bfloat16_t, Reg::StoreDist::DIST_PACK_B32>(
@@ -110,7 +110,7 @@ def final(source, mode):
         source = replace(source, "            TileXRProbe::Snapshot(trace, config_.hidden, First ? 1 : 4);",
                          """            TileXRProbe::Snapshot(trace, config_.hidden, First ? 1 : 4);
             TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);""")
-    if mode == "raw":
+    if mode in ("raw", "sync"):
         source = replace(source, "        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);",
                          """        if (record) {
             auto &raw = reinterpret_cast<Reg::RegTensor<uint32_t> &>(payload);
@@ -123,6 +123,9 @@ def final(source, mode):
                          "            TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);",
                          """            TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);
             TileXRProbe::Snapshot(trace_.Get<uint32_t>()[4 * config_.hidden], config_.hidden, First ? 10 : 11);""")
+    if mode == "sync":
+        source = replace(source, "        const bool record = GetBlockIdx() == 3;",
+                         "        const bool record = GetBlockIdx() == 3;\n        PipeBarrier<PIPE_ALL>();")
     return source
 
 
@@ -134,9 +137,9 @@ def gateway_barrier(source, pipe):
 
 def write_headers(destination, root, mode):
     (destination / "probe_snapshot.h").write_text(SNAPSHOT)
-    pipe = "PIPE_ALL" if mode == "isolate" else "PIPE_MTE2"
+    pipes = {"isolate": "PIPE_ALL", "raw": "PIPE_MTE2", "sync": "PIPE_MTE3"}
     def gateway_instrument(source):
-        return gateway(source) if mode == "trace" else gateway_barrier(source, pipe)
+        return gateway(source) if mode == "trace" else gateway_barrier(source, pipes[mode])
 
     sources = {"combine_ht_kernel.h": (root / "src/moonep/combine_ht/kernels", gateway_instrument),
                "final_reduce_worker.h": (root / "src/ep/combine_ht", lambda source: final(source, mode))}
