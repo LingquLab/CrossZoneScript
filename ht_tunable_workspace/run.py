@@ -60,6 +60,11 @@ elif options.get('read_profile'):
     source = '\n'.join((prefix, (here / 'profile.py').read_text(), f'case = MOUNT / {case!r}',
                         f'result = extract_pipeline_profile(case, 48, 8, 16, {step_ends!r}, {len(ends)})',
                         "print(json.dumps(result, separators=(',', ':')))"))
+elif options.get('bf16_diagnostic'):
+    assert bf16
+    evidence = (shared / 'queue_trace.py').read_text().split('\ndef queue_trace(', 1)[0]
+    source = '\n'.join((prefix, evidence, (here / 'cq.py').read_text(), f'case = MOUNT / {case!r}',
+                        (here / 'bf16_diagnostic.py').read_text()))
 elif options.get('recover_profile'):
     assert profile
     source = '\n'.join((prefix, (root / 'ht_four_stage/local_phases.py').read_text(),
@@ -403,7 +408,7 @@ ssh = ['ssh', '-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10'
        'BatchMode=no', '-o', 'NumberOfPasswordPrompts=1', '-o',
        'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', HOST, 'python3', '-']
 transport_timeout = 700 if options.get('recover_profile') else timeout + transport_margin
-if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'raise_live_limit', 'stop_bs1024', 'cq', 'direct_activity', 'read_profile')):
+if any(options.get(key) for key in ('status', 'suite_status', 'capacity', 'termination', 'raise_live_limit', 'stop_bs1024', 'cq', 'direct_activity', 'read_profile', 'bf16_diagnostic')):
     transport_timeout = 900 if tokens == 1024 and (options.get('cq') or options.get('read_profile')) else 120
 with askpass_environment() as env:
     result = subprocess.run(ssh, input=source.encode(), env=env, capture_output=True,
