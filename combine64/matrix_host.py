@@ -247,7 +247,8 @@ def matrix_status(root, cid, journal, bs, compact=False):
                 report = {key: report[key] for key in (
                     'progress', 'current_run', 'sim_log_bytes', 'last_cycle', 'sst_diagnostics', 'results'
                 ) if key in report}
-    print(json.dumps(report, separators=(',', ':')))
+    keys = ('progress', 'current_run', 'last_cycle', 'sim_log_bytes', 'sst_diagnostics', 'results')
+    print(json.dumps({key: report[key] for key in keys if key in report}, separators=(',', ':')))
     return 0
 
 
