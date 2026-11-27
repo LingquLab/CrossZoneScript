@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TileXR Project.
-"""Fetch the fixed public candidate and invoke its isolated green build."""
+"""Fetch the pinned candidate and invoke its isolated green build."""
 import argparse
 import base64
 import hashlib
@@ -9,19 +9,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-SESSION='44b9c060-a5dd-46a8-897f-e4a6fee171e2'
-REVISIONS = {
-    '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
-    'd04fde0': 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354',
-    '8e005fa': '8e005faf781c14dab3c0e977b52741ee29b597ac',
-    '85d4b8d': '85d4b8de182b0c813d586f7278920489c0c5c4a6',
-    'b6b968a': 'b6b968a562ab5a3a762ecedfd3e4c45b545f5b55',
-    'e30fad2': 'e30fad2e8f01c90d4d0aa5cfa5d2cf6e4c881ac1',
-    '1369e1b': '1369e1b5762b7054e6b12cb29fbccebe4193e2cd',
-    '5143097': '51430979624668e1100f2a00ee6c8413746612a5',
-    '5e65a71': '5e65a71b5f606f5e7c66366076c18a95473c60c0',
-    'a4885e1': 'a4885e131bee353f47e74a6e90de2e16d7dcbba1',
-}
+SESSION='033634e3-7471-4660-b1c3-784cea442874'
+REVISIONS = {'49f846b': '49f846bdba882ecc0b708b0ec18f56d474b252c0'}
 
 
 def main():
@@ -29,7 +18,7 @@ def main():
     parser.add_argument('--args-file',type=Path,required=True)
     args=json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     assert args.get('action') in ('build', 'build-status') and set(args) <= {'action', 'candidate'}
-    candidate = args.get('candidate', '518b9df')
+    candidate = args.get('candidate', '49f846b')
     revision = REVISIONS[candidate]
     logs=Path(os.environ['LOCALAPPDATA'])/'CrossZone/tilexr'/SESSION/candidate
     if args['action'] == 'build-status':
@@ -69,8 +58,8 @@ def main():
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     argv=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',
           '-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12','root@141.61.94.26',
-          'timeout --kill-after=20 1380 python3 -']
-    p=subprocess.run(argv,input=source.encode(),capture_output=True,timeout=1420)
+          'timeout --kill-after=20 1800 python3 -']
+    p=subprocess.run(argv,input=source.encode(),capture_output=True,timeout=1845)
     (logs/'bootstrap.stdout').write_bytes(p.stdout)
     (logs/'bootstrap.stderr').write_bytes(p.stderr)
     if p.stdout.strip():

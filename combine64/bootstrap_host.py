@@ -10,21 +10,10 @@ import tarfile
 import time
 from pathlib import Path, PurePosixPath
 
-SESSION = '44b9c060-a5dd-46a8-897f-e4a6fee171e2'
+SESSION = '033634e3-7471-4660-b1c3-784cea442874'
 IMAGE = 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
 SESSION_ROOT = Path('/mnt/share/tilexr-sim-jobs') / SESSION
-REVISIONS = {
-    '518b9df': '518b9dfa02dc3d33852ebecea90143d569ea50af',
-    'd04fde0': 'd04fde0c3d7b3e9017ca8d43383b9183fd7a2354',
-    '8e005fa': '8e005faf781c14dab3c0e977b52741ee29b597ac',
-    '85d4b8d': '85d4b8de182b0c813d586f7278920489c0c5c4a6',
-    'b6b968a': 'b6b968a562ab5a3a762ecedfd3e4c45b545f5b55',
-    'e30fad2': 'e30fad2e8f01c90d4d0aa5cfa5d2cf6e4c881ac1',
-    '1369e1b': '1369e1b5762b7054e6b12cb29fbccebe4193e2cd',
-    '5143097': '51430979624668e1100f2a00ee6c8413746612a5',
-    '5e65a71': '5e65a71b5f606f5e7c66366076c18a95473c60c0',
-    'a4885e1': 'a4885e131bee353f47e74a6e90de2e16d7dcbba1',
-}
+REVISIONS = {'49f846b': '49f846bdba882ecc0b708b0ec18f56d474b252c0'}
 
 
 def execute(argv, timeout=20):
@@ -69,7 +58,7 @@ def build(request):
     assert request['profile_files'].keys() == {'build_profile.py', 'profile_capture.h'}
     for name, code in request['profile_files'].items():
         (profile_tools / name).write_text(code)
-    limit_gib = 32 if candidate == '518b9df' else 64
+    limit_gib = 64
     name=f'combine-ht-{SESSION[:8]}-{candidate}-a1'
     container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
                        '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8',f'--memory={limit_gib}g',f'--memory-swap={limit_gib}g',
