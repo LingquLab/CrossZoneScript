@@ -96,14 +96,16 @@ def inspect(root, case, asset):
 
 
 def main(request):
-    assert request['host'] == 'host-94-18' and request['bs'] == 4
+    bs = request['bs']
+    assert request['host'] == 'host-94-18' and bs in (4, 32, 128)
     root = Path('/mnt/share/tilexr-sim-jobs/1a5bdfed-7c8c-47ca-b7b6-827c1777651a/run-c030900-host18-a1')
     journal = json.loads((root/'matrix-results.json').read_text())
-    row = journal['4-inter-16x16']
+    row = journal[f'{bs}-inter-16x16']
     assert row['candidate_commit'] == 'c03090090b9abf3ccf3b5ce51fb3aaf3d9d3cd32'
     assert row['status'] == 'sst_and_checker_passed' and row['peer_slots'] == 2
     case = Path(row['case'])
-    assert case.parent == root/'cases' and case.name == 't4-inter-server-send-a4'
-    report = inspect(root, case, root/'assets/t4-intra8-peer2')
+    assert case.parent == root/'cases' and case.name == f"t{bs}-inter-server-send-a{row['attempt']}"
+    report = inspect(root, case, root/'assets'/f't{bs}-intra8-peer2')
+    report['bs'] = bs
     print(json.dumps(report,separators=(',',':')))
     return 0
