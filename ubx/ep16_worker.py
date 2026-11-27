@@ -55,6 +55,8 @@ def main(c):
     env = dict(x.decode().split('=', 1) for x in raw.split(b'\0') if b'=' in x)
     values = {'RANK_SIZE': 16, 'TILEXR_COMM_ID': '90.90.93.84:' + str(c['port']), 'TILEXR_ENABLE_IPC': 1, 'TILEXR_IPC_SCOPE': 'local', 'TILEXR_ENABLE_RDMA': 1, 'TILEXR_ENABLE_UDMA': 0, 'TILEXR_ENABLE_SDMA': 0, 'TILEXR_RDMA_MODE': 'aiv', 'TILEXR_RDMA_DMA_MODE': 'indep_ub', 'TILEXR_RDMA_DB_MODE': 'hard', 'TILEXR_RDMA_GID_INDEX': 1, 'TILEXR_RDMA_MTU': 4096, 'TILEXR_RDMA_TIMEOUT_MS': 30000, 'TILEXR_UBX_BS': c['bs'], 'TILEXR_UBX_EXPERTS': 192, 'TILEXR_UBX_ROUNDS': c['rounds'], 'TILEXR_UBX_CARDS_PER_SERVER': 8, 'TILEXR_UBX_SEND_CORES': 16, 'TILEXR_UBX_RECV_CORES': 16, 'TILEXR_UBX_RELAY_CORES': 16, 'TILEXR_UBX_CORES': 56, 'TILEXR_UBX_CAPTURE': int(c.get('profile') == 'on'), 'TILEXR_UBX_EVENT_TIMING': 1, 'TILEXR_UBX_STAGE_LOG': 1, 'TILEXR_UBX_SYNC_STAGES': int(c.get('diagnostic', False)), 'TILEXR_UBX_PACKET_CAPTURE': 0, 'TILEXR_UBX_REUSE': 0, 'TILEXR_UBX_INTRA_ONLY': 0, 'TILEXR_UBX_CLOCK_START': 1, 'TILEXR_UBX_ROUTES_FILE': route, 'TILEXR_UBX_WARMUP_ROUNDS': c['warmup'], 'TILEXR_UBX_EXPECT_COPIES': 0, 'TILEXR_UBX_MAX_TOKENS': c['mt']}
     env.update({k: str(v) for k, v in values.items()})
+    if c.get('diagnostic'):
+        env.update(ASCEND_GLOBAL_LOG_LEVEL='1', ASCEND_SLOG_PRINT_TO_STDOUT='1')
     env['LD_LIBRARY_PATH'] = str(package / 'lib') + ':' + env.get('LD_LIBRARY_PATH', '')
     jobs = []
     handles = []
@@ -114,13 +116,26 @@ def main(c):
             required = {'mode': 'full', 'max_tokens': c['mt'], 'experts': 192, 'batch': c['bs'], 'rank_size': 16, 'total_cores': 56, 'send_cores': 16, 'recv_cores': 16, 'relay_cores': 16, 'intra_core_count': 8, 'device_barrier_status': 0, 'dtype': 'fp8e4m3'}
             valid = valid and all(s.get(k) == v for k, v in required.items()) and bool(s.get('correctness')) and bool(s.get('clock_start')) and bool(s.get('call_includes_sleep'))
             valid = valid and all(s.get(k, 0) > 0 for k in ['output_rows', 'rdma_data_bytes', 'data_wqes', 'mem_records']) and bool(s.get('warmup')) == (s.get('round', -1) < c['warmup'])
-        row = {'rank': rank, 'exit': p.returncode, 'rounds': len(summaries), 'correct': bool(valid)}
+        row = {'rank': rank, 'pid': p.pid, 'exit': p.returncode, 'rounds': len(summaries), 'correct': bool(valid)}
         if not valid:
             row['summary_fields'] = sorted(set(k for s in summaries for k in s))[:80]
         row['dispatch_event_us'] = [s.get('dispatch_event_us') for s in summaries if not s.get('warmup')]
         if not valid:
             row['stderr_tail'] = (d / 'stderr.log').read_text(errors='replace').splitlines()[-3:]
             row['stdout_tail'] = (d / 'stdout.log').read_text(errors='replace').splitlines()[-3:]
+        if not valid:
+            import re
+            errors = []
+            for name in ['stdout.log', 'stderr.log']:
+                with (d / name).open(errors='replace') as log:
+                    for line in log:
+                        if re.search(r'\bERROR\b|\bERROR_CODE\b|aiv.*exception|vector.*exception|device.*error', line, re.I):
+                            errors.append(line.strip()[:1400])
+                            if len(errors) >= 4:
+                                break
+                if len(errors) >= 4:
+                    break
+            row['runtime_errors'] = errors
         rows.append(row)
     result = {'status': 'PASS' if len(rows) == 8 and all(r['correct'] and r['exit'] == 0 for r in rows) and not timeout else 'FAIL', 'timed_out': timeout, 'ranks': rows, 'profiling': c.get('profile') == 'on', 'msprof': False, 'network_accept_local': Path('/proc/sys/net/ipv4/conf/all/accept_local').read_text().strip()}
     (case / 'result.json').write_text(json.dumps(result))
