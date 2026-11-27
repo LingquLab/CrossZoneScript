@@ -92,7 +92,7 @@ def build(output):
     environment['runtime_files'] = {str(path): digest(path) for path in dependencies if path.is_file()}
     (output/'sst-environment.json').write_text(json.dumps(environment, indent=2))
     result = {str(path.relative_to(output)): digest(path) for path in output.rglob('*') if path.is_file()}
-    (output/'../platform-manifest.json').write_text(json.dumps(result, indent=2))
+    (output/'.manifest.json').write_text(json.dumps(result, indent=2))
     return result
 
 
