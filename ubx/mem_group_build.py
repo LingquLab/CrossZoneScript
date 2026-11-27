@@ -1,6 +1,6 @@
 import concurrent.futures,hashlib,json,shlex,subprocess,tempfile
 from pathlib import Path
-REV='f31fe63c059f41f9772704cdb115463d12c02466'
+REV='1a3787a6fe5872e86bb8ba79ec58d3c87215a7c1'
 ROOT='/root/ubx-mem-group-8lane-d23ffa56'
 keys=[p for p in Path('C:/Users/l00826879/.ssh').glob('*deploy*') if p.is_file() and p.suffix not in ['.pub','.old','.bak'] and b'PRIVATE KEY' in p.read_bytes()];assert keys
 ssh=['ssh','-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','ConnectTimeout=10','-o','StrictHostKeyChecking=no','-o','UserKnownHostsFile=NUL']
