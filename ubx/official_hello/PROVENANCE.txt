@@ -1,0 +1,4 @@
+Source: https://gitcode.com/cann/asc-devkit
+Revision: 41c272ee3bbc5ee4a546e10ef6acb00f0000677a
+Path: examples/01_simd_cpp_api/00_introduction/00_quickstart/hello_world
+Only source change: device 0 -> device 6. Launch remains eight blocks.
