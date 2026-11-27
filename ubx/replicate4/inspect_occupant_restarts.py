@@ -26,12 +26,6 @@ def device(device_id):
 def process(pid):
     folder = Path("/proc") / str(pid)
     try:
-        _, state, parent, *rest = (folder / "stat").read_text().rsplit(") ", 1)[1].split(maxsplit=2)
-    except ValueError:
-        pass
-    except OSError:
-        return None
-    try:
         fields = (folder / "stat").read_text().rsplit(") ", 1)[1].split()
         name = (folder / "comm").read_text().strip()
         groups = (folder / "cgroup").read_text().splitlines()
