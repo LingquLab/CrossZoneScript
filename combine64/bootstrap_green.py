@@ -13,6 +13,33 @@ SESSION='1a5bdfed-7c8c-47ca-b7b6-827c1777651a'
 REVISIONS = {'c030900': 'c03090090b9abf3ccf3b5ce51fb3aaf3d9d3cd32'}
 
 
+def source_request(candidate, revision, logs):
+    with tempfile.TemporaryDirectory(prefix='combine-ht-source-') as temporary:
+        def git(*argv):
+            command = ['git', '-C', temporary, *argv]
+            proc = subprocess.run(command, capture_output=True, timeout=180)
+            if proc.returncode:
+                (logs/'source-git.stderr').write_bytes(proc.stderr)
+                raise RuntimeError('source_git_failed_see_green_log')
+            return proc.stdout
+        git('init', '-q')
+        git('fetch', '--depth', '1', 'https://github.com/LingquLab/TileXR.git', revision)
+        assert git('rev-parse', 'FETCH_HEAD').decode().strip() == revision
+        tree = git('rev-parse', 'FETCH_HEAD^{tree}').decode().strip()
+        archive = git('archive', '--format=tar.gz', revision)
+    directory = Path(__file__).parent
+    return {
+        'candidate': candidate,
+        'revision': revision,
+        'tree': tree,
+        'source_sha256': hashlib.sha256(archive).hexdigest(),
+        'source': base64.b64encode(archive).decode(),
+        'build_script': (directory/'build.sh').read_text(encoding='utf-8'),
+        'profile_files': {name: (directory/name).read_text(encoding='utf-8')
+                          for name in ('build_profile.py', 'profile_capture.h')},
+    }
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--args-file',type=Path,required=True)
@@ -37,23 +64,8 @@ def main():
         print(json.dumps(report, separators=(',', ':')))
         return 0
     logs.mkdir(parents=True,exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='combine-ht-source-') as temporary:
-        def git(*argv):
-            p=subprocess.run(['git','-C',temporary,*argv],capture_output=True,timeout=180)
-            if p.returncode:
-                (logs/'source-git.stderr').write_bytes(p.stderr)
-                raise RuntimeError('source_git_failed_see_green_log')
-            return p.stdout
-        git('init','-q')
-        git('fetch','--depth','1','https://github.com/LingquLab/TileXR.git',revision)
-        assert git('rev-parse','FETCH_HEAD').decode().strip()==revision
-        tree=git('rev-parse','FETCH_HEAD^{tree}').decode().strip()
-        archive=git('archive','--format=tar.gz',revision)
+    request = source_request(candidate, revision, logs)
     directory=Path(__file__).parent
-    request={'candidate':candidate,'revision':revision,'tree':tree,'source_sha256':hashlib.sha256(archive).hexdigest(),
-             'source':base64.b64encode(archive).decode(),'build_script':(directory/'build.sh').read_text(encoding='utf-8'),
-             'profile_files':{name:(directory/name).read_text(encoding='utf-8')
-                              for name in ('build_profile.py', 'profile_capture.h')}}
     source=(directory/'bootstrap_host.py').read_text(encoding='utf-8')+'\nraise SystemExit(main('+repr(request)+'))\n'
     key=Path(os.environ['USERPROFILE'])/'.ssh/id_ed25519'
     argv=['ssh','-T','-i',str(key),'-p','22','-o','BatchMode=yes','-o','IdentitiesOnly=yes',

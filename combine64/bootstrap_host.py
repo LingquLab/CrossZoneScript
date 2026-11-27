@@ -23,11 +23,14 @@ def execute(argv, timeout=20):
 
 
 def build(request):
-    assert execute(['hostname', '-s']).decode().strip() == 'host-94-26'
+    host = request.get('host', 'host-94-26')
+    assert host in ('host-94-26', 'host-94-18')
+    assert execute(['hostname', '-s']).decode().strip() == host
     assert platform.machine() == 'aarch64'
     candidate = request['candidate']
     assert request['revision'] == REVISIONS[candidate]
-    root = SESSION_ROOT / f'run-{candidate}-a1'
+    suffix = '-host18' if host == 'host-94-18' else ''
+    root = SESSION_ROOT / f'run-{candidate}{suffix}-a1'
     assert execute(['docker','image','inspect','--format','{{.Id}} {{.Os}}/{{.Architecture}}',IMAGE]).decode().strip() == IMAGE+' linux/arm64'
     root.mkdir(parents=True, exist_ok=False)
     record = {k: request[k] for k in ('revision','tree','source_sha256')}
@@ -59,7 +62,7 @@ def build(request):
     for name, code in request['profile_files'].items():
         (profile_tools / name).write_text(code)
     limit_gib = 64
-    name=f'combine-ht-{SESSION[:8]}-{candidate}-a1'
+    name=f'combine-ht-{SESSION[:8]}-{candidate}{suffix}-a1'
     container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
                        '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8',f'--memory={limit_gib}g',f'--memory-swap={limit_gib}g',
                        '--pids-limit=1024','--shm-size=64m','--ulimit','nofile=524288:524288',
@@ -75,6 +78,11 @@ def build(request):
     record['container_network'] = info['HostConfig']['NetworkMode']
     hashes=execute(['docker','exec',container,'sha256sum','/opt/sim/cann-env.sh','/opt/sim/plugins/libUBusSimulator.so']).decode().splitlines()
     record['environment_hashes']=dict(line.split(None,1)[::-1] for line in hashes)
+    if host == 'host-94-18':
+        assert record['environment_hashes'] == {
+            '/opt/sim/cann-env.sh': '0e5c8f776d7dc189751e9ad6e2db7fd2a84c7a7afdbc031f7771a6a78db5afef',
+            '/opt/sim/plugins/libUBusSimulator.so': 'b351b8d91c0e26c0447e93c38b69932a08fee3b4d4bdc5f276d1c6068bf15e71',
+        }, 'historical_image_environment_mismatch'
     (root/'identity.json').write_text(json.dumps(record,indent=2))
     start=time.monotonic()
     with (root/'container-build.log').open('wb') as log:

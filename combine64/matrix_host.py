@@ -196,7 +196,10 @@ for process in Path('/proc').glob('[0-9]*'):
 
 def main(request):
     bs = request['bs']
-    root = SESSION_ROOT / f'run-{REVISION[:7]}-a1'
+    host = request.get('host', 'host-94-26')
+    assert host in ('host-94-26', 'host-94-18')
+    suffix = '-host18' if host == 'host-94-18' else ''
+    root = SESSION_ROOT / f'run-{REVISION[:7]}{suffix}-a1'
     journal = root / 'matrix-results.json'
     cid = task_container(root, REVISION)
     if request['action'] == 'status':
