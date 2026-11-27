@@ -46,8 +46,10 @@ if workers:
 controller = base / (output.name + "-controller.log")
 tail = controller.read_text(errors="replace").splitlines()[-6:] if controller.is_file() else []
 build = base / "build-result.json"
+cleanup = base / (output.name + "-npu-cleanup.json")
 print(json.dumps(dict(workers=entries, runtime=runtime[:8], controller_log=tail,
-    clock_files=len(list(output.rglob("*.clock-model.json"))),
+    cleanup=json.loads(cleanup.read_text()) if cleanup.is_file() else None,
+    traces=len(list(output.glob("rank*/dispatch.last.trace.json"))),
     controller_started=controller.is_file(), host_result=(output/"host-result.json").is_file(),
     build_revision=json.loads(build.read_text())["revision"] if build.is_file() else None), separators=(",",":")))
 """
@@ -85,7 +87,7 @@ def compact(host):
     return dict(host=host["host"], workers=len(workers), ranks_with_records=sum(w["records"] > 0 for w in workers),
                 captured_flags=sum("failure-flags" in w for w in workers),
                 controller_started=host["controller_started"], host_result=host["host_result"],
-                clock_files=host["clock_files"], build_revision=host["build_revision"],
+                cleanup=host["cleanup"], traces=host["traces"], build_revision=host["build_revision"],
                 template_copies_by_core=active, recv_nonzero_fragments=recv_nonzero,
                 examples=examples[:1], runtime=host["runtime"][:1])
 
@@ -99,9 +101,21 @@ if __name__ == "__main__":
     work = CONTROL_WORK if control else WORK
     run_name = options.get("run_name", "full-bs32-f50")
     assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
+    task = options.get("task")
+    execution = None
+    if task:
+        assert re.fullmatch(r"[a-z0-9-]+", task)
+        execution_dir = Path.cwd() / "runs" / task / str(int(options.get("iteration", 1))) / "execution"
+        receipt_path = execution_dir / "execution.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.is_file() else {}
+        execution = {"status": receipt.get("status", "PENDING"), "exit_code": receipt.get("exit_code")}
+        if execution["exit_code"] not in (None, 0):
+            errors = execution_dir / "stderr.log"
+            lines = errors.read_text(encoding="utf-8", errors="replace").splitlines() if errors.is_file() else []
+            execution["error"] = next((line[:270] for line in reversed(lines) if "Error:" in line), None)
     with ThreadPoolExecutor(max_workers=2) as pool:
         hosts = list(pool.map(lambda host: inspect(host, work, run_name), HOSTS))
     destination.mkdir(parents=True, exist_ok=True)
     output = destination / ("warmup-evidence.json" if run_name == "full-bs32-f50" else run_name + "-evidence.json")
-    output.write_text(json.dumps(hosts, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(dict(local_diagnostics=str(output), hosts=list(map(compact, hosts))), separators=(",", ":")))
+    output.write_text(json.dumps(dict(execution=execution, hosts=hosts), indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(dict(local_diagnostics=str(output), execution=execution, hosts=list(map(compact, hosts))), separators=(",", ":")))
