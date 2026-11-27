@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 
 def device(device_id):
@@ -53,9 +54,15 @@ def sample():
                 continue
             info = process(pid)
             if info:
-                parent = process(info["parent"])
-                if parent:
-                    info.update(parent_name=parent["name"], parent_identity=parent["identity"])
+                ancestors = []
+                parent = info["parent"]
+                while parent > 1 and len(ancestors) < 5:
+                    ancestor = process(parent)
+                    if not ancestor:
+                        break
+                    ancestors.append(ancestor["name"])
+                    parent = ancestor["parent"]
+                info["ancestors"] = ancestors
                 processes[pid] = info
     return cards, processes
 
@@ -66,12 +73,12 @@ for attempt in range(3):
         time.sleep(2)
     cards, processes = sample()
     ids = {tuple(p["identity"]) for p in processes.values()}
-    groups = Counter((p["kind"], p["name"], p.get("parent_name", ""), p["group"]) for p in processes.values())
+    groups = Counter((p["kind"], p["name"], tuple(p["ancestors"]), p["group"]) for p in processes.values())
     results.append(dict(busy=[i for i, pids in cards.items() if pids],
                         unknown=[i for i, pids in cards.items() if pids is None],
                         count=len(processes),
                         pids_new=len(ids-older) if attempt else None,
-                        groups=[dict(kind=k, process=p, parent=q, group=g, count=n)
+                        groups=[dict(kind=k, process=p, ancestors=q, group=g, count=n)
                                 for (k, p, q, g), n in sorted(groups.items())]))
     older = ids
 print(json.dumps(results, separators=(",", ":")))
