@@ -34,9 +34,12 @@ with tarfile.open(mode='w|gz',fileobj=sys.stdout.buffer) as out:
         rel=pathlib.PurePosixPath(name)
         assert not rel.is_absolute() and '..' not in rel.parts
         src=p/name
-        assert src.is_file() and not src.is_symlink() and src.stat().st_size <= 4*1024*1024
-        assert hashlib.sha256(src.read_bytes()).hexdigest() == expected
-        out.add(src,arcname=name,recursive=False)
+        assert src.is_file() and src.stat().st_size <= 4*1024*1024, name
+        content=src.read_bytes()
+        assert hashlib.sha256(content).hexdigest() == expected, name
+        asset=tarfile.TarInfo(name)
+        asset.size=len(content)
+        out.addfile(asset,io.BytesIO(content))
     data=json.dumps(files).encode()
     item=tarfile.TarInfo('.manifest.json')
     item.size=len(data)
