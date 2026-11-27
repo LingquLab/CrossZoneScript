@@ -67,6 +67,9 @@ def host_main(args):
                     saved['sst_elapsed_seconds'] = round(time.time()-saved['started_unix'], 2)
                 result[key] = saved
         log = case/'sim.log'
+        if 'current' in record:
+            keep = ('stage','status','attempt','elapsed_s','cpu_ticks','process_state','returncode','error')
+            record['current'] = {key:value for key,value in record['current'].items() if key in keep}
         if log.is_file():
             with log.open('rb') as file:
                 size = file.seek(0, 2)
@@ -136,11 +139,22 @@ def host_main(args):
     return summary()
 
 
+def row_metrics(row):
+    keys = ('candidate_commit','stage','tokens','attempt','status','blocks','checked_ranks','guards',
+            'port0_die_mode','profiling_lanes','profiling_dropped_records','profiling_operator_us',
+            'platform_simulated_us','sst_wall_seconds','runner_wall_seconds','sst_peak_rss_kib',
+            'source_object_sha256','kernel_sha256','port_jetties','intra_cores','peer_slots','returncode','error')
+    result = row.get('result',{})
+    return {**{key:row[key] for key in ('point','case','retry','sim_diagnostics') if key in row},
+            'result': {key:result[key] for key in keys if key in result}}
+
+
+
 def campaign_status(args):
     root = run_root(args)
     progress_path = root/'progress.json'
     journal = root/f"campaign-bs{args['bs']}.json"
-    rows = read(journal) if journal.is_file() else []
+    rows = [row_metrics(row) for row in read(journal)] if journal.is_file() else []
     record = {'rows': rows, 'progress': read(progress_path) if progress_path.is_file() else {}}
     if case_name := record['progress'].get('case'):
         case = root/'cases'/case_name
@@ -157,6 +171,9 @@ def campaign_status(args):
                 if check.returncode == 0:
                     fields = check.stdout.decode().rsplit(')',1)[-1].split()
                     record['current'].update(cpu_ticks=int(fields[11])+int(fields[12]), process_state=fields[0])
+        if 'current' in record:
+            keep = ('stage','status','attempt','elapsed_s','cpu_ticks','process_state','returncode','error')
+            record['current'] = {key:value for key,value in record['current'].items() if key in keep}
         if log.is_file():
             with log.open('rb') as file:
                 size = file.seek(0,2)
@@ -208,7 +225,7 @@ def campaign(args):
             if row.get('result', {}).get('status') != 'sst_and_checker_passed':
                 break
     print(json.dumps({'bs': bs, 'passed': sum(row.get('result', {}).get('status') == 'sst_and_checker_passed'
-                                              for row in rows), 'rows': rows}, separators=(',', ':')))
+                                              for row in rows), 'rows': [row_metrics(row) for row in rows]}, separators=(',', ':')))
     return 0
 
 
