@@ -285,7 +285,7 @@ def main(request):
             threads = 16 if point.startswith('joint') else 8
             match_container_cpu_limit(cid, threads)
             if stage == 'joint-reuse-final':
-                ensure_profile_build(root, cid, tools, 'reuse-inter')
+                ensure_profile_build(root, cid, tools, 'reuse-inter-pipe')
             attempt = (POINTS.index(point) + 1) + 10 * request.get('retry', 0)
             config = dict(action=stage, tokens=bs, attempt=attempt, timeout=request['timeout'],
                           revision=REVISION, profiling=True, platform_sha256=platform_hashes,

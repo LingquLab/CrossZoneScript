@@ -24,7 +24,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def wrap(text, entry):
+def wrap(text, entry, reuse_pipe=False):
     pattern = r'(^extern "C" __global__ __aicore__ void ' + entry + r'\([^{}]+?)(\)\n\{\n)(.*?)(^\})'
     match = re.search(pattern, text, flags=re.M | re.S)
     assert match and 'return;' not in match[3], entry
@@ -39,16 +39,27 @@ def wrap(text, entry):
     HtSstProfile::Flush(sstProfile, sstLane);
 '''
     body = match[3]
-    if entry == 'tilexr_ht_pipeline_sst':
-        # Mode 2 reuses only inter-server sender blocks in the same SST launch.
-        body += '''
+    if reuse_pipe:
+        assert entry == 'tilexr_ht_pipeline_sst' and body.strip() == 'RunPipeline(args);'
+        body = '''
     const auto &send = args.send;
+    const auto &local = args.local;
     const uint32_t interBegin = TileXRCombineHT::IntraCores(args.local.config);
     if (args.finalPipeline == 2 && sstLane >= interBegin && sstLane < interBegin + send.config.ownerCount) {
-        TileXREpHt::FinalReduceDevice::Run(reinterpret_cast<GM_ADDR>(send.workspace),
+        AscendC::TPipe pipe;
+        const uint32_t owner = sstLane - interBegin;
+        TileXREpHt::InterServerSendDevice::RunWithPipe(reinterpret_cast<GM_ADDR>(send.commArgs),
+            reinterpret_cast<GM_ADDR>(send.workspace), reinterpret_cast<GM_ADDR>(send.forward),
+            reinterpret_cast<GM_ADDR>(send.counts), reinterpret_cast<GM_ADDR>(send.ranges),
+            reinterpret_cast<GM_ADDR>(send.status), send.config, owner, local.profiling, pipe);
+        AscendC::PipeBarrier<PIPE_ALL>();
+        pipe.Reset();
+        TileXREpHt::FinalReduceDevice::RunWithPipe(reinterpret_cast<GM_ADDR>(send.workspace),
             reinterpret_cast<GM_ADDR>(args.serverMask), reinterpret_cast<GM_ADDR>(send.workspace + args.localReadyOffset),
             reinterpret_cast<GM_ADDR>(args.output), reinterpret_cast<GM_ADDR>(args.finalStatus),
-            send.config, sstLane - interBegin, args.finalBlocks);
+            send.config, owner, args.finalBlocks, local.profiling, pipe);
+    } else {
+        RunPipeline(args);
     }
 '''
     marked = match[1] + ', GM_ADDR sstProfile' + match[2] + begin + body + end + match[4]
@@ -175,9 +186,30 @@ def stage_inter_probe(target):
     (target / worker.name).write_text(text)
 
 
+def stage_reuse_pipe(target):
+    worker_dir = SOURCE / 'src/ep/combine_ht'
+    inputs = {
+        'inter_server_send_worker.h': 'commArgs, workspace, forward, counts, ranges, status, config, owner, profiling',
+        'final_reduce_worker.h': 'workspace, serverMask, localReady, output, status, config, block, blocks, profiling',
+    }
+    for name, args in inputs.items():
+        text = (worker_dir/name).read_text()
+        pattern = r'(^__aicore__ __attribute__\(\(noinline\)\) inline void Run\([^{}]+?)(\)\n\{\n)    TPipe pipe;\n(.*?)(^\})'
+        match = re.search(pattern, text, flags=re.M | re.S)
+        assert match, name
+        original_sig = match[1]
+        pipe_sig = original_sig.replace('void Run(', 'void RunWithPipe(').replace(
+            'GM_ADDR profiling = nullptr', 'GM_ADDR profiling, TPipe &pipe')
+        assert 'TPipe &pipe' in pipe_sig, name
+        entry = pipe_sig + match[2] + match[3] + match[4]
+        entry += '\n' + original_sig + match[2] + '    TPipe pipe;\n'
+        entry += '    RunWithPipe(' + args + ', pipe);\n}'
+        (target/name).write_text(text[:match.start()] + entry + text[match.end():])
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'profile'
-    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe', 'reuse-inter') and len(sys.argv) <= 2
+    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe', 'reuse-inter-pipe') and len(sys.argv) <= 2
     target = WORK / (mode + '-build')
     target.mkdir()
     entries = ENTRIES
@@ -190,7 +222,8 @@ def main():
     elif mode == 'inter-probe':
         stage_inter_probe(target)
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
-    elif mode == 'reuse-inter':
+    elif mode == 'reuse-inter-pipe':
+        stage_reuse_pipe(target)
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
     summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
     options = [
@@ -215,7 +248,7 @@ def main():
         key = entry + '_kernel' if entry == 'tilexr_ht_pipeline_sst' else entry
         original = SOURCE / relative
         wrapper = target / (entry + '.cpp')
-        wrapper.write_text(wrap(original.read_text(), entry))
+        wrapper.write_text(wrap(original.read_text(), entry, mode == 'reuse-inter-pipe'))
         obj = target / (entry + '.rel.o')
         binary = target / (entry + '.o')
         compile_log = target / (entry + '.compile.log')
