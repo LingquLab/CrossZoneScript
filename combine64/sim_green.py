@@ -107,7 +107,10 @@ def main():
         remote_seconds = 180 + sum(stage_budget(STAGES, args['matrix_timeouts'][str(size)], timeout, size)
                                    for size in (32, 128))
     if action == 'multi-jetty-bs':
-        assert tokens in (4, 32, 128) and attempt == 1 and args.get('profiling') is True
+        assert tokens in (4, 32, 128) and args.get('profiling') is True
+        previous_attempts = args.get('previous_attempts', {})
+        assert set(previous_attempts) <= {str(size) for size in (4, 32) if size < tokens}
+        assert all(type(value) is int and 1 <= value <= 20 for value in previous_attempts.values())
         stages = ('local-send', 'inter-server-send', 'joint-final')
         assert set(args['stage_timeouts']) == set(stages)
         args['stage_timeouts']['joint-reuse-final'] = args['stage_timeouts']['joint-final']
@@ -135,7 +138,25 @@ def main():
     args.update(tokens=tokens, attempt=attempt, timeout=timeout)
     args['files'] = {name: (here / name).read_text(encoding='utf-8') for name in SCRIPT_FILES}
     code = (here / 'sim_host.py').read_text(encoding='utf-8')
-    code += '\nraise SystemExit(main(' + repr(args) + '))\n'
+    if action == 'multi-jetty-bs':
+        # Keep foreground SSH sessions active while SST writes to its own log.
+        code += """
+import threading
+heartbeat_stop = threading.Event()
+def heartbeat():
+    while not heartbeat_stop.wait(12):
+        print('sst-alive', flush=True)
+heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+heartbeat_thread.start()
+try:
+    result = main(""" + repr(args) + """)
+finally:
+    heartbeat_stop.set()
+    heartbeat_thread.join()
+raise SystemExit(result)
+"""
+    else:
+        code += '\nraise SystemExit(main(' + repr(args) + '))\n'
     ssh = [
         'ssh', '-T', '-i', str(Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'),
         '-p', '22', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
@@ -150,7 +171,10 @@ def main():
         proc = subprocess.run(ssh, input=code.encode(), capture_output=True, timeout=remote_seconds + 50)
         stem.with_suffix('.stdout').write_bytes(proc.stdout)
         stem.with_suffix('.stderr').write_bytes(proc.stderr)
-        report = json.loads(proc.stdout) if proc.stdout.strip() else {'stage': 'ssh'}
+        lines = [line for line in proc.stdout.splitlines() if line and line != b'sst-alive']
+        report = json.loads(lines[-1]) if lines else {'stage': 'ssh'}
+        if action == 'multi-jetty-bs':
+            report['ssh_heartbeats'] = proc.stdout.splitlines().count(b'sst-alive')
         report.update(ssh_exit=proc.returncode, ssh_stderr_bytes=len(proc.stderr))
         print(json.dumps(report, separators=(',', ':')))
         return proc.returncode

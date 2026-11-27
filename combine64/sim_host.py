@@ -456,13 +456,14 @@ def run_variant_cases(origin, revision, variant, tokens, args):
         if threads != 8:
             set_container_cpus(cid, threads)
         tools, platform = stage_tools(root, args['files'])
-        config = dict(tokens=tokens, attempt=1, timeout=args['timeout'], revision=revision,
+        attempt = args.get('attempt', 1) if args['action'] == 'multi-jetty-bs' else 1
+        config = dict(tokens=tokens, attempt=attempt, timeout=args['timeout'], revision=revision,
                       profiling=True, intra_cores=intra, peer_slots=slots, platform_sha256=platform,
                       sst_threads=threads)
         rows = []
         stage_timeouts = args.get('stage_timeouts', {})
         for stage in stages:
-            case = root / 'cases' / f't{tokens}-{stage}-a1'
+            case = root / 'cases' / f't{tokens}-{stage}-a{attempt}'
             result = case / 'phase-result.json'
             if result.is_file():
                 full = json_file(result)
@@ -532,9 +533,10 @@ def multi_jetty_phases(origin, revision, tokens):
 def run_multi_jetty_bs(origin, revision, args):
     tokens = args['tokens']
     for earlier in (size for size in (4, 32) if size < tokens):
+        attempt = args.get('previous_attempts', {}).get(str(earlier), 1)
         for phase in multi_jetty_phases(origin, revision, earlier):
             for intra, slots, root, (stage,) in phase:
-                receipt = root / 'cases' / f't{earlier}-{stage}-a1' / 'phase-result.json'
+                receipt = root / 'cases' / f't{earlier}-{stage}-a{attempt}' / 'phase-result.json'
                 verify_completed(json_file(receipt), revision, earlier, stage, intra, slots)
     rows = []
     with ThreadPoolExecutor(max_workers=2) as pool:
