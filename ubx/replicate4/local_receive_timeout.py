@@ -3,10 +3,11 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import re
 import shlex
 
 from benchmark import HOSTS, ssh
-from retest_local_receive import REVISION, WORK
+from retest_local_receive import CONTROL_WORK, REVISION, WORK
 
 PROBE = r"""
 import json
@@ -14,7 +15,8 @@ from pathlib import Path
 import re
 import sys
 
-output = Path(sys.argv[1]) / "full-bs32-f50"
+base = Path(sys.argv[1])
+output = base / sys.argv[2]
 workers = sorted(output.glob("rank*/worker.log"))
 entries = []
 for path in workers:
@@ -41,12 +43,18 @@ if workers:
                   if "[ERROR]" in line and "ubx_dispatch_hardware_ep32" in line]
         if errors:
             runtime.append(dict(file=log.name, errors=errors[:5]))
-print(json.dumps(dict(workers=entries, runtime=runtime[:8]), separators=(",",":")))
+controller = base / (output.name + "-controller.log")
+tail = controller.read_text(errors="replace").splitlines()[-6:] if controller.is_file() else []
+build = base / "build-result.json"
+print(json.dumps(dict(workers=entries, runtime=runtime[:8], controller_log=tail,
+    clock_files=len(list(output.rglob("*.clock-model.json"))),
+    controller_started=controller.is_file(), host_result=(output/"host-result.json").is_file(),
+    build_revision=json.loads(build.read_text())["revision"] if build.is_file() else None), separators=(",",":")))
 """
 
 
-def inspect(host):
-    result = ssh(host, shlex.join(["python3", "-", WORK]), payload=PROBE.encode(), timeout=85)
+def inspect(host, work, run_name):
+    result = ssh(host, shlex.join(["python3", "-", work, run_name]), payload=PROBE.encode(), timeout=85)
     return dict(host=host, **json.loads(result))
 
 
@@ -64,9 +72,22 @@ def compact(host):
                                                for kind in ("sender", "route")},
                              active_template_queues={kind: sum(any(q.get("template_epoch", [])) for q in queues if q["queue"] == kind)
                                                      for kind in ("sender", "route")}))
+    active = {kind: [0] * (16 if kind == "sender" else 4) for kind in ("sender", "route")}
+    recv_nonzero = 0
+    for worker in workers:
+        flags = worker.get("failure-flags", {})
+        for q in flags.get("sender_qps", []):
+            index = q["aiv"] - (24 if q["queue"] == "route" else 0)
+            if any(q["template_epoch"]):
+                active[q["queue"]][index] += 1
+        recv_nonzero += sum(count for b in flags.get("buffers", []) if b["name"] == "recv_fragments"
+                            for epoch, count in b.get("epochs", []) if epoch)
     return dict(host=host["host"], workers=len(workers), ranks_with_records=sum(w["records"] > 0 for w in workers),
                 captured_flags=sum("failure-flags" in w for w in workers),
-                examples=examples, runtime=host["runtime"][:1])
+                controller_started=host["controller_started"], host_result=host["host_result"],
+                clock_files=host["clock_files"], build_revision=host["build_revision"],
+                template_copies_by_core=active, recv_nonzero_fragments=recv_nonzero,
+                examples=examples[:1], runtime=host["runtime"][:1])
 
 
 if __name__ == "__main__":
@@ -74,9 +95,13 @@ if __name__ == "__main__":
     parser.add_argument("--args-file", type=Path, required=True)
     options = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
     destination = Path(options["destination"]) / ("replicate4-local-receive-bs32-" + REVISION[:7] + "-diagnostics")
+    control = options.get("control", False)
+    work = CONTROL_WORK if control else WORK
+    run_name = options.get("run_name", "full-bs32-f50")
+    assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        hosts = list(pool.map(inspect, HOSTS))
+        hosts = list(pool.map(lambda host: inspect(host, work, run_name), HOSTS))
     destination.mkdir(parents=True, exist_ok=True)
-    output = destination / "warmup-evidence.json"
+    output = destination / ("warmup-evidence.json" if run_name == "full-bs32-f50" else run_name + "-evidence.json")
     output.write_text(json.dumps(hosts, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(dict(local_diagnostics=str(output), hosts=list(map(compact, hosts))), separators=(",", ":")))
