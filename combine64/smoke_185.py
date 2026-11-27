@@ -16,15 +16,12 @@ def host_main(args):
     assert info['Image'] == record['image'] == args['image_id']
     assert info['Config']['Labels']['crosszone.session'] == SESSION
     assert info['State']['Running'] and info['HostConfig']['NetworkMode'] == 'none'
-    log = root / 'bundled-smoke-aiv-urma.log'
+    log = root / 'bundled-smoke-aiv-urma-installed-path.log'
     command = '''
         set -eo pipefail
         source /opt/sim/sst-env.sh
         export PYTHONPATH=/opt/sim/simulator:${PYTHONPATH:-}
-        src=/opt/sim/simulator/Testcases/Smoke_aivUrma
-        case=/work/bundled-smoke-aiv-urma
-        mkdir "$case"
-        cp -a "$src/." "$case/"
+        case=/opt/sim/simulator/Testcases/Smoke_aivUrma
         cd "$case"
         python3 -c 'import pathlib,yaml; d=yaml.safe_load(pathlib.Path("UBusSim_config/UBusSim_simulator_config.yml").read_text()); assert d["simulator_info"]["urma_flag"] and not d["simulator_info"]["simt_urma_flag"]'
         exec timeout --kill-after=10 360 /opt/sim/local/sstcore/libexec/sstsim.x -n 8 "$case/test_UBusSim.py"
@@ -38,7 +35,7 @@ def host_main(args):
         tail = stream.read().decode(errors='replace')
     pattern = r'FATAL|simulated time:|[A-Za-z]+Error:|cannot|not found|errorcode'
     samples = [line[:280] for line in tail.splitlines() if re.search(pattern,line)][-8:]
-    print(json.dumps({'case': str(root/'bundled-smoke-aiv-urma'), 'exit': proc.returncode,
+    print(json.dumps({'case': '/opt/sim/simulator/Testcases/Smoke_aivUrma', 'exit': proc.returncode,
                       'wall_seconds': round(time.monotonic()-start,3), 'observations': samples}))
     return 0
 
