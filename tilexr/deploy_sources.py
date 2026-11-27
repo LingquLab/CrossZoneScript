@@ -204,6 +204,34 @@ def main():
             spec.loader.exec_module(tssh)
             inventory = Path(__file__).with_name('inventory.json')
             cluster = tssh.find_cluster(tssh.load_clusters(inventory), 'crosszone-893851e4')
+            def ssh_with_key(argv, **kwargs):
+                return subprocess.run([argv[0], '-i', str(key), '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', *argv[1:]], **kwargs)
+            cygpath = Path(scp).with_name('cygpath.exe')
+            def scp_path(path):
+                if cygpath.is_file():
+                    return run([str(cygpath), '-u', str(path)], 30).decode('utf-8').strip()
+                return str(path)
+            scp_identity = scp_path(key)
+            scp_transport = scp_path(transport)
+            scp_options = [scp, '-O', '-q', '-i', scp_identity, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no']
+            state['stage'] = 'upload-probe'
+            state['scp_legacy_mode'] = True
+            state['scp_posix_paths'] = cygpath.is_file()
+            save()
+            probe = artifacts / 'TileXR-crosszone-893851e4-probe.tilexrdata'
+            probe_payload = b'TileXR source deployment probe 893851e4\n'
+            probe.write_bytes(probe_payload)
+            remote_probe = '/home/c00996840/ai/TileXR-crosszone-893851e4-probe.tilexrdata'
+            for host in cluster.hosts:
+                run([*scp_options, scp_path(probe), cluster.user + '@' + host.address + ':' + remote_probe], 45)
+            probe_script = ('import hashlib,json\nfrom pathlib import Path\np=Path(' + repr(remote_probe) + ')\nassert hashlib.sha256(p.read_bytes()).hexdigest()==' + repr(hashlib.sha256(probe_payload).hexdigest()) + '\np.unlink()\nprint(json.dumps({"probe_verified":True,"probe_removed":True}))\n').encode('utf-8')
+            state['stage'] = 'upload-probe-verify'
+            save()
+            probe_results = tssh.run_cluster(ssh, cluster, 'python3 -', probe_script, 2, 10, 45, run_process=ssh_with_key)
+            state['probe_results'] = [{'host': result.host.address, 'exit_code': result.returncode, 'success': result.succeeded} for result in probe_results]
+            save()
+            assert all(result.succeeded and json.loads(result.stdout.decode('utf-8')).get('probe_verified') for result in probe_results), 'UPLOAD_PROBE_VERIFICATION_FAILED'
+            probe.unlink()
             remote_archive = '/home/c00996840/ai/.TileXR-crosszone-893851e4-' + package['archive_sha256'][:12] + '.tilexrdata'
             state['stage'] = 'upload'
             state['transport'] = str(transport)
@@ -211,11 +239,9 @@ def main():
             save()
             upload_timeout = min(1800, 300 + archive.stat().st_size // (1024 * 1024))
             for host in cluster.hosts:
-                run([scp, '-q', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no', str(transport), cluster.user + '@' + host.address + ':' + remote_archive], upload_timeout)
+                run([*scp_options, scp_transport, cluster.user + '@' + host.address + ':' + remote_archive], upload_timeout)
                 state['uploads'].append(host.address)
                 save()
-            def ssh_with_key(argv, **kwargs):
-                return subprocess.run([argv[0], '-i', str(key), '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', *argv[1:]], **kwargs)
             remote_code = Path(__file__).with_name('remote_deploy.py').read_bytes()
             command = tssh.remote_command(['python3', '-', remote_archive, arguments['destination'], package['archive_sha256']])
             state['stage'] = 'remote-deploy'
