@@ -1,5 +1,6 @@
 """Summarize a retained Shared Jetty regression without running it again."""
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 import re
@@ -66,7 +67,14 @@ def get_report(output):
     transport = output / "run" / "transport.json"
     if transport.is_file():
         record = json.loads(transport.read_bytes())[0]
-        for line in record.get("stdout", "").splitlines():
+        tail = record.get("stdout", "").splitlines()
+        events = re.findall(r'\[Element: ([^\]]+)\]-\[Sim: ([0-9]+)\(cycle\)\]: \[([A-Za-z0-9_:]+)\]',
+                            record.get("stdout", ""))
+        if events:
+            evidence["last_cycle"] = max(int(cycle) for _, cycle, _ in events)
+            evidence["tail_events"] = Counter(event for _, _, event in events).most_common(8)
+        evidence["log_files"] = [line.partition("=")[2] for line in tail if line.startswith("LOG_TAIL=")]
+        for line in tail:
             tag, _, value = line.partition("=")
             if tag in ("SST_FAILURE", "SST_RESULT"):
                 result = json.loads(value)
@@ -75,7 +83,7 @@ def get_report(output):
                 )}
         patterns = ("Unknown low level", "AllToAll oracle", "Segmentation fault",
                     "Fatal:", "Mismatch", "ERROR:", "Validation failed")
-        lines = record.get("stdout", "").splitlines() + record.get("stderr", "").splitlines()
+        lines = tail + record.get("stderr", "").splitlines()
         evidence["diagnostics"] = list(dict.fromkeys(
             line.strip()[:350] for line in lines if any(pattern in line for pattern in patterns)
         ))[-5:]
