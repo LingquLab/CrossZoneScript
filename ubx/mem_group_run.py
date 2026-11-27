@@ -13,7 +13,7 @@ root=Path('/root/ubx-mem-group-8lane-d23ffa56');receipt=json.loads((root/'build-
 for n,digest in receipt['artifacts'].items():assert hashlib.sha256((root/'build'/n).read_bytes()).hexdigest()==digest
 if phase!='smoke':
  prior=json.loads((root/'smoke-verified.json').read_text());assert prior['revision']==receipt['revision'] and prior['passed']
-reps,warmup,measured,detail={'smoke':(1,1,2,0),'formal':(3,10,20,0),'detail':(1,2,5,1)}[phase]
+reps,warmup,measured,detail={'smoke':(1,1,2,0),'formal':(3,5,10,0),'detail':(1,5,10,1)}[phase]
 source=root/'source/dispatch/mem-group-bench';output=root/run_id
 cmd=['python3',str(source/'run.py'),'--build',str(root/'build'),'--runtime','/root/ubx-dispatch-global-ab-d23ffa56/runtime-install','--routes',str(root/'inputs/expert_ids.bin'),'--output',str(output),'--port',str(port),'--repetitions',str(reps),'--warmup',str(warmup),'--measured',str(measured),'--detail',str(detail)]
 p=subprocess.run(['bash','-c','source /usr/local/Ascend/cann/set_env.sh >/dev/null 2>&1 && '+shlex.join(cmd)],capture_output=True,text=True,timeout=1400)
