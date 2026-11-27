@@ -28,7 +28,7 @@ def main():
     assert destination.parent.resolve() == base
     assert destination.name == 'TileXR-crosszone-893851e4'
     assert archive.parent.resolve() == base
-    assert archive.name == '.TileXR-crosszone-893851e4-' + checksum[:12] + '.tar.gz'
+    assert archive.name == '.TileXR-crosszone-893851e4-' + checksum[:12] + '.tilexrdata'
     assert not destination.exists(), 'DESTINATION_ALREADY_EXISTS'
     digest = hashlib.sha256()
     with archive.open('rb') as stream:

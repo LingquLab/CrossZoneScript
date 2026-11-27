@@ -183,6 +183,13 @@ def main():
             assert package['status'] == 'PACKAGED', 'PACKAGE_NOT_READY'
             archive = Path(package['archive'])
             assert file_sha256(archive) == package['archive_sha256']
+            transport = archive.with_name('TileXR-crosszone-893851e4.tilexrdata')
+            if not transport.exists():
+                try:
+                    os.link(archive, transport)
+                except OSError:
+                    shutil.copy2(archive, transport)
+            assert file_sha256(transport) == package['archive_sha256'], 'TRANSPORT_CHECKSUM_MISMATCH'
             home = Path.home()
             candidates = [home / '.ssh/npass_id_rsa', home / 'npass_id_rsa', state_root / 'npass_id_rsa'] + [p / 'npass_id_rsa' for p in list(state_root.parents)[:2]]
             key = next((path for path in candidates if path.is_file()), None)
@@ -197,13 +204,14 @@ def main():
             spec.loader.exec_module(tssh)
             inventory = Path(__file__).with_name('inventory.json')
             cluster = tssh.find_cluster(tssh.load_clusters(inventory), 'crosszone-893851e4')
-            remote_archive = '/home/c00996840/ai/.TileXR-crosszone-893851e4-' + package['archive_sha256'][:12] + '.tar.gz'
+            remote_archive = '/home/c00996840/ai/.TileXR-crosszone-893851e4-' + package['archive_sha256'][:12] + '.tilexrdata'
             state['stage'] = 'upload'
+            state['transport'] = str(transport)
             state['uploads'] = []
             save()
             upload_timeout = min(1800, 300 + archive.stat().st_size // (1024 * 1024))
             for host in cluster.hosts:
-                run([scp, '-q', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no', str(archive), cluster.user + '@' + host.address + ':' + remote_archive], upload_timeout)
+                run([scp, '-q', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no', str(transport), cluster.user + '@' + host.address + ':' + remote_archive], upload_timeout)
                 state['uploads'].append(host.address)
                 save()
             def ssh_with_key(argv, **kwargs):
@@ -226,6 +234,7 @@ def main():
             if not all(result.succeeded for result in results):
                 raise RuntimeError('REMOTE_DEPLOYMENT_FAILED')
             state['status'] = 'DEPLOYED'
+            transport.unlink()
             save()
             print(json.dumps({'status': 'DEPLOYED', 'results': summaries}, ensure_ascii=True))
         else:
