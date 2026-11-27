@@ -23,7 +23,7 @@ def build_dispatch(host, source, sha256, script, work, revision):
     return receipt
 
 
-def main(revision=REVISION, work=WORK, mode="replicate4", ports=(26000, 28000, 24500)):
+def main(revision=REVISION, work=WORK, mode="replicate4", ports=(26000, 28000, 24500), collection=None):
     script = Path(__file__).with_name("build_disjoint_routes.sh").read_bytes().replace(b"\r\n", b"\n")
     with tempfile.TemporaryDirectory(prefix="ubx-disjoint-routes-", dir=Path.cwd()) as workspace:
         directory = Path(workspace).resolve()
@@ -34,13 +34,17 @@ def main(revision=REVISION, work=WORK, mode="replicate4", ports=(26000, 28000, 2
         with ThreadPoolExecutor(max_workers=2) as pool:
             builds = list(pool.map(lambda host: build_dispatch(host, source, sha256, script, work, revision), HOSTS))
         assert builds[0]["runtime_sha256"] == builds[1]["runtime_sha256"]
+        assert builds[0]["artifacts"] == builds[1]["artifacts"]
     benchmark.ROOT = PurePosixPath(work)
     benchmark.HARDWARE = benchmark.ROOT / "source/dispatch/dispatch-release/tests/hardware"
     benchmark.OUTPUT = benchmark.ROOT / "full-bs32-f50"
     benchmark.RUNTIME_INSTALL = PurePosixPath(ROOT) / "runtime-install"
     benchmark.REVISION = revision
     benchmark.ROUTE_MODE = mode
-    benchmark.main(ports=ports, cleanup=True)
+    summary = benchmark.main(ports=ports, cleanup=True, collection=collection)
+    if collection is None:
+        print(json.dumps(summary, separators=(",", ":")))
+    return summary
 
 
 if __name__ == "__main__":

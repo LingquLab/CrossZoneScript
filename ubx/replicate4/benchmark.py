@@ -1,5 +1,6 @@
 """Run and analyze the two-host EP32 BS32 route benchmark."""
 import concurrent.futures
+from contextlib import nullcontext
 import hashlib
 import io
 import json
@@ -164,8 +165,9 @@ def extra_metrics(collection):
     )
 
 
-def summarize(pool, verifier):
-    with tempfile.TemporaryDirectory(prefix="ubx-replicate4-f50-") as path:
+def summarize(pool, verifier, collection=None):
+    workspace = tempfile.TemporaryDirectory(prefix="ubx-replicate4-f50-") if collection is None else nullcontext(collection)
+    with workspace as path:
         collection = Path(path)
         list(pool.map(lambda i: collect(i, collection), range(2)))
         verified = verifier.analyze(collection, REVISION, 32, list(HOSTS))
@@ -188,7 +190,7 @@ def read_verifier():
     return load_clock_results(source)
 
 
-def main(ports=(43000,), cleanup=False):
+def main(ports=(43000,), cleanup=False, collection=None):
     here = Path(__file__).resolve().parent
     rounds_script = (here / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (here / "run_remote.py").read_text()
@@ -210,7 +212,7 @@ def main(ports=(43000,), cleanup=False):
         results = list(pool.map(lambda i: controller(i, "run", payload, port), range(2)))
         assert all(result["passed"] for result in results)
         assert sum(result["route_qps_verified"] for result in results) == 32 * ROUTE_QPS_PER_RANK[ROUTE_MODE]
-        summary = summarize(pool, verifier)
+        summary = summarize(pool, verifier, collection)
     summary["coordinator_port"] = port
     if RUNTIME_REVISION:
         summary["runtime_revision"] = RUNTIME_REVISION
@@ -222,8 +224,8 @@ def main(ports=(43000,), cleanup=False):
             dict(host=host, term_sent=receipt["term_sent"], kill_sent=receipt["kill_sent"])
             for host, receipt in zip(HOSTS, readiness)
         ]
-    print(json.dumps(summary, separators=(",", ":")))
+    return summary
 
 
 if __name__ == "__main__":
-    main()
+    print(json.dumps(main(), separators=(",", ":")))
