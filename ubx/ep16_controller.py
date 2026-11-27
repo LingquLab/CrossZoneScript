@@ -21,7 +21,7 @@ def main():
     keys = [p for p in keyroot.iterdir() if p.is_file() and p.suffix.lower() not in ['.pub', '.old', '.bak'] and p.name not in ['config', 'known_hosts', 'authorized_keys'] and p.stat().st_size < 65536 and b'PRIVATE KEY' in p.read_bytes()]
     worker = Path(__file__).with_name('ep16_worker.py').read_text()
     hosts = ['90.90.93.84', '90.90.93.188']
-    assert settings.get('variant', 'control') in ['control', 'global', 'prepare-diagnostic']
+    assert settings.get('variant', 'control') in ['control', 'global', 'prepare-diagnostic', 'entry-diagnostic']
     assert settings.get('profile', 'off') in ['off', 'on']
     roots = ['/root/ubx-control-ab-ep16-d23ffa56/' + settings.get('variant', 'control')] * 2
     logdir = Path.cwd() / ('ablation-' + uuid.uuid4().hex[:10])
