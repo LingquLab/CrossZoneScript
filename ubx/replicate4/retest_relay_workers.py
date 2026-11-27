@@ -60,7 +60,7 @@ def build_candidate():
         assert builds[0] == builds[1]
 
 
-def run_benchmark(destination, work, revision, run_name, label):
+def run_benchmark(destination, work, revision, run_name, label, ports=(31500, 25000, 27000)):
     result_dir = destination / label
     assert destination.is_absolute() and destination.is_dir()
     assert not result_dir.exists()
@@ -72,7 +72,7 @@ def run_benchmark(destination, work, revision, run_name, label):
     with tempfile.TemporaryDirectory(prefix=".relay24-", dir=destination) as staging:
         collection = Path(staging) / "verified"
         collection.mkdir()
-        summary = benchmark.main(ports=(31500, 25000, 27000), collection=collection)
+        summary = benchmark.main(ports=ports, collection=collection)
         if revision == REVISION:
             summary.update(review_traces(collection), relay_workers=24)
         summary["local_results"] = str(result_dir)
@@ -107,9 +107,14 @@ if __name__ == "__main__":
                       "replicate4-relay16-bs32-" + BASELINE[:7] + "-control")
     elif mode == "retry":
         run_benchmark(destination, WORK, REVISION, "full-bs32-f50-relay24-retry", candidate_label)
+    elif mode == "recalibrate":
+        run_benchmark(destination, WORK, REVISION, "full-bs32-f50-relay24-recalibrate", candidate_label,
+                      ports=(30500, 25000))
     elif mode == "diagnostics":
         save_failure_evidence(destination, WORK, "full-bs32-f50")
     elif mode == "control_diagnostics":
         save_failure_evidence(destination, BASELINE_WORK, "full-bs32-f50-relay24-control")
+    elif mode == "recalibrate_diagnostics":
+        save_failure_evidence(destination, WORK, "full-bs32-f50-relay24-recalibrate")
     else:
         raise ValueError("unknown benchmark mode")
