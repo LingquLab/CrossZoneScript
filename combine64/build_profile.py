@@ -45,19 +45,22 @@ def wrap(text, entry, reuse_pipe=False):
     const auto &send = args.send;
     const auto &local = args.local;
     const uint32_t interBegin = TileXRCombineHT::IntraCores(args.local.config);
-    if (args.finalPipeline == 2 && sstLane >= interBegin && sstLane < interBegin + send.config.ownerCount) {
+    if (sstLane >= interBegin && sstLane < interBegin + send.config.ownerCount) {
         AscendC::TPipe pipe;
         const uint32_t owner = sstLane - interBegin;
         TileXREpHt::InterServerSendDevice::RunWithPipe(reinterpret_cast<GM_ADDR>(send.commArgs),
             reinterpret_cast<GM_ADDR>(send.workspace), reinterpret_cast<GM_ADDR>(send.forward),
             reinterpret_cast<GM_ADDR>(send.counts), reinterpret_cast<GM_ADDR>(send.ranges),
             reinterpret_cast<GM_ADDR>(send.status), send.config, owner, local.profiling, pipe);
-        AscendC::PipeBarrier<PIPE_ALL>();
-        pipe.Reset();
-        TileXREpHt::FinalReduceDevice::RunWithPipe(reinterpret_cast<GM_ADDR>(send.workspace),
-            reinterpret_cast<GM_ADDR>(args.serverMask), reinterpret_cast<GM_ADDR>(send.workspace + args.localReadyOffset),
-            reinterpret_cast<GM_ADDR>(args.output), reinterpret_cast<GM_ADDR>(args.finalStatus),
-            send.config, owner, args.finalBlocks, local.profiling, pipe);
+        if (args.finalPipeline == 2) {
+            AscendC::PipeBarrier<PIPE_ALL>();
+            pipe.Reset();
+            TileXREpHt::FinalReduceDevice::RunWithPipe(reinterpret_cast<GM_ADDR>(send.workspace),
+                reinterpret_cast<GM_ADDR>(args.serverMask),
+                reinterpret_cast<GM_ADDR>(send.workspace + args.localReadyOffset),
+                reinterpret_cast<GM_ADDR>(args.output), reinterpret_cast<GM_ADDR>(args.finalStatus),
+                send.config, owner, args.finalBlocks, local.profiling, pipe);
+        }
     } else {
         RunPipeline(args);
     }
@@ -209,7 +212,7 @@ def stage_reuse_pipe(target):
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'profile'
-    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe', 'reuse-inter-pipe') and len(sys.argv) <= 2
+    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe', 'joint-inter-pipe') and len(sys.argv) <= 2
     target = WORK / (mode + '-build')
     target.mkdir()
     entries = ENTRIES
@@ -222,7 +225,7 @@ def main():
     elif mode == 'inter-probe':
         stage_inter_probe(target)
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
-    elif mode == 'reuse-inter-pipe':
+    elif mode == 'joint-inter-pipe':
         stage_reuse_pipe(target)
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
     summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
@@ -248,7 +251,7 @@ def main():
         key = entry + '_kernel' if entry == 'tilexr_ht_pipeline_sst' else entry
         original = SOURCE / relative
         wrapper = target / (entry + '.cpp')
-        wrapper.write_text(wrap(original.read_text(), entry, mode == 'reuse-inter-pipe'))
+        wrapper.write_text(wrap(original.read_text(), entry, mode == 'joint-inter-pipe'))
         obj = target / (entry + '.rel.o')
         binary = target / (entry + '.o')
         compile_log = target / (entry + '.compile.log')

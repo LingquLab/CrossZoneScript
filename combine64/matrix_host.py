@@ -285,12 +285,13 @@ def main(request):
                 assert all(passed(results.get(f'{bs}-{key}', {})) for key in POINTS[:4]), 'independent_cases_incomplete'
             threads = 16 if point.startswith('joint') else 8
             match_container_cpu_limit(cid, threads)
-            if stage == 'joint-reuse-final':
-                ensure_profile_build(root, cid, tools, 'reuse-inter-pipe')
+            if point.startswith('joint'):
+                ensure_profile_build(root, cid, tools, 'joint-inter-pipe')
             attempt = (POINTS.index(point) + 1) + 10 * request.get('retry', 0)
             config = dict(action=stage, tokens=bs, attempt=attempt, timeout=request['timeout'],
                           revision=REVISION, profiling=True, platform_sha256=platform_hashes,
-                          intra_cores=intra, peer_slots=slots, sst_threads=threads)
+                          intra_cores=intra, peer_slots=slots, sst_threads=threads,
+                          explicit_inter_pipe=point.startswith('joint'))
             row = run_case(root, cid, tools, config)
             row.update(point=point, tokens=bs)
             results[name] = row

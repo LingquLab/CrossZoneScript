@@ -510,8 +510,9 @@ def main(config):
     build = read_json(ROOT / build_file)
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
     kernel_build = read_json(ROOT / 'ready-probe-build/build-summary.json') if ready_probe else build
-    if action == 'joint-reuse-final':
-        kernel_build = read_json(ROOT / 'reuse-inter-pipe-build/build-summary.json')
+    if config.get('explicit_inter_pipe'):
+        assert action in ('joint-final', 'joint-reuse-final')
+        kernel_build = read_json(ROOT / 'joint-inter-pipe-build/build-summary.json')
     if joint_probe:
         kernel_build = read_json(ROOT / 'joint-probe-build/build-summary.json')
     if inter_probe:
