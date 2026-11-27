@@ -53,7 +53,7 @@ def main():
         print(json.dumps(obj), flush=True)
 
     def run(bs, mt, smoke=False):
-        config = {'action': 'run', 'profile': settings.get('profile', 'off'), 'gated': True, 'capture': uuid.uuid4().hex, 'run_id': 'ablation-bs%d-mt%d-' % (bs, mt) + uuid.uuid4().hex[:12], 'bs': bs, 'mt': mt, 'rounds': 4 if smoke else 25, 'warmup': 2 if smoke else 5, 'timeout': 240 if smoke else 560, 'port': 24000 + int(uuid.uuid4().hex[:4], 16) % 10000}
+        config = {'action': 'run', 'diagnostic': settings.get('diagnostic', False), 'profile': settings.get('profile', 'off'), 'gated': True, 'capture': uuid.uuid4().hex, 'run_id': 'ablation-bs%d-mt%d-' % (bs, mt) + uuid.uuid4().hex[:12], 'bs': bs, 'mt': mt, 'rounds': 4 if smoke else 25, 'warmup': 2 if smoke else 5, 'timeout': 90 if settings.get('diagnostic') else (240 if smoke else 560), 'port': 24000 + int(uuid.uuid4().hex[:4], 16) % 10000}
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(remote, node, config) for node in range(2)]
             gate_deadline = time.monotonic() + 75
