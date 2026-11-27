@@ -85,7 +85,7 @@ def main():
     if not all(r.get('ready') for r in checks):
         emit({'event': 'STOP', 'reason': 'resources_unavailable'})
         return 1
-    outcome = run(64, 2, settings.get('smoke', True))
+    outcome = run(settings.get('batch', 32), 2, settings.get('smoke', True))
     emit({'event': 'DONE' if outcome else 'STOP', 'passed': bool(outcome)})
     return 0 if outcome else 1
 

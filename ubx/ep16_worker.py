@@ -34,8 +34,10 @@ def main(c):
         return {'ready': (case / 'ready').is_file()}
     package = root / c.get('profile', 'off')
     assert (package / 'bin/ubx_full_intra').is_file()
-    route = root.parent / 'inputs/routes-ep16-bs64-e192-seed20261127.bin'
-    assert hashlib.sha256(route.read_bytes()).hexdigest() == 'bc05d0433db16db8c1ed9d82ad480e2f8e49db4f62400a8bf1136854345c961f'
+    assert c['bs'] in (32, 64)
+    route = root.parent / ('inputs/routes-ep16-bs%d-e192-seed20261127.bin' % c['bs'])
+    digests = {32: '1762a3431e132b5364989db53ff82ec28446aa3977e5490a126336190e64c54d', 64: 'bc05d0433db16db8c1ed9d82ad480e2f8e49db4f62400a8bf1136854345c961f'}
+    assert hashlib.sha256(route.read_bytes()).hexdigest() == digests[c['bs']]
     if not all(occupancy()):
         return {'status': 'BUSY', 'launched': False}
     case = root / c['run_id']
