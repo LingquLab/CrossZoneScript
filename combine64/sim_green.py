@@ -49,10 +49,10 @@ def run_staged(ssh, source, remote_seconds, args):
                           timeout=remote_seconds + 50)
 
 
-def run_managed(ssh, helper, driver, tokens, attempt, remote_seconds):
+def run_managed(ssh, helper, driver, tokens, attempt, remote_seconds, trace_signals=False):
     """Follow the same host job through short SSH connections until it exits."""
     short = ssh[:-1] + ['timeout --kill-after=4 25 python3 -']
-    launch = helper + f'\nraise SystemExit(run_unit({driver!r}, {tokens}, {attempt}, {remote_seconds}))\n'
+    launch = helper + f'\nraise SystemExit(run_unit({driver!r}, {tokens}, {attempt}, {remote_seconds}, {trace_signals!r}))\n'
     try:
         started = subprocess.run(short, input=launch.encode(), capture_output=True, timeout=34)
     except subprocess.TimeoutExpired as error:
@@ -169,7 +169,8 @@ def main():
         args['stage_timeouts']['joint-reuse-final'] = args['stage_timeouts']['joint-final']
         remote_seconds = 160 + stage_budget(stages, args['stage_timeouts'], timeout, tokens)
     if args.get('systemd_unit'):
-        assert action == 'multi-jetty-bs'
+        assert action in ('multi-jetty-bs', *STAGES)
+        assert type(args.get('trace_signals', False)) is bool
     if args.get('replace_legacy_batch'):
         assert (action, candidate, tokens, attempt) == ('joint-final', 'd04fde0', 4, 1)
         assert (args.get('intra_cores', 8), args.get('peer_slots', 1)) == (8, 1)
@@ -232,7 +233,7 @@ raise SystemExit(result)
     try:
         if args.get('systemd_unit'):
             helper = (here / 'run_sim_unit.py').read_text(encoding='utf-8')
-            proc = run_managed(ssh, helper, code, tokens, attempt, remote_seconds)
+            proc = run_managed(ssh, helper, code, tokens, attempt, remote_seconds, args.get('trace_signals', False))
         elif args.get('staged_script'):
             proc = run_staged(ssh, code.encode(), remote_seconds, args)
         else:

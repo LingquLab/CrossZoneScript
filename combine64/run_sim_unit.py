@@ -19,7 +19,7 @@ def job_paths(tokens, attempt):
     return unit, ROOT / 'matrix-jobs' / unit
 
 
-def run_unit(driver, tokens, attempt, seconds):
+def run_unit(driver, tokens, attempt, seconds, trace_signals=False):
     unit, directory = job_paths(tokens, attempt)
     directory.mkdir(parents=True, exist_ok=False)
     script = directory / 'driver.py'
@@ -33,13 +33,18 @@ def run_unit(driver, tokens, attempt, seconds):
         'path=pathlib.Path(sys.argv[1]); pending=path.with_suffix(".tmp"); '
         'pending.write_text(str(code)); pending.replace(path); sys.exit(code)'
     )
+    workload = [sys.executable, '-c', command_wrapper, str(exit_file), sys.executable, str(script)]
+    if trace_signals:
+        workload = ['strace', '-f', '-tt', '-e', 'trace=none',
+                    '-e', 'signal=TERM,HUP,INT,QUIT,KILL',
+                    '-o', str(directory / 'host-signals.log'), *workload]
     command = [
         'systemd-run', '--quiet', '--unit=' + unit, '--property=Type=exec',
         '--property=RuntimeMaxSec=' + str(seconds),
         '--property=TimeoutStopSec=40',
         '--property=StandardOutput=append:' + str(stdout),
         '--property=StandardError=append:' + str(stderr),
-        sys.executable, '-c', command_wrapper, str(exit_file), sys.executable, str(script),
+        *workload,
     ]
     with (directory / 'systemd-run.log').open('xb') as details:
         proc = subprocess.run(command, stdout=details, stderr=subprocess.STDOUT, timeout=15)
