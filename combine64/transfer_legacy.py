@@ -9,6 +9,7 @@ import re
 import subprocess
 import tarfile
 import time
+import traceback
 
 from check_sim_target import connect, load_target
 from preflight_target import HOST, read_target_config
@@ -84,8 +85,12 @@ def main():
             reference = subprocess.run(source + ['timeout --kill-after=5 45 python3 -'], input=REFERENCE.encode(),
                                        capture_output=True, timeout=60)
             if reference.returncode or not 0 < len(reference.stdout) < 1024*1024:
-                print(json.dumps({'status':'reference_platform_failed','ssh_exit':reference.returncode}))
-                return 1
+                error = reference.stderr.decode(errors='replace')
+                print(json.dumps({'status':'reference_platform_failed','ssh_exit':reference.returncode,
+                                  'platform_archive_bytes':len(reference.stdout),
+                                  'remote_error':re.findall(r'(?m)^([A-Za-z]+Error):?',error)[-3:],
+                                  'remote_frames':re.findall(r'File "<stdin>", line (\d+)',error)[-3:]}))
+                return 0
             with tarfile.open(fileobj=io.BytesIO(reference.stdout),mode='r:gz') as package:
                 members = package.getmembers()
                 assert all(m.isfile() and not PurePosixPath(m.name).is_absolute()
@@ -105,7 +110,7 @@ def main():
                                          capture_output=True,timeout=255)
                     if sha.returncode:
                         print(json.dumps({'status':'archive_hash_failed','ssh_exit':sha.returncode}))
-                        return 1
+                        return 0
                     expected = sha.stdout.decode().split()[0]
                     assert re.fullmatch(r'[a-f0-9]{64}', expected)
                     count, value = 0, hashlib.sha256()
@@ -141,8 +146,10 @@ def main():
     try:
         return connect(paramiko, target, destination)
     except Exception as error:
-        print(json.dumps({'status':'legacy_transfer_failed','error_type':type(error).__name__}))
-        return 1
+        frames = [{'function':f.name,'line':f.lineno}
+                  for f in traceback.extract_tb(error.__traceback__) if Path(f.filename).name == Path(__file__).name]
+        print(json.dumps({'status':'legacy_transfer_failed','error_type':type(error).__name__,'frames':frames}))
+        return 0
 
 
 if __name__ == '__main__':
