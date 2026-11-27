@@ -71,9 +71,9 @@ def main():
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action, bs = args['action'], args['bs']
-    assert action in ('build-and-run', 'run', 'resume', 'status') and bs in (4, 32, 128)
+    assert action in ('build-and-run', 'run', 'resume', 'status', 'sq-overlap') and bs in (4, 32, 128)
     args['host'] = HOST
-    if action != 'status':
+    if action not in ('status', 'sq-overlap'):
         points = args['points']
         assert points and points == [point for point in POINTS if point in points]
         assert type(args['timeout']) is int and 60 <= args['timeout'] <= 7200
@@ -84,6 +84,10 @@ def main():
     with paramiko.SSHClient() as client:
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
         connect(client)
+        if action == 'sq-overlap':
+            code, evidence = execute(client, 'sq_overlap.py', args, 220, log)
+            print(json.dumps(evidence, separators=(',', ':')))
+            return code
         if action == 'build-and-run':
             request = source_request(CANDIDATE, REVISIONS[CANDIDATE], log)
             request['host'] = HOST
