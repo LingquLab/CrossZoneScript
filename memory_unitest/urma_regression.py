@@ -17,6 +17,11 @@ args = json.loads(parser.parse_args().args_file.read_text())
 revision = args["revision"]
 matrix = args.get("full_cases", [])
 trace = args.get("trace", False)
+reference_prefill_bind = args.get("compare_prefill_build_with")
+if reference_prefill_bind is not None and (matrix != ["jetty_peers_prefill"] or trace or
+        not isinstance(reference_prefill_bind, str) or
+        not re.fullmatch(r"/opt/tilexr-urma-unitest\.[A-Za-z0-9]{8}", reference_prefill_bind)):
+    raise SystemExit("build comparison requires one Prefill case and a fixed retained bind")
 if type(trace) is not bool or (trace and matrix != ["jetty_peers"]):
     raise SystemExit("instruction trace requires the single Shared Jetty case")
 simulation_timeout = 150 if trace else 1200
@@ -90,6 +95,14 @@ try:
     targets = ([f"tilexr_alltoall_urma_{value if value in staged_cases else 'full_' + value}_kernel_sst" for value in matrix]
                if matrix else ["tilexr_alltoall_urma_lr8_kernel_sst"])
     remote("build", shlex.join(["bash", "-s", "--", bind, name, image, *targets]), timeout=900, data=build)
+    if reference_prefill_bind is not None:
+        object_path = "/build/src/collectives/sst/tilexr_alltoall_urma_jetty_peers_prefill_kernel.o"
+        hashes = remote("prefill-object-hashes", shlex.join(["sha256sum", bind + object_path,
+                                                              reference_prefill_bind + object_path]))
+        candidate_hash, reference_hash = [line.split()[0] for line in hashes.splitlines()]
+        print(json.dumps(dict(stage="build_comparison", revision=revision, bind=bind, candidate=candidate_hash,
+                              reference=reference_hash, identical=candidate_hash == reference_hash)), flush=True)
+        raise SystemExit(0)
     container = remote("identity", f"cat {shlex.quote(bind + '/container-id.txt')}")
     hostname = remote("hostname", "hostname -s")
     cann, ubus = "/opt/sim/cann-env.sh", "/opt/sim/plugins/libUBusSimulator.so"
