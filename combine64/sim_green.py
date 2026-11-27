@@ -29,7 +29,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8'))
     action, tokens = args['action'], args.get('tokens', 4)
     attempt = args.get('attempt', 1)
-    assert action in ('status', 'interrupt-stalled-joint', 'interrupt-unprofiled', 'profile-build', 'batch', 'matrix',
+    assert action in ('status', 'interrupt-stalled-joint', 'interrupt-unprofiled', 'profile-build', 'batch', 'matrix', 'multi-jetty-bs',
                       'bs4-remainder', 'joint-evidence', *STAGES)
     assert tokens in (4, 16, 32, 64, 128)
     assert type(attempt) is int and 1 <= attempt <= 20
@@ -68,7 +68,8 @@ def main():
         assert action == 'interrupt-stalled-joint' or (action == 'joint-final' and 'stop_at_us' in args)
         assert type(args['stalled_cq_cycle']) is int and args['stalled_cq_cycle'] > 0
     if 'sst_threads' in args:
-        assert action in ('joint-final', 'joint-reuse-final', 'matrix', 'bs4-remainder') and args['sst_threads'] in (8, 16, 32)
+        assert action in ('joint-final', 'joint-reuse-final', 'matrix', 'bs4-remainder', 'multi-jetty-bs')
+        assert args['sst_threads'] in (8, 16, 32)
     remote_seconds = timeout + CASE_OVERHEAD[tokens] + 40
     if 'stalled_cq_cycle' in args:
         remote_seconds += 135
@@ -105,6 +106,12 @@ def main():
         assert set(args['matrix_timeouts']) == {'32', '128'}
         remote_seconds = 180 + sum(stage_budget(STAGES, args['matrix_timeouts'][str(size)], timeout, size)
                                    for size in (32, 128))
+    if action == 'multi-jetty-bs':
+        assert tokens in (4, 32, 128) and attempt == 1 and args.get('profiling') is True
+        stages = ('local-send', 'inter-server-send', 'joint-final')
+        assert set(args['stage_timeouts']) == set(stages)
+        args['stage_timeouts']['joint-reuse-final'] = args['stage_timeouts']['joint-final']
+        remote_seconds = 160 + stage_budget(stages, args['stage_timeouts'], timeout, tokens)
     if args.get('replace_legacy_batch'):
         assert (action, candidate, tokens, attempt) == ('joint-final', 'd04fde0', 4, 1)
         assert (args.get('intra_cores', 8), args.get('peer_slots', 1)) == (8, 1)

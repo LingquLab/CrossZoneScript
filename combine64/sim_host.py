@@ -517,6 +517,35 @@ def run_large_matrix(origin, revision, args):
     return 0
 
 
+def multi_jetty_phases(origin, revision, tokens):
+    variant_a = (4, 1, origin.with_name(f'run-{revision[:7]}-i4-p1'))
+    variant_b = (8, 2, origin.with_name(f'run-{revision[:7]}-i8-p2'))
+    dedicated, reuse = ('joint-final',), ('joint-reuse-final',)
+    joint_a, joint_b = (reuse, dedicated) if tokens == 32 else (dedicated, reuse)
+    return [
+        ((*variant_a, ('local-send',)), (*variant_b, ('local-send',))),
+        ((*variant_a, ('inter-server-send',)), (*variant_b, ('inter-server-send',))),
+        ((*variant_a, joint_a), (*variant_b, joint_b)),
+    ]
+
+
+def run_multi_jetty_bs(origin, revision, args):
+    tokens = args['tokens']
+    for earlier in (size for size in (4, 32) if size < tokens):
+        for phase in multi_jetty_phases(origin, revision, earlier):
+            for intra, slots, root, (stage,) in phase:
+                receipt = root / 'cases' / f't{earlier}-{stage}-a1' / 'phase-result.json'
+                verify_completed(json_file(receipt), revision, earlier, stage, intra, slots)
+    rows = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for phase in multi_jetty_phases(origin, revision, tokens):
+            both = [pool.submit(run_variant_cases, origin, revision, variant, tokens, args) for variant in phase]
+            for future in both:
+                rows.extend(future.result())
+    print(json.dumps({'tokens': tokens, 'revision': revision, 'batch': rows}, separators=(',', ':')))
+    return 0
+
+
 def inspect_joint_snapshot(root, cid, revision, args):
     tools, _ = stage_tools(root, args['files'])
     entry = Path('/work') / tools.relative_to(root) / 'joint_evidence.py'
@@ -554,6 +583,8 @@ def main(args):
             return run_bs4_joint_remainder(origin, revision, args)
         if action == 'matrix':
             return run_large_matrix(origin, revision, args)
+        if action == 'multi-jetty-bs':
+            return run_multi_jetty_bs(origin, revision, args)
         if root != origin and not root.exists():
             cid = prepare_variant(root, origin, revision, intra_cores, peer_slots)
         else:
