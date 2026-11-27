@@ -12,13 +12,13 @@ from green_auth import askpass_environment
 from ssh_transport import HOST
 
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
-trace = bool(options.get("trace"))
-artifact = json.loads((here / ("trace-object.json" if trace else "object.json")).read_text())
+mode = "isolate" if options.get("isolate") else "trace" if options.get("trace") else "probe"
+artifact = json.loads((here / ("object.json" if mode == "probe" else f"{mode}-object.json")).read_text())
 fix = json.loads((root / "combine_cast/results/v310-cast-library-fix.json").read_text())
 image = fix["regression"]["result"]["image"]
 decoder = fix["library_source"]["result"]["libs"]["libDavinciSimulator.so"]
 parameters = dict(options=options, artifact=artifact, image=image, decoder=decoder,
-                  object=base64.b64encode((here / ("trace.o.gz" if trace else "probe.o.gz")).read_bytes()).decode())
+                  object=base64.b64encode((here / f"{mode}.o.gz").read_bytes()).decode())
 runtime = (root / "combine_cast/fix_run_remote.py").read_text()
 runtime = runtime[:runtime.index("def extract_inputs")].replace(
     "SUITE = PATCH / OPTIONS.get(\"run_name\", \"regression\")",

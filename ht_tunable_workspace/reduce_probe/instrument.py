@@ -58,7 +58,7 @@ def gateway(source):
     return source
 
 
-def final(source):
+def final(source, isolate=False):
     source = '#include "probe_snapshot.h"\n' + source
     source = replace(source, "__ubuf__ bfloat16_t *output, uint32_t hidden)",
                      "__ubuf__ bfloat16_t *output, uint32_t hidden, __ubuf__ float *trace, bool record)")
@@ -96,13 +96,33 @@ def final(source):
                 TileXRProbe::Snapshot(output, config_.hidden, 7);
             }
         }""")
-    return replace(source, "    TBuf<TPosition::VECCALC> sum_;",
-                   "    TBuf<TPosition::VECCALC> sum_, trace_;")
+    source = replace(source, "    TBuf<TPosition::VECCALC> sum_;",
+                     "    TBuf<TPosition::VECCALC> sum_, trace_;")
+    if isolate:
+        source = replace(source, "        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);",
+                         """        if (record) {
+            Reg::StoreAlign<bfloat16_t, Reg::StoreDist::DIST_PACK_B32>(
+                reinterpret_cast<__ubuf__ bfloat16_t *>(trace + 3 * hidden) + offset, payload, mask);
+        }
+        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);""")
+        source = replace(source, "        pipe.InitBuffer(trace_, 3 * config.hidden * sizeof(float));",
+                         "        pipe.InitBuffer(trace_, 4 * config.hidden * sizeof(float));")
+        source = replace(source, "            TileXRProbe::Snapshot(trace, config_.hidden, First ? 1 : 4);",
+                         """            TileXRProbe::Snapshot(trace, config_.hidden, First ? 1 : 4);
+            TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);""")
+    return source
 
 
-def write_headers(destination, root):
+def gateway_barrier(source):
+    return replace(source, "                Cast(bf16_output_slot_ub, fp32_accumulator_ub, RoundMode::CAST_RINT, element_num);",
+                   """                PipeBarrier<PIPE_ALL>();
+                Cast(bf16_output_slot_ub, fp32_accumulator_ub, RoundMode::CAST_RINT, element_num);""")
+
+
+def write_headers(destination, root, isolate=False):
     (destination / "probe_snapshot.h").write_text(SNAPSHOT)
-    sources = {"combine_ht_kernel.h": (root / "src/moonep/combine_ht/kernels", gateway),
-               "final_reduce_worker.h": (root / "src/ep/combine_ht", final)}
+    sources = {"combine_ht_kernel.h": (root / "src/moonep/combine_ht/kernels",
+                                       gateway_barrier if isolate else gateway),
+               "final_reduce_worker.h": (root / "src/ep/combine_ht", lambda source: final(source, isolate))}
     for name, (directory, instrument) in sources.items():
         (destination / name).write_text(instrument((directory / name).read_text()))

@@ -19,14 +19,16 @@ checkout = source.parent
 revision = subprocess.check_output(["git", "-C", checkout, "rev-parse", "HEAD"], text=True).strip()
 assert revision == "186dfa18a0358add6af8ef237ebca23edffa86f5"
 assert not any("FP32=1" in arg for arg in compiler)
-trace = "--trace" in sys.argv[2:]
+mode = sys.argv[2].removeprefix("--") if len(sys.argv) == 3 else "probe"
+assert mode in ("probe", "trace", "isolate")
 with tempfile.TemporaryDirectory(prefix="tilexr-reduce-probe-") as scratch:
     raw = Path(scratch) / "probe.o"
     rel = Path(scratch) / "probe_rel.o"
     includes = ["-I" + str(source.parent)]
-    if trace:
+    if mode != "probe":
         write_headers(Path(scratch), Path(subprocess.check_output(
-            ["git", "-C", checkout, "rev-parse", "--show-toplevel"], text=True).strip()))
+            ["git", "-C", checkout, "rev-parse", "--show-toplevel"], text=True).strip()),
+                      isolate=mode == "isolate")
         includes.insert(0, "-I" + scratch)
     subprocess.run(compiler[:compiler.index("-c")] + includes + ["-c", str(here / "probe.cpp"),
                                                      "-o", str(rel)], check=True)
@@ -35,8 +37,8 @@ with tempfile.TemporaryDirectory(prefix="tilexr-reduce-probe-") as scratch:
     native = raw.read_bytes()
 assert len(native) < 10 * 1024**2
 padded = native.ljust(10 * 1024**2, b"\0")
-(here / ("trace.o.gz" if trace else "probe.o.gz")).write_bytes(gzip.compress(padded, mtime=0))
+(here / f"{mode}.o.gz").write_bytes(gzip.compress(padded, mtime=0))
 record = {"revision": revision, "elf_sha256": hashlib.sha256(native).hexdigest(),
           "object_sha256": hashlib.sha256(padded).hexdigest()}
-(here / ("trace-object.json" if trace else "object.json")).write_text(json.dumps(record, indent=2) + "\n")
+(here / ("object.json" if mode == "probe" else f"{mode}-object.json")).write_text(json.dumps(record, indent=2) + "\n")
 print(json.dumps(record))
