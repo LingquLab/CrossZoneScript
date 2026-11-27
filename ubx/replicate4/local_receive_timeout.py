@@ -33,7 +33,10 @@ for path in workers:
 runtime = []
 if workers:
     stop = max(p.stat().st_mtime for p in workers)
-    for log in sorted(Path("/root/ascend/log/plog").glob("plog-*.log")):
+    log_root = Path.home() / "ascend/log"
+    paths = {p for folder in ("plog", "run/plog", "debug/plog")
+             for p in (log_root / folder).glob("plog-*.log")}
+    for log in sorted(paths):
         if not stop-220 <= log.stat().st_mtime <= stop+45:
             continue
         with log.open("rb") as source:
@@ -89,7 +92,7 @@ def compact(host):
                 controller_started=host["controller_started"], host_result=host["host_result"],
                 cleanup=host["cleanup"], traces=host["traces"], build_revision=host["build_revision"],
                 template_copies_by_core=active, recv_nonzero_fragments=recv_nonzero,
-                examples=examples[:1], runtime=host["runtime"][:1])
+                examples=examples[:1], runtime_log_files=len(host["runtime"]), runtime=host["runtime"][:1])
 
 
 if __name__ == "__main__":
