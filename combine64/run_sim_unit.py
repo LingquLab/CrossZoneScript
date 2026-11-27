@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 SESSION = '033634e3-7471-4660-b1c3-784cea442874'
@@ -17,6 +18,47 @@ def job_paths(tokens, attempt):
     assert tokens in (4, 32, 128) and 1 <= attempt <= 20
     unit = f'combine-ht-{SESSION[:8]}-bs{tokens}-a{attempt}'
     return unit, ROOT / 'matrix-jobs' / unit
+
+
+def process_tree(pid):
+    found, pending = set(), [pid]
+    while pending:
+        current = pending.pop()
+        if current in found:
+            continue
+        found.add(current)
+        children = Path('/proc') / str(current) / 'task' / str(current) / 'children'
+        try:
+            pending.extend(map(int, children.read_text().split()))
+        except FileNotFoundError:
+            pass
+    return found
+
+
+def trace_senders(unit, directory):
+    main_pid = int(subprocess.check_output(
+        ['systemctl', 'show', unit + '.service', '--value', '-p', 'MainPID'], timeout=8))
+    assert main_pid > 1
+    deadline = time.monotonic() + 3
+    targets = process_tree(main_pid)
+    while len(targets) < 3 and time.monotonic() < deadline:
+        time.sleep(0.1)
+        targets = process_tree(main_pid)
+    assert len(targets) >= 3
+    instance = Path('/sys/kernel/tracing/instances') / unit
+    instance.mkdir()
+    try:
+        (instance / 'tracing_on').write_text('0')
+        event = instance / 'events/signal/signal_generate'
+        targets = ' || '.join(f'pid == {pid}' for pid in sorted(targets))
+        (event / 'filter').write_text(f'(sig == 15 || sig == 9) && ({targets})')
+        (event / 'enable').write_text('1')
+        (instance / 'tracing_on').write_text('1')
+        (directory / 'signal-instance').write_text(str(instance))
+    except BaseException:
+        (instance / 'tracing_on').write_text('0')
+        instance.rmdir()
+        raise
 
 
 def run_unit(driver, tokens, attempt, seconds, trace_signals=False):
@@ -48,6 +90,8 @@ def run_unit(driver, tokens, attempt, seconds, trace_signals=False):
     ]
     with (directory / 'systemd-run.log').open('xb') as details:
         proc = subprocess.run(command, stdout=details, stderr=subprocess.STDOUT, timeout=15)
+    if trace_signals and proc.returncode == 0:
+        trace_senders(unit, directory)
     print(json.dumps({'systemd_unit': unit, 'start_exit': proc.returncode}, separators=(',', ':')))
     return proc.returncode
 
