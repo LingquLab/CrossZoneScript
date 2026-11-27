@@ -1,0 +1,20 @@
+{
+  "141.61.8.185": {
+    "server": {
+      "host": "141.61.8.185",
+      "port": 22,
+      "username": "root",
+      "auth": "password",
+      "password": "",
+      "host_key_sha256": ""
+    },
+    "deployment": {
+      "image_archive": "",
+      "image": "tilexr-sim-9.1:aarch64-v1.1.2",
+      "container": "ubsim-shared-v112",
+      "server_root": "/home/simulator/deployment",
+      "workspace": "/home/simulator/workspace",
+      "shm_size": "16g"
+    }
+  }
+}
