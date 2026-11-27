@@ -37,7 +37,9 @@ def query_health(device):
         return dict(status="unknown", codes=[], exit_code=None)
     status = re.search(r"Health Status\s*:\s*(\w+)", result.stdout, re.I)
     codes = re.search(r"Error Code\s*:\s*([^\r\n]+)", result.stdout, re.I)
+    detail = re.search(r"Error Information\s*:\s*([^\r\n]+)", result.stdout, re.I)
     return dict(status=status[1] if status else "unknown", codes=codes[1].split() if codes else [],
+                error_info=detail[1].strip()[:180] if detail else None,
                 exit_code=result.returncode)
 
 def occupancy(device):
@@ -51,15 +53,13 @@ def status():
     with ThreadPoolExecutor(max_workers=8) as pool:
         devices_state = list(pool.map(lambda device: dict(device=device, occupancy=occupancy(device),
                                                           **query_health(device)), devices))
-    done = {row["device"] for row in history if row.get("after", {}).get("status", "").lower() == "ok"
-            and row.get("reset_exit") == 0}
+    done = {row["device"] for row in history if row.get("reset_exit") == 0}
     return dict(devices=devices_state, reset_completed=sorted(done), history=history)
 
 if mode == "reset":
-    # Deduplicate only device resets confirmed to have completed and returned to OK.
+    # A completed reset and the latest device health are reported separately.
     history = rows()
-    completed = {row["device"] for row in history if row.get("reset_exit") == 0
-                 and row.get("after", {}).get("status", "").lower() == "ok"}
+    completed = {row["device"] for row in history if row.get("reset_exit") == 0}
     current_occupants = occupants()
     if current_occupants and "root_launchers" in globals():
         for attempt in range(4):
@@ -117,13 +117,17 @@ def inspect(host, mode, devices, mpi_cleanup):
     return dict(host=host, **json.loads(result))
 
 def compact(report):
+    health_codes = {}
+    for row in report["devices"]:
+        for code in row["codes"]:
+            health_codes.setdefault(code, {"devices": [], "example": row.get("error_info")})["devices"].append(row["device"])
     return dict(host=report["host"], healthy=sum(row["status"].lower() == "ok" for row in report["devices"]),
                 idle=sum(row["occupancy"] == 0 for row in report["devices"]),
                 busy=[row["device"] for row in report["devices"] if row["occupancy"]],
                 unknown_occupancy=[row["device"] for row in report["devices"] if row["occupancy"] is None],
                 reset_completed=report["reset_completed"],
-                unhealthy=[dict(device=row["device"], status=row["status"], codes=row["codes"]) for row in report["devices"]
-                           if row["status"].lower() != "ok"],
+                health_codes=health_codes,
+                unknown_health=[row["device"] for row in report["devices"] if row["status"] == "unknown"],
                 blocked=[row for row in report["history"] if row.get("stopped") or row.get("reset_exit", 0) != 0][-5:])
 
 if __name__ == "__main__":
