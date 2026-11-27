@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import traceback
 
@@ -22,6 +23,30 @@ def stage_budget(stages, timeouts, default, tokens):
     assert timeouts.keys() <= set(STAGES)
     assert all(type(value) is int and 30 <= value <= 7200 for value in timeouts.values())
     return sum(timeouts.get(stage, default) + CASE_OVERHEAD[tokens] for stage in stages)
+
+
+def run_staged(ssh, source, remote_seconds, args):
+    """Upload the bounded driver before starting a foreground SSH channel."""
+    tokens, attempt, action = (args[key] for key in ('tokens', 'attempt', 'action'))
+    assert action in ('multi-jetty-bs', *STAGES)
+    intra, slots = args.get('intra_cores', 8), args.get('peer_slots', 1)
+    name = f'foreground-t{tokens}-{action}-i{intra}-p{slots}-a{attempt}'
+    script = f'/mnt/share/tilexr-sim-jobs/{SESSION}/matrix-jobs/{name}/driver.py'
+    receive = (
+        "import os, sys; from pathlib import Path; "
+        "assert os.uname().nodename.split('.')[0]=='host-94-26'; "
+        "path=Path(sys.argv[1]); data=sys.stdin.buffer.read(); "
+        "compile(data, str(path), 'exec'); path.parent.mkdir(parents=True,exist_ok=False); "
+        "path.write_bytes(data)"
+    )
+    stage = ssh[:-1] + [f'python3 -c {shlex.quote(receive)} {shlex.quote(script)}']
+    uploaded = subprocess.run(stage, input=source, capture_output=True, timeout=55)
+    if uploaded.returncode:
+        return uploaded
+    command = f'timeout --kill-after=30 {remote_seconds} python3 {shlex.quote(script)}'
+    return subprocess.run(ssh[:-1] + [command], stdin=subprocess.DEVNULL, capture_output=True,
+                          timeout=remote_seconds + 50)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -180,7 +205,10 @@ raise SystemExit(result)
     cores, slots = args.get('intra_cores', 8), args.get('peer_slots', 1)
     stem = logs / f'{variant}-t{tokens}-intra{cores}-peer{slots}-a{attempt}'
     try:
-        proc = subprocess.run(ssh, input=code.encode(), capture_output=True, timeout=remote_seconds + 50)
+        if args.get('staged_script'):
+            proc = run_staged(ssh, code.encode(), remote_seconds, args)
+        else:
+            proc = subprocess.run(ssh, input=code.encode(), capture_output=True, timeout=remote_seconds + 50)
         stem.with_suffix('.stdout').write_bytes(proc.stdout)
         stem.with_suffix('.stderr').write_bytes(proc.stderr)
         lines = [line for line in proc.stdout.splitlines() if line and line != b'sst-alive']
