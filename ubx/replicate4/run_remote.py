@@ -93,8 +93,14 @@ def preflight(cleanup=False):
         health = subprocess.check_output(
             ["npu-smi", "info", "-t", "health", "-i", str(device)], text=True, timeout=6,
         )
-        # proc-mem has the device ID; some health versions only print health fields.
-        assert re.search(r"Health Status\s*:\s*OK\b", health), f"NPU {device} not healthy"
+        match = re.search(r"Health Status\s*:\s*(\w+)", health, re.I)
+        assert match, f"NPU {device} health unknown"
+        status = match.group(1).lower()
+        if status == "alarm" and ALLOW_ALARM:
+            codes = re.search(r"Error Code\s*:\s*([^\r\n]+)", health, re.I)
+            alarms.append(dict(device=device, codes=codes.group(1).split() if codes else []))
+        else:
+            assert status == "ok", f"NPU {device} health is {status}"
     port_count = 1282 if ROUTE_MODE == "replicate16" else 514
     for port in range(PORT, PORT + port_count):
         with socket.socket() as probe:
