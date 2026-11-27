@@ -8,9 +8,10 @@ ENTRY = "tilexr_probe_unpack_b16"
 WORDS = 64
 INPUT = 0x100000000
 OUTPUT = INPUT + 0x800
-GUARD = 512
+PREFIX_GUARD = 512
 PAYLOAD = 3 * WORDS * 4
-EXTENT = 2 * GUARD + PAYLOAD
+EXTENT = 1536  # Three complete SST dump records.
+SUFFIX_GUARD = EXTENT - PREFIX_GUARD - PAYLOAD
 MODES = ("bf16_norm", "bf16_unpack", "u16_unpack")
 
 
@@ -43,7 +44,7 @@ def generate(folder, mount):
         "bin_param": {"addr": 1073741824, "size": 10485760},
         "kernel_param": {
             "input": pointer(INPUT, 0),
-            "output": pointer(OUTPUT + GUARD, 8),
+            "output": pointer(OUTPUT + PREFIX_GUARD, 8),
             "load_input": pointer(INPUT, 16, "input.bin"),
             "load_sentinels": pointer(OUTPUT, 24, "sentinels.bin"),
         },
@@ -59,7 +60,7 @@ def compare(data):
     unpacked = words[:WORDS]
     checks = {}
     for i, mode in enumerate(MODES):
-        actual = struct.unpack_from("<64I", data, GUARD + i * WORDS * 4)
+        actual = struct.unpack_from("<64I", data, PREFIX_GUARD + i * WORDS * 4)
         expected = packed if mode == "bf16_norm" else unpacked
         checks[mode] = {
             "wrong_lanes": sum(got != want for got, want in zip(actual, expected, strict=True)),
@@ -67,7 +68,9 @@ def compare(data):
             "expected_first4": [f"{word:08x}" for word in expected[:4]],
             "observed_first4": [f"{word:08x}" for word in actual[:4]],
         }
-    return {"lanes": WORDS, "guards_ok": data[:GUARD] == data[-GUARD:] == b"\xa5" * GUARD, "checks": checks}
+    guards_ok = (data[:PREFIX_GUARD] == b"\xa5" * PREFIX_GUARD and
+                 data[-SUFFIX_GUARD:] == b"\xa5" * SUFFIX_GUARD)
+    return {"lanes": WORDS, "guards_ok": guards_ok, "checks": checks}
 
 
 def main():
