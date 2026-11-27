@@ -1,11 +1,13 @@
 """Read the selected simulator config, including an object member pasted alone."""
+import argparse
 import json
+from pathlib import Path
 
 from check_sim_target import DEFAULT_CONFIG, check_fallback, config_path
 from check_target_format import HOST, valid_deployment
 
 
-def main():
+def main(fingerprint):
     try:
         raw = config_path(DEFAULT_CONFIG).read_text(encoding='utf-8-sig')
         if len(raw) > 65536:
@@ -20,6 +22,8 @@ def main():
             if not valid_deployment(candidate):
                 return {'status': 'invalid_json', 'reason': 'unverified_object_member'}
             data, repaired = candidate, True
+        if fingerprint and valid_deployment(data):
+            data[HOST]["server"]["host_key_sha256"] = fingerprint
         result = check_fallback(data, HOST)
         if repaired:
             result['config_parsed_as_object_member'] = True
@@ -32,4 +36,7 @@ def main():
 
 
 if __name__ == '__main__':
-    print(json.dumps(main()))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--args-file", type=Path, required=True)
+    arguments = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8-sig"))
+    print(json.dumps(main(arguments.get("fingerprint"))))

@@ -137,6 +137,9 @@ def check(deployment):
     workspace = Path(deployment['workspace'])
     result = {
         'architecture': platform.machine(),
+        'hostname': platform.node().split('.')[0],
+        'image_id': image['Id'] if image else None,
+        'container_id': container['Id'] if container else None,
         'server_root_exists': Path(deployment['server_root']).is_dir(),
         'host_workspace_exists': workspace.is_dir(),
         'image_exists': image is not None,
@@ -160,6 +163,25 @@ def check(deployment):
             mounts.append(str(Path(mount['Destination']) / workspace.relative_to(source)))
     if running:
         name = container['Id']
+        runtime_probe = (
+            'import hashlib,json,os,shutil,sys; from pathlib import Path; '
+            'root=Path("/opt/sim"); deployment=Path(sys.argv[1]); '
+            'files=[root/"cann-env.sh",root/"sst-env.sh",root/"local/sstcore/libexec/sstsim.x",'
+            'root/"plugins/libDavinciSimulatorV310.so",root/"plugins/libUBusSimulator.so"]; '
+            'print(json.dumps(dict(files={str(p):hashlib.sha256(p.read_bytes()).hexdigest() '
+            'for p in files if p.is_file()}, workspace_free=shutil.disk_usage(sys.argv[2]).free '
+            'if Path(sys.argv[2]).is_dir() else None, '
+            'model_entries=[str(p) for folder in (root/"simulator",deployment) '
+            'if folder.is_dir() for p in folder.glob("**/test_UBusSim.py")][:20])))'
+        )
+        try:
+            probe = subprocess.run(['docker', 'exec', name, 'python3', '-c', runtime_probe,
+                                    deployment['server_root'], deployment['workspace']],
+                                   capture_output=True, timeout=20)
+            if probe.returncode == 0:
+                result['runtime_probe'] = json.loads(probe.stdout)
+        except (subprocess.TimeoutExpired, ValueError):
+            result['runtime_probe'] = {'status': 'probe_failed'}
         result.update(
             workspace_mounts=mounts,
             container_workspace_exists=docker('exec', name, 'test', '-d', deployment['workspace']).returncode == 0,
