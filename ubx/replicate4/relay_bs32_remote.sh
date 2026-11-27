@@ -2,6 +2,7 @@
 set -eo pipefail
 
 root=$1
+comparison=${3:-default}
 phase=verify
 trap 'status=$?; printf "%s %s\n" "$phase" "$status" > "$root/status.txt"' EXIT
 printf '%s\n' "$phase" > "$root/status.txt"
@@ -76,12 +77,16 @@ PY
 phase=benchmark
 printf '%s\n' "$phase" > "$root/status.txt"
 export LD_LIBRARY_PATH="$root/install/lib64:$root/install/lib:${LD_LIBRARY_PATH:-}"
+mode=()
+if [[ $comparison == pairings ]]; then
+    mode+=(--pairings)
+fi
 python3 "$release/tests/hardware/run_relay_bench.py" --build "$root/build" \
-    --output "$root/run" --measured 50 --port 30500
+    --output "$root/run" --measured 50 --port 30500 "${mode[@]}"
 
 phase=verify-results
 printf '%s\n' "$phase" > "$root/status.txt"
-python3 - "$root" <<'PY'
+python3 - "$root" "$comparison" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -89,10 +94,16 @@ import sys
 root = Path(sys.argv[1]); result = root / 'run'
 summary = json.loads((result / 'summary.json').read_text())
 groups = {'all_groups': 4, 'paired_groups': 2, 'same_group': 1}
+cases = [(mode, 1) for mode in groups] if sys.argv[2] == 'default' else [
+    ('paired_groups', pair_mask) for pair_mask in (1, 2, 3)]
 assert (summary['bs'], summary['ranks'], summary['warmup'], summary['measured']) == (32,16,10,50)
-assert {(c['workers'], c['mode']) for c in summary['cases']} == {
-    (workers, mode) for workers in (16,32) for mode in groups}
-assert len(summary['cases']) == 6
+assert [(c['workers'], c['mode'], c.get('pair_mask', 1)) for c in summary['cases']] == [
+    (workers, mode, pair_mask) for workers in (16,32) for mode, pair_mask in cases]
+if sys.argv[2] == 'pairings':
+    partners = {1: [[0,1],[2,3]], 2: [[0,2],[1,3]], 3: [[0,3],[1,2]]}
+    for c in summary['cases']:
+        assert c['bytes_per_rank'] == 524288 and c['cross_group_writes_per_rank'] == 64
+        assert [pair['groups'] for pair in c['pairs']] == partners[c['pair_mask']]
 rank_rows = [list(map(json.loads, (result / f'rank{rank}.jsonl').read_text().splitlines())) for rank in range(16)]
 assert all(len(rows) == 300 for rows in rank_rows)
 last = [row for rows in rank_rows for row in rows if row['round'] == 49]
@@ -100,8 +111,8 @@ assert len(last) == 96
 peaks = []
 for case in summary['cases']:
     peak, = (row for row in rank_rows[case['slowest_rank']]
-             if (row['workers'], row['groups'], row['round']) ==
-             (case['workers'], groups[case['mode']], case['slowest_round']))
+             if (row['workers'], row['groups'], row.get('pair_mask', 1), row['round']) ==
+             (case['workers'], groups[case['mode']], case.get('pair_mask', 1), case['slowest_round']))
     peaks.append(peak)
 (result / 'last-round.json').write_text(json.dumps(last, indent=2) + '\n')
 (result / 'slowest-rank-rounds.json').write_text(json.dumps(peaks, indent=2) + '\n')

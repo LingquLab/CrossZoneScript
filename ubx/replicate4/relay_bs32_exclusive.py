@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -16,8 +18,9 @@ HOSTS = ('90.90.93.81', '90.90.93.83')
 TILEXR = 'https://github.com/LingquLab/TileXR.git'
 REVISION = '84da56ab1ada6f7950f95944ec678da36f41bca1'
 RUNTIME = '0797410beab1da40800611affc9c512cd42525ba'
+GREEN_BASE = Path(r'D:\ChenBohao\09-Tackle\01-BUX-disp-comb\result-trace')
 ROOT = '/root/ubx-relay-bs32-' + REVISION[:7] + '-exclusive'
-GREEN = Path(r'D:\ChenBohao\09-Tackle\01-BUX-disp-comb\result-trace') / ('relay-bs32-' + REVISION[:7])
+GREEN = GREEN_BASE / ('relay-bs32-' + REVISION[:7])
 OPTIONS = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10']
 
 
@@ -67,7 +70,7 @@ def observe(host):
     return data
 
 
-def run(host, bundle, digest):
+def run(host, bundle, digest, comparison):
     destination = GREEN / host
     destination.mkdir()
     ssh_output = destination / 'execution.log'
@@ -79,7 +82,8 @@ def run(host, bundle, digest):
         assert uploaded.returncode == 0, step
         step = 'build-and-run'
         script = Path(__file__).with_name('relay_bs32_remote.sh').read_bytes().replace(b'\r\n', b'\n')
-        executed = ssh(host, f'bash -s -- {ROOT} {digest} > {ROOT}/execution.log 2>&1', 1360, script)
+        cmd = shlex.join(['bash', '-s', '--', ROOT, digest, comparison])
+        executed = ssh(host, f'{cmd} > {ROOT}/execution.log 2>&1', 1360, script)
         step = 'collect-results'
         data = observe(host)
         data['exit_code'] = executed.returncode
@@ -96,15 +100,37 @@ def run(host, bundle, digest):
         return {'host': host, 'phase': step, 'error': type(error).__name__}
 
 
+def print_report(report, comparison):
+    if comparison == 'pairings' and all('results' in host for host in report.get('hosts', [])) and report.get('hosts'):
+        print(json.dumps({
+            host['host'].rsplit('.', 1)[1]: [[round(c['median_us'], 3), round(c['max_us'], 3),
+                *(round(pair['median_us'], 3) for pair in c['pairs'])] for c in host['results']['cases']]
+            for host in report['hosts']
+        }, separators=(',', ':')))
+    else:
+        print(json.dumps(report, separators=(',', ':')))
+
+
 def main():
+    global REVISION, ROOT, GREEN
     parser = argparse.ArgumentParser()
     parser.add_argument('--args-file', type=Path)
     options = parser.parse_args()
     args = json.loads(options.args_file.read_text(encoding='utf-8')) if options.args_file else {}
+    REVISION = args.get('revision', REVISION)
+    comparison = args.get('comparison', 'default')
+    attempt = args.get('attempt', 1)
+    assert re.fullmatch('[0-9a-f]{40}', REVISION) and comparison in ('default', 'pairings')
+    assert isinstance(attempt, int) and attempt >= 1
+    label = 'relay-bs32-' + ('pairings-' if comparison == 'pairings' else '') + REVISION[:7]
+    if attempt > 1:
+        label += f'-retry{attempt}'
+    ROOT = '/root/ubx-' + label + '-exclusive'
+    GREEN = GREEN_BASE / label
     if args.get('status'):
         receipt = GREEN / 'receipt.json'
         if receipt.is_file():
-            print(receipt.read_text())
+            print_report(json.loads(receipt.read_text()), comparison)
         else:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 print(json.dumps({'hosts': list(pool.map(observe, HOSTS))}))
@@ -114,12 +140,12 @@ def main():
         with tempfile.TemporaryDirectory(prefix='ubx-relay-bs32-', dir=Path.cwd()) as directory:
             bundle, digest = prepare(Path(directory).resolve())
             with ThreadPoolExecutor(max_workers=2) as pool:
-                hosts = list(pool.map(lambda host: run(host, bundle, digest), HOSTS))
+                hosts = list(pool.map(lambda host: run(host, bundle, digest, comparison), HOSTS))
         report = {'revision': REVISION, 'runtime_revision': RUNTIME, 'source_sha256': digest, 'hosts': hosts}
     except (AssertionError, OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         report = {'revision': REVISION, 'preparation_error': str(error)}
     (GREEN / 'receipt.json').write_text(json.dumps(report))
-    print(json.dumps(report))
+    print_report(report, comparison)
     return all('results' in host for host in report.get('hosts', [])) and 'hosts' in report
 
 
