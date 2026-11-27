@@ -6,6 +6,7 @@ removed. No device workloads, service changes, or system installation are run.
 """
 
 import argparse
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -18,6 +19,14 @@ import sys
 import tarfile
 import time
 from urllib.parse import urlsplit
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def portable_origin(value):
@@ -136,19 +145,44 @@ def main():
             save()
             with tarfile.open(archive, 'w:gz', compresslevel=3, dereference=False) as tar:
                 tar.add(portable, arcname='TileXR')
-            with archive.open('rb') as stream:
-                checksum = hashlib.file_digest(stream, 'sha256').hexdigest()
+            checksum = file_sha256(archive)
             state.update(status='PACKAGED', archive=str(archive), archive_bytes=archive.stat().st_size,
                          archive_sha256=checksum,
                          submodule_count=len(records) - 1)
             save()
             print(json.dumps({k: state[k] for k in ('status', 'archive', 'archive_bytes', 'archive_sha256', 'repositories', 'submodule_count')}, ensure_ascii=True))
+        elif arguments['phase'] == 'finalize':
+            package_file = artifacts / 'package-state.json'
+            package = json.loads(package_file.read_text(encoding='utf-8'))
+            assert package['stage'] == 'archive', 'PACKAGE_ARCHIVE_NOT_REACHED'
+            portable = Path(package['portable'])
+            manifest = json.loads((portable / '.git/tilexr-deployment.json').read_text(encoding='utf-8'))
+            assert manifest['revision'] == arguments['revision']
+            assert manifest['branch'] == arguments['branch']
+            archive = artifacts / 'TileXR-crosszone-893851e4.tar.gz'
+            with gzip.open(archive, 'rb') as stream:
+                while stream.read(1024 * 1024):
+                    pass
+            with tarfile.open(archive, 'r:gz') as tar:
+                assert json.load(tar.extractfile('TileXR/.git/tilexr-deployment.json')) == manifest
+                heads = [member for member in tar if member.name.endswith('/.git/HEAD') and member.isfile()]
+                assert len(heads) == len(manifest['repositories']), 'ARCHIVED_GIT_REPOSITORY_COUNT_MISMATCH'
+            package.update(status='PACKAGED', archive=str(archive), archive_bytes=archive.stat().st_size,
+                           archive_sha256=file_sha256(archive), submodule_count=len(manifest['repositories']) - 1,
+                           archive_validated=True, recovered_from='Python hashlib.file_digest unavailable')
+            package.pop('error', None)
+            package.pop('error_type', None)
+            temporary = package_file.with_suffix('.tmp')
+            temporary.write_text(json.dumps(package, ensure_ascii=True), encoding='utf-8')
+            temporary.replace(package_file)
+            state.update(package)
+            save()
+            print(json.dumps({k: package[k] for k in ('status', 'archive', 'archive_bytes', 'archive_sha256', 'submodule_count', 'archive_validated')}, ensure_ascii=True))
         elif arguments['phase'] == 'deploy':
             package = json.loads(Path(arguments['package_state']).read_text(encoding='utf-8'))
             assert package['status'] == 'PACKAGED', 'PACKAGE_NOT_READY'
             archive = Path(package['archive'])
-            with archive.open('rb') as stream:
-                assert hashlib.file_digest(stream, 'sha256').hexdigest() == package['archive_sha256']
+            assert file_sha256(archive) == package['archive_sha256']
             home = Path.home()
             candidates = [home / '.ssh/npass_id_rsa', home / 'npass_id_rsa', state_root / 'npass_id_rsa'] + [p / 'npass_id_rsa' for p in list(state_root.parents)[:2]]
             key = next((path for path in candidates if path.is_file()), None)

@@ -30,8 +30,11 @@ def main():
     assert archive.parent.resolve() == base
     assert archive.name == '.TileXR-crosszone-893851e4-' + checksum[:12] + '.tar.gz'
     assert not destination.exists(), 'DESTINATION_ALREADY_EXISTS'
+    digest = hashlib.sha256()
     with archive.open('rb') as stream:
-        assert hashlib.file_digest(stream, 'sha256').hexdigest() == checksum, 'ARCHIVE_CHECKSUM_MISMATCH'
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    assert digest.hexdigest() == checksum, 'ARCHIVE_CHECKSUM_MISMATCH'
     stage = base / ('.TileXR-crosszone-893851e4.stage-' + checksum[:12])
     stage.mkdir(mode=0o755)
     (stage / 'owner.json').write_text(json.dumps({'session': '893851e4-b659-488f-8e58-393c9f5a31f2', 'archive_sha256': checksum}))
