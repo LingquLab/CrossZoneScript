@@ -58,7 +58,7 @@ def gateway(source):
     return source
 
 
-def final(source, isolate=False):
+def final(source, mode):
     source = '#include "probe_snapshot.h"\n' + source
     source = replace(source, "__ubuf__ bfloat16_t *output, uint32_t hidden)",
                      "__ubuf__ bfloat16_t *output, uint32_t hidden, __ubuf__ float *trace, bool record)")
@@ -98,7 +98,7 @@ def final(source, isolate=False):
         }""")
     source = replace(source, "    TBuf<TPosition::VECCALC> sum_;",
                      "    TBuf<TPosition::VECCALC> sum_, trace_;")
-    if isolate:
+    if mode in ("isolate", "raw"):
         source = replace(source, "        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);",
                          """        if (record) {
             Reg::StoreAlign<bfloat16_t, Reg::StoreDist::DIST_PACK_B32>(
@@ -110,19 +110,35 @@ def final(source, isolate=False):
         source = replace(source, "            TileXRProbe::Snapshot(trace, config_.hidden, First ? 1 : 4);",
                          """            TileXRProbe::Snapshot(trace, config_.hidden, First ? 1 : 4);
             TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);""")
+    if mode == "raw":
+        source = replace(source, "        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);",
+                         """        if (record) {
+            auto &raw = reinterpret_cast<Reg::RegTensor<uint32_t> &>(payload);
+            Reg::StoreAlign(reinterpret_cast<__ubuf__ uint32_t *>(trace + 4 * hidden) + offset, raw, mask);
+        }
+        Reg::Cast<float, bfloat16_t, kToFloat>(value, payload, mask);""")
+        source = replace(source, "        pipe.InitBuffer(trace_, 4 * config.hidden * sizeof(float));",
+                         "        pipe.InitBuffer(trace_, 5 * config.hidden * sizeof(float));")
+        source = replace(source,
+                         "            TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);",
+                         """            TileXRProbe::Snapshot(trace_.Get<bfloat16_t>()[6 * config_.hidden], config_.hidden, First ? 8 : 9);
+            TileXRProbe::Snapshot(trace_.Get<uint32_t>()[4 * config_.hidden], config_.hidden, First ? 10 : 11);""")
     return source
 
 
-def gateway_barrier(source):
+def gateway_barrier(source, pipe):
     return replace(source, "                Cast(bf16_output_slot_ub, fp32_accumulator_ub, RoundMode::CAST_RINT, element_num);",
-                   """                PipeBarrier<PIPE_ALL>();
+                   f"""                PipeBarrier<{pipe}>();
                 Cast(bf16_output_slot_ub, fp32_accumulator_ub, RoundMode::CAST_RINT, element_num);""")
 
 
-def write_headers(destination, root, isolate=False):
+def write_headers(destination, root, mode):
     (destination / "probe_snapshot.h").write_text(SNAPSHOT)
-    sources = {"combine_ht_kernel.h": (root / "src/moonep/combine_ht/kernels",
-                                       gateway_barrier if isolate else gateway),
-               "final_reduce_worker.h": (root / "src/ep/combine_ht", lambda source: final(source, isolate))}
+    pipe = "PIPE_ALL" if mode == "isolate" else "PIPE_MTE2"
+    def gateway_instrument(source):
+        return gateway(source) if mode == "trace" else gateway_barrier(source, pipe)
+
+    sources = {"combine_ht_kernel.h": (root / "src/moonep/combine_ht/kernels", gateway_instrument),
+               "final_reduce_worker.h": (root / "src/ep/combine_ht", lambda source: final(source, mode))}
     for name, (directory, instrument) in sources.items():
         (destination / name).write_text(instrument((directory / name).read_text()))

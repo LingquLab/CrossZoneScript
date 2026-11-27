@@ -12,7 +12,7 @@ from green_auth import askpass_environment
 from ssh_transport import HOST
 
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
-mode = "isolate" if options.get("isolate") else "trace" if options.get("trace") else "probe"
+mode = next((name for name in ("raw", "isolate", "trace") if options.get(name)), "probe")
 artifact = json.loads((here / ("object.json" if mode == "probe" else f"{mode}-object.json")).read_text())
 fix = json.loads((root / "combine_cast/results/v310-cast-library-fix.json").read_text())
 image = fix["regression"]["result"]["image"]

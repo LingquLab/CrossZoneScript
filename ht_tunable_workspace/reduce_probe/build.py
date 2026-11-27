@@ -20,15 +20,14 @@ revision = subprocess.check_output(["git", "-C", checkout, "rev-parse", "HEAD"],
 assert revision == "186dfa18a0358add6af8ef237ebca23edffa86f5"
 assert not any("FP32=1" in arg for arg in compiler)
 mode = sys.argv[2].removeprefix("--") if len(sys.argv) == 3 else "probe"
-assert mode in ("probe", "trace", "isolate")
+assert mode in ("probe", "trace", "isolate", "raw")
 with tempfile.TemporaryDirectory(prefix="tilexr-reduce-probe-") as scratch:
     raw = Path(scratch) / "probe.o"
     rel = Path(scratch) / "probe_rel.o"
     includes = ["-I" + str(source.parent)]
     if mode != "probe":
         write_headers(Path(scratch), Path(subprocess.check_output(
-            ["git", "-C", checkout, "rev-parse", "--show-toplevel"], text=True).strip()),
-                      isolate=mode == "isolate")
+            ["git", "-C", checkout, "rev-parse", "--show-toplevel"], text=True).strip()), mode)
         includes.insert(0, "-I" + scratch)
     subprocess.run(compiler[:compiler.index("-c")] + includes + ["-c", str(here / "probe.cpp"),
                                                      "-o", str(rel)], check=True)
