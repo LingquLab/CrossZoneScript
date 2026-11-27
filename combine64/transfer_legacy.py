@@ -99,27 +99,33 @@ print(json.dumps({name: {'exists': (p/name).is_file(),
             def hash_remote(path):
                 return remote(f'timeout 240 sha256sum {path}', 255).decode().split()[0]
 
-            reference = subprocess.run(source + ['timeout --kill-after=5 45 python3 -'], input=REFERENCE.encode(),
-                                       capture_output=True, timeout=60)
-            if reference.returncode or not 0 < len(reference.stdout) < 1024*1024:
-                error = reference.stderr.decode(errors='replace')
-                print(json.dumps({'status':'reference_platform_failed','ssh_exit':reference.returncode,
-                                  'platform_archive_bytes':len(reference.stdout),
-                                  'remote_error':re.findall(r'(?m)^([A-Za-z]+Error):?',error)[-3:],
-                                  'remote_frames':re.findall(r'File "<stdin>", line (\d+)',error)[-3:]}))
-                return 0
-            with tarfile.open(fileobj=io.BytesIO(reference.stdout),mode='r:gz') as package:
-                members = package.getmembers()
-                assert all(m.isfile() and not PurePosixPath(m.name).is_absolute()
-                           and '..' not in PurePosixPath(m.name).parts for m in members)
-                manifest = json.load(package.extractfile('.manifest.json'))
-                assert all(hashlib.sha256(package.extractfile(name).read()).hexdigest() == expected
-                           for name, expected in manifest.items())
-                assert set(manifest) == {m.name for m in members} - {'.manifest.json'}
-            with sftp.open(root+'/platform.tar.gz','wb') as file:
-                file.write(reference.stdout)
+            manifest = {}
+            if mode != 'image_only':
+                reference = subprocess.run(source + ['timeout --kill-after=5 45 python3 -'], input=REFERENCE.encode(),
+                                           capture_output=True, timeout=60)
+                if reference.returncode or not 0 < len(reference.stdout) < 1024*1024:
+                    error = reference.stderr.decode(errors='replace')
+                    print(json.dumps({'status':'reference_platform_failed','ssh_exit':reference.returncode,
+                                      'platform_archive_bytes':len(reference.stdout),
+                                      'remote_error':re.findall(r'(?m)^([A-Za-z]+Error):?',error)[-3:],
+                                      'remote_frames':re.findall(r'File "<stdin>", line (\d+)',error)[-3:]}))
+                    return 0
+                with tarfile.open(fileobj=io.BytesIO(reference.stdout),mode='r:gz') as package:
+                    members = package.getmembers()
+                    assert all(m.isfile() and not PurePosixPath(m.name).is_absolute()
+                               and '..' not in PurePosixPath(m.name).parts for m in members)
+                    manifest = json.load(package.extractfile('.manifest.json'))
+                    assert all(hashlib.sha256(package.extractfile(name).read()).hexdigest() == expected
+                               for name, expected in manifest.items())
+                    assert set(manifest) == {m.name for m in members} - {'.manifest.json'}
+                with sftp.open(root+'/platform.tar.gz','wb') as file:
+                    file.write(reference.stdout)
+                if mode == 'platform_only':
+                    print(json.dumps({'status': 'reference_platform_transferred', 'root': root,
+                                      'platform_files': len(manifest)}))
+                    return 0
 
-            if mode == 'transfer':
+            if mode in ('transfer', 'image_only'):
                 try:
                     sftp.stat(archive)
                 except FileNotFoundError:
