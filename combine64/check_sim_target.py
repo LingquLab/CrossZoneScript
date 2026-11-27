@@ -72,7 +72,7 @@ def load_target(data, host):
     if (server.get('host') != host or server.get('auth') != 'password' or type(port) is not int
             or not 1 <= port <= 65535 or not isinstance(username, str)
             or not re.fullmatch(r'[A-Za-z0-9_.-]+', username) or not isinstance(password, str) or not password):
-        raise ConfigError('The server needs a matching host, port, username and password authentication.')
+        raise ConfigError('incomplete_ssh_login_configuration')
     fingerprint = server.get('host_key_sha256', '')
     if not isinstance(fingerprint, str) or (fingerprint and not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', fingerprint)):
         raise ConfigError('Use a trusted OpenSSH SHA256 host-key fingerprint.')
@@ -203,7 +203,6 @@ def check_fallback(data, host):
 
         result = connect(paramiko, target)
         result['host'] = target.host
-        result['auth'] = 'password'
         result['expected_shm_bytes'] = target.deployment['shm_bytes']
         result['archive_configured'] = target.deployment['archive_configured']
         ready = (result.get('running') is True and result.get('image_matches') is True
