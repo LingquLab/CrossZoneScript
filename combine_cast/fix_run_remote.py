@@ -1,12 +1,13 @@
 """Replace the V310 libraries inside a derived image and execute the original Cast suite."""
 from concurrent.futures import ThreadPoolExecutor
+import base64
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import time
@@ -72,7 +73,7 @@ def write(path, record):
 def extract_inputs():
     package = SUITE / "inputs"
     seen = set()
-    with tarfile.open(fileobj=sys.stdin.buffer, mode="r|gz") as archive:
+    with tarfile.open(fileobj=io.BytesIO(base64.b64decode(PACKAGE, validate=True)), mode="r|gz") as archive:
         for entry in archive:
             assert entry.isfile() and entry.name in INPUTS and entry.name not in seen
             path = package / entry.name
