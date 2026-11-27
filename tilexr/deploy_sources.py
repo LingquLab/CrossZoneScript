@@ -195,8 +195,8 @@ def main():
             key = next((path for path in candidates if path.is_file()), None)
             if key is None:
                 raise RuntimeError('KEY_NOT_FOUND')
-            ssh, scp = shutil.which('ssh'), shutil.which('scp')
-            assert ssh and scp, 'SSH_OR_SCP_NOT_FOUND'
+            ssh = shutil.which('ssh')
+            assert ssh, 'SSH_NOT_FOUND'
             module_path = source / 'tools/tssh/tssh.py'
             spec = importlib.util.spec_from_file_location('tilexr_tssh', module_path)
             tssh = importlib.util.module_from_spec(spec)
@@ -206,24 +206,29 @@ def main():
             cluster = tssh.find_cluster(tssh.load_clusters(inventory), 'crosszone-893851e4')
             def ssh_with_key(argv, **kwargs):
                 return subprocess.run([argv[0], '-i', str(key), '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', *argv[1:]], **kwargs)
-            cygpath = Path(scp).with_name('cygpath.exe')
-            def scp_path(path):
-                if cygpath.is_file():
-                    return run([str(cygpath), '-u', str(path)], 30).decode('utf-8').strip()
-                return str(path)
-            scp_identity = scp_path(key)
-            scp_transport = scp_path(transport)
-            scp_options = [scp, '-O', '-q', '-i', scp_identity, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no']
+            def upload(local_path, remote_path, timeout, label):
+                command = tssh.remote_command(['timeout', '--signal=TERM', '--kill-after=5', str(max(15, int(timeout) - 10)), 'dd', 'of=' + remote_path, 'oflag=excl', 'bs=1M', 'status=none'])
+                def stream_file(argv, **kwargs):
+                    kwargs.pop('input', None)
+                    with local_path.open('rb') as stream:
+                        return ssh_with_key(argv, stdin=stream, **kwargs)
+                outcomes = tssh.run_cluster(ssh, cluster, command, b'', 2, 10, timeout + 10, run_process=stream_file)
+                for outcome in outcomes:
+                    prefix = artifacts / (label + '-' + outcome.host.name)
+                    prefix.with_suffix('.stdout').write_bytes(outcome.stdout)
+                    prefix.with_suffix('.stderr').write_bytes(outcome.stderr)
+                state[label + '_results'] = [{'host': outcome.host.address, 'exit_code': outcome.returncode, 'timed_out': outcome.timed_out, 'success': outcome.succeeded} for outcome in outcomes]
+                save()
+                if not all(outcome.succeeded for outcome in outcomes):
+                    raise RuntimeError('SSH_STREAM_TRANSFER_FAILED:' + label)
             state['stage'] = 'upload-probe'
-            state['scp_legacy_mode'] = True
-            state['scp_posix_paths'] = cygpath.is_file()
+            state['transfer_method'] = 'ssh-stdin'
             save()
             probe = artifacts / 'TileXR-crosszone-893851e4-probe.tilexrdata'
             probe_payload = b'TileXR source deployment probe 893851e4\n'
             probe.write_bytes(probe_payload)
-            remote_probe = '/home/c00996840/ai/TileXR-crosszone-893851e4-probe.tilexrdata'
-            for host in cluster.hosts:
-                run([*scp_options, scp_path(probe), cluster.user + '@' + host.address + ':' + remote_probe], 45)
+            remote_probe = '/home/c00996840/ai/TileXR-crosszone-893851e4-probe-ssh.tilexrdata'
+            upload(probe, remote_probe, 45, 'probe-upload')
             probe_script = ('import hashlib,json\nfrom pathlib import Path\np=Path(' + repr(remote_probe) + ')\nassert hashlib.sha256(p.read_bytes()).hexdigest()==' + repr(hashlib.sha256(probe_payload).hexdigest()) + '\np.unlink()\nprint(json.dumps({"probe_verified":True,"probe_removed":True}))\n').encode('utf-8')
             state['stage'] = 'upload-probe-verify'
             save()
@@ -238,10 +243,9 @@ def main():
             state['uploads'] = []
             save()
             upload_timeout = min(1800, 300 + archive.stat().st_size // (1024 * 1024))
-            for host in cluster.hosts:
-                run([*scp_options, scp_transport, cluster.user + '@' + host.address + ':' + remote_archive], upload_timeout)
-                state['uploads'].append(host.address)
-                save()
+            upload(transport, remote_archive, upload_timeout, 'archive-upload')
+            state['uploads'] = [host.address for host in cluster.hosts]
+            save()
             remote_code = Path(__file__).with_name('remote_deploy.py').read_bytes()
             command = tssh.remote_command(['python3', '-', remote_archive, arguments['destination'], package['archive_sha256']])
             state['stage'] = 'remote-deploy'
