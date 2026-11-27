@@ -29,15 +29,23 @@ def git(repo, *args, timeout=120):
         [executable, "-C", str(repo), *args], env=env, capture_output=True, timeout=timeout,
     )
     if result.returncode:
-        raise RuntimeError(f"Green Git {args[0]} exited {result.returncode}")
+        detail = result.stderr.decode(errors="replace").lower()
+        reason = next((label for label, needles in (
+            ("remote-ref-unavailable", ("couldn't find remote ref", "not our ref", "unadvertised object")),
+            ("authentication-failed", ("authentication", "could not read username", "repository not found")),
+            ("network-unreachable", ("could not resolve", "failed to connect", "timed out", "connection reset")),
+            ("transport-failed", ("rpc failed", "early eof", "disconnect", "schannel", "ssl")),
+            ("filesystem-failed", ("filename too long", "permission denied", "could not create")),
+        ) if any(needle in detail for needle in needles)), "unclassified")
+        raise RuntimeError(f"Green Git {args[0]} exited {result.returncode}: {reason}")
     return result.stdout.decode().strip()
 
 
-def pin(repo, origin, revisions):
+def pin(repo, origin, revisions, source_ref=None):
     repo.mkdir()
     git(repo, "init", "--quiet")
     git(repo, "-c", "http.https://github.com/.sslVerify=false", "fetch", "--no-tags",
-        "--depth=1", origin, *revisions, timeout=240)
+        "--depth=1", origin, *(revisions if source_ref is None else (source_ref,)), timeout=240)
     for revision in revisions:
         assert git(repo, "rev-parse", f"{revision}^{{commit}}") == revision
 

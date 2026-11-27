@@ -20,8 +20,8 @@ def state(host, work):
     return result
 
 
-def main(task=TASK, revision=REVISION, work=WORK, mode="replicate4"):
-    folder = Path.cwd() / f"runs/{task}/1/execution"
+def main(task=TASK, revision=REVISION, work=WORK, mode="replicate4", iteration=1):
+    folder = Path.cwd() / f"runs/{task}/{iteration}/execution"
     receipt = folder / "execution.json"
     saved = json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else {}
     status = saved.get("status", "PENDING")

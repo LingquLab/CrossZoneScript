@@ -23,12 +23,12 @@ def build_dispatch(host, source, sha256, script, work, revision):
     return receipt
 
 
-def main(revision=REVISION, work=WORK, mode="replicate4", ports=(26000, 28000, 24500), collection=None):
+def main(revision=REVISION, work=WORK, mode="replicate4", ports=(26000, 28000, 24500), collection=None, source_ref=None):
     script = Path(__file__).with_name("build_disjoint_routes.sh").read_bytes().replace(b"\r\n", b"\n")
     with tempfile.TemporaryDirectory(prefix="ubx-disjoint-routes-", dir=Path.cwd()) as workspace:
         directory = Path(workspace).resolve()
         repo = directory / "tilexr"
-        pin(repo, TILEXR, (revision,))
+        pin(repo, TILEXR, (revision,), source_ref=source_ref)
         source = archive(directory, repo, "dispatch-disjoint", revision, "dispatch/dispatch-release")
         sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
         with ThreadPoolExecutor(max_workers=2) as pool:
