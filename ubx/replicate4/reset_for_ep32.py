@@ -48,13 +48,27 @@ def occupancy(device):
     except (subprocess.SubprocessError, AssertionError):
         return None
 
+def reset_wrapper_active():
+    prefix = [b"-", b"reset", os.fsencode(work)]
+    for path in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            args = path.read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if args[1:4] == prefix:
+            return True
+        if args[1:4] == [b"set", b"-t", b"reset"]:
+            return True
+    return False
+
 def status():
     history = rows()
     with ThreadPoolExecutor(max_workers=8) as pool:
         devices_state = list(pool.map(lambda device: dict(device=device, occupancy=occupancy(device),
                                                           **query_health(device)), devices))
     done = {row["device"] for row in history if row.get("reset_exit") == 0}
-    return dict(devices=devices_state, reset_completed=sorted(done), history=history)
+    return dict(devices=devices_state, reset_completed=sorted(done), history=history,
+                reset_active=reset_wrapper_active())
 
 if mode == "reset":
     # A completed reset and the latest device health are reported separately.
@@ -76,9 +90,12 @@ if mode == "reset":
             current_occupants = occupants()
     elif current_occupants:
         clear_occupants(current_occupants)
+    deadline = time.monotonic() + 600
     for device in devices:
         if device in completed:
             continue
+        if time.monotonic() >= deadline:
+            break
         before = query_health(device)
         occupied = occupancy(device)
         if occupied != 0:
@@ -98,8 +115,9 @@ if mode == "reset":
             save(row)
             break
         time.sleep(20)
-        row["after"] = query_health(device)
         save(row)
+        row["after"] = query_health(device)
+        save(dict(device=device, stage="post_reset_health", after=row["after"]))
     print(json.dumps(status(), separators=(",", ":")))
 else:
     assert mode == "status"
@@ -126,6 +144,7 @@ def compact(report):
                 busy=[row["device"] for row in report["devices"] if row["occupancy"]],
                 unknown_occupancy=[row["device"] for row in report["devices"] if row["occupancy"] is None],
                 reset_completed=report["reset_completed"],
+                reset_active=report["reset_active"],
                 health_codes=health_codes,
                 unknown_health=[row["device"] for row in report["devices"] if row["status"] == "unknown"],
                 blocked=[row for row in report["history"] if row.get("stopped") or row.get("reset_exit", 0) != 0][-5:])
