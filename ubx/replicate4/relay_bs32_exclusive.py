@@ -1,5 +1,6 @@
 """Build the pinned BS32 relay benchmark and collect results from each exclusive server."""
 from concurrent.futures import ThreadPoolExecutor
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -96,7 +97,11 @@ def run(host, bundle, digest):
 
 
 def main():
-    if '--status' in sys.argv:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--args-file', type=Path)
+    options = parser.parse_args()
+    args = json.loads(options.args_file.read_text(encoding='utf-8')) if options.args_file else {}
+    if args.get('status'):
         receipt = GREEN / 'receipt.json'
         if receipt.is_file():
             print(receipt.read_text())
