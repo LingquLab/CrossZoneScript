@@ -1,4 +1,5 @@
 """Readiness checks and foreground launch of the pinned device verifier."""
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -28,17 +29,19 @@ def load_json(path):
     return json.loads(path.read_text())
 
 
+def device_occupants(device):
+    process_text = subprocess.check_output(
+        ["npu-smi", "info", "-t", "proc-mem", "-i", str(device)], text=True, timeout=10,
+    )
+    assert re.search(rf"NPU ID\s*:\s*{device}\b", process_text), f"NPU {device} identity unknown"
+    found = {int(pid) for pid in re.findall(r"Process id\s*:\s*(\d+)", process_text, re.I)}
+    assert found or "No process in device" in process_text, f"NPU {device} occupancy unknown"
+    return found
+
+
 def occupants():
-    pids = set()
-    for device in range(16):
-        process_text = subprocess.check_output(
-            ["npu-smi", "info", "-t", "proc-mem", "-i", str(device)], text=True, timeout=6,
-        )
-        assert re.search(rf"NPU ID\s*:\s*{device}\b", process_text), f"NPU {device} identity unknown"
-        found = {int(pid) for pid in re.findall(r"Process id\s*:\s*(\d+)", process_text, re.I)}
-        assert found or "No process in device" in process_text, f"NPU {device} occupancy unknown"
-        pids.update(found)
-    return pids
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return set().union(*pool.map(device_occupants, range(16)))
 
 
 def start_time(pid):
@@ -101,7 +104,7 @@ def preflight(cleanup=False):
             probe.bind(("0.0.0.0", port))
     pids = occupants()
     cleanup_report = {"term_sent": 0, "kill_sent": 0}
-    for _ in range(3):
+    for _ in range(8):
         if not pids or not cleanup:
             break
         counts = clear_occupants(pids)
