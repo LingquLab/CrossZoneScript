@@ -104,6 +104,23 @@ def run(host, bundle, digest, comparison, resume=False):
 
 
 def print_report(report, comparison):
+    if comparison == 'staged':
+        summary = {}
+        for host in report.get('hosts', []):
+            key = host['host'].rsplit('.', 1)[1]
+            if 'results' not in host:
+                summary[key] = host
+                continue
+            summary[key] = []
+            for case in host['results']['cases']:
+                stats = [case['median_us'], case['max_us'], case['core_time']['median_us'],
+                         case['rank_time']['median_us'], case['rank_minus_slowest_core']['median_us'],
+                         case['rank_minus_slowest_core']['max_us']]
+                if 'barrier_wait' in case:
+                    stats.extend(case['barrier_wait'][field] for field in ('median_us', 'p95_us', 'max_us'))
+                summary[key].append([round(value, 2) for value in stats])
+        print(json.dumps(summary or report, separators=(',', ':')))
+        return
     if comparison == 'pairings' and all('results' in host for host in report.get('hosts', [])) and report.get('hosts'):
         print(json.dumps({
             host['host'].rsplit('.', 1)[1]: [[round(c['median_us'], 3), round(c['max_us'], 3),
@@ -123,9 +140,9 @@ def main():
     REVISION = args.get('revision', REVISION)
     comparison = args.get('comparison', 'default')
     attempt = args.get('attempt', 1)
-    assert re.fullmatch('[0-9a-f]{40}', REVISION) and comparison in ('default', 'pairings')
+    assert re.fullmatch('[0-9a-f]{40}', REVISION) and comparison in ('default', 'pairings', 'staged')
     assert isinstance(attempt, int) and attempt >= 1
-    label = 'relay-bs32-' + ('pairings-' if comparison == 'pairings' else '') + REVISION[:7]
+    label = 'relay-bs32-' + (comparison + '-' if comparison != 'default' else '') + REVISION[:7]
     if attempt > 1:
         label += f'-retry{attempt}'
     ROOT = '/root/ubx-' + label + '-exclusive'
