@@ -221,31 +221,34 @@ def main():
                 save()
                 if not all(outcome.succeeded for outcome in outcomes):
                     raise RuntimeError('SSH_STREAM_TRANSFER_FAILED:' + label)
-            state['stage'] = 'upload-probe'
-            state['transfer_method'] = 'ssh-stdin'
-            save()
-            probe = artifacts / 'TileXR-crosszone-893851e4-probe.tilexrdata'
-            probe_payload = b'TileXR source deployment probe 893851e4\n'
-            probe.write_bytes(probe_payload)
-            remote_probe = '/home/c00996840/ai/TileXR-crosszone-893851e4-probe-ssh.tilexrdata'
-            upload(probe, remote_probe, 45, 'probe-upload')
-            probe_script = ('import hashlib,json\nfrom pathlib import Path\np=Path(' + repr(remote_probe) + ')\nassert hashlib.sha256(p.read_bytes()).hexdigest()==' + repr(hashlib.sha256(probe_payload).hexdigest()) + '\np.unlink()\nprint(json.dumps({"probe_verified":True,"probe_removed":True}))\n').encode('utf-8')
-            state['stage'] = 'upload-probe-verify'
-            save()
-            probe_results = tssh.run_cluster(ssh, cluster, 'python3 -', probe_script, 2, 10, 45, run_process=ssh_with_key)
-            state['probe_results'] = [{'host': result.host.address, 'exit_code': result.returncode, 'success': result.succeeded} for result in probe_results]
-            save()
-            assert all(result.succeeded and json.loads(result.stdout.decode('utf-8')).get('probe_verified') for result in probe_results), 'UPLOAD_PROBE_VERIFICATION_FAILED'
-            probe.unlink()
             remote_archive = '/home/c00996840/ai/.TileXR-crosszone-893851e4-' + package['archive_sha256'][:12] + '.tilexrdata'
-            state['stage'] = 'upload'
-            state['transport'] = str(transport)
-            state['uploads'] = []
-            save()
-            upload_timeout = min(1800, 300 + archive.stat().st_size // (1024 * 1024))
-            upload(transport, remote_archive, upload_timeout, 'archive-upload')
-            state['uploads'] = [host.address for host in cluster.hosts]
-            save()
+            if not arguments.get('resume_remote', False):
+                state['stage'] = 'upload-probe'
+                state['transfer_method'] = 'ssh-stdin'
+                save()
+                probe = artifacts / 'TileXR-crosszone-893851e4-probe.tilexrdata'
+                probe_payload = b'TileXR source deployment probe 893851e4\n'
+                probe.write_bytes(probe_payload)
+                remote_probe = '/home/c00996840/ai/TileXR-crosszone-893851e4-probe-ssh.tilexrdata'
+                upload(probe, remote_probe, 45, 'probe-upload')
+                probe_script = ('import hashlib,json\nfrom pathlib import Path\np=Path(' + repr(remote_probe) + ')\nassert hashlib.sha256(p.read_bytes()).hexdigest()==' + repr(hashlib.sha256(probe_payload).hexdigest()) + '\np.unlink()\nprint(json.dumps({"probe_verified":True,"probe_removed":True}))\n').encode('utf-8')
+                state['stage'] = 'upload-probe-verify'
+                save()
+                probe_results = tssh.run_cluster(ssh, cluster, 'python3 -', probe_script, 2, 10, 45, run_process=ssh_with_key)
+                state['probe_results'] = [{'host': result.host.address, 'exit_code': result.returncode, 'success': result.succeeded} for result in probe_results]
+                save()
+                assert all(result.succeeded and json.loads(result.stdout.decode('utf-8')).get('probe_verified') for result in probe_results), 'UPLOAD_PROBE_VERIFICATION_FAILED'
+                probe.unlink()
+                state['stage'] = 'upload'
+                state['transport'] = str(transport)
+                state['uploads'] = []
+                save()
+                upload_timeout = min(1800, 300 + archive.stat().st_size // (1024 * 1024))
+                upload(transport, remote_archive, upload_timeout, 'archive-upload')
+                state['uploads'] = [host.address for host in cluster.hosts]
+                save()
+            else:
+                state['resume_remote'] = True
             remote_code = Path(__file__).with_name('remote_deploy.py').read_bytes()
             command = tssh.remote_command(['python3', '-', remote_archive, arguments['destination'], package['archive_sha256']])
             state['stage'] = 'remote-deploy'

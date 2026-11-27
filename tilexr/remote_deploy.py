@@ -36,15 +36,20 @@ def main():
             digest.update(block)
     assert digest.hexdigest() == checksum, 'ARCHIVE_CHECKSUM_MISMATCH'
     stage = base / ('.TileXR-crosszone-893851e4.stage-' + checksum[:12])
-    stage.mkdir(mode=0o755)
-    (stage / 'owner.json').write_text(json.dumps({'session': '893851e4-b659-488f-8e58-393c9f5a31f2', 'archive_sha256': checksum}))
-    with tarfile.open(archive, 'r:gz') as tar:
-        members = tar.getmembers()
-        for member in members:
-            parts = Path(member.name).parts
-            if not parts or parts[0] != 'TileXR' or '..' in parts or member.name.startswith('/') or not (member.isfile() or member.isdir()):
-                raise RuntimeError('UNSAFE_ARCHIVE_MEMBER')
-        tar.extractall(stage, members=members)
+    owner = {'session': '893851e4-b659-488f-8e58-393c9f5a31f2', 'archive_sha256': checksum}
+    if stage.exists():
+        assert json.loads((stage / 'owner.json').read_text()) == owner, 'STAGING_OWNER_MISMATCH'
+        assert (stage / 'TileXR/.git/tilexr-deployment.json').is_file(), 'INCOMPLETE_STAGING_REQUIRES_DIAGNOSIS'
+    else:
+        stage.mkdir(mode=0o755)
+        (stage / 'owner.json').write_text(json.dumps(owner))
+        with tarfile.open(archive, 'r:gz') as tar:
+            members = tar.getmembers()
+            for member in members:
+                parts = Path(member.name).parts
+                if not parts or parts[0] != 'TileXR' or '..' in parts or member.name.startswith('/') or not (member.isfile() or member.isdir()):
+                    raise RuntimeError('UNSAFE_ARCHIVE_MEMBER')
+            tar.extractall(stage, members=members)
     source = stage / 'TileXR'
     manifest = json.loads((source / '.git/tilexr-deployment.json').read_text())
     verified = []
@@ -53,9 +58,9 @@ def main():
         repository = source if relative == '.' else source / relative
         assert repository.resolve().is_relative_to(source.resolve())
         assert (repository / '.git').is_dir(), 'NONPORTABLE_GIT_DIRECTORY'
-        git(repository, 'config', '--local', 'core.autocrlf', 'false')
-        git(repository, 'config', '--local', 'core.filemode', 'true')
-        git(repository, 'config', '--local', 'core.symlinks', 'true')
+        git(repository, 'config', '--local', '--replace-all', 'core.autocrlf', 'false')
+        git(repository, 'config', '--local', '--replace-all', 'core.filemode', 'true')
+        git(repository, 'config', '--local', '--replace-all', 'core.symlinks', 'true')
         git(repository, 'reset', '--hard', record['revision'])
         assert git(repository, 'rev-parse', 'HEAD') == record['revision']
         git(repository, 'fsck', '--full')
