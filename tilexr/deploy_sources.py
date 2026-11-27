@@ -207,7 +207,7 @@ def main():
             def ssh_with_key(argv, **kwargs):
                 return subprocess.run([argv[0], '-i', str(key), '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', *argv[1:]], **kwargs)
             def upload(local_path, remote_path, timeout, label):
-                command = tssh.remote_command(['timeout', '--signal=TERM', '--kill-after=5', str(max(15, int(timeout) - 10)), 'dd', 'of=' + remote_path, 'oflag=excl', 'bs=1M', 'status=none'])
+                command = tssh.remote_command(['timeout', '--signal=TERM', '--kill-after=5', str(max(15, int(timeout) - 10)), 'dd', 'of=' + remote_path, 'conv=excl', 'bs=1M', 'status=none'])
                 def stream_file(argv, **kwargs):
                     kwargs.pop('input', None)
                     with local_path.open('rb') as stream:
