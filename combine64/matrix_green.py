@@ -22,7 +22,7 @@ def main():
     log.mkdir(parents=True, exist_ok=True)
     phase = args['action']
     bs = args['bs']
-    assert phase in ('build-and-run', 'run', 'status') and bs in (4, 32, 128)
+    assert phase in ('build-and-run', 'resume', 'run', 'status') and bs in (4, 32, 128)
     if phase != 'status':
         points = args['points']
         assert points and points == [point for point in POINTS if point in points]
@@ -49,8 +49,26 @@ def main():
 
     args['files'] = {name: (here / name).read_text(encoding='utf-8') for name in TOOLS}
     source = (here / 'matrix_host.py').read_text(encoding='utf-8')
-    source += '\nraise SystemExit(main(' + repr(args) + '))\n'
+    source += '''
+import threading
+finished = threading.Event()
+
+def keepalive():
+    while not finished.wait(12):
+        print('sst-alive', flush=True)
+
+heartbeat = threading.Thread(target=keepalive, daemon=True)
+heartbeat.start()
+try:
+    code = main(''' + repr(args) + ''')
+finally:
+    finished.set()
+    heartbeat.join()
+raise SystemExit(code)
+'''
     seconds = 90 if phase == 'status' else 80 + len(args['points']) * (args['timeout'] + {4:290, 32:460, 128:960}[bs])
+    if phase == 'resume':
+        seconds += 485
     key = Path(os.environ['USERPROFILE']) / '.ssh/id_ed25519'
     ssh = ['ssh', '-T', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
            '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=12', '-o', 'ServerAliveInterval=20',
@@ -60,8 +78,9 @@ def main():
     (log / f'{label}.stdout').write_bytes(proc.stdout)
     (log / f'{label}.stderr').write_bytes(proc.stderr)
     result.update(ssh_exit=proc.returncode, ssh_stderr_bytes=len(proc.stderr))
-    if proc.stdout.strip():
-        result.update(json.loads(proc.stdout))
+    lines = [line for line in proc.stdout.splitlines() if line and line != b'sst-alive']
+    if lines:
+        result.update(json.loads(lines[-1]))
     else:
         result['stage'] = 'matrix_ssh_or_remote_driver'
     print(json.dumps(result, separators=(',', ':')))

@@ -157,6 +157,43 @@ def passed(report):
                     ('platform_simulated_us', 'profiling_operator_us', 'sst_wall_seconds', 'runner_wall_seconds')))
 
 
+def ensure_profile_build(root, cid, tools):
+    profile = root / 'profile-build'
+    summary = profile / 'build-summary.json'
+    if summary.is_file() and json_file(summary)['all_compiled']:
+        return
+    assert json_file(root / 'build-summary.json')['all_compiled'], 'production_build_incomplete'
+    process_check = r"""
+import os
+from pathlib import Path
+for process in Path('/proc').glob('[0-9]*'):
+    if process.name == str(os.getpid()):
+        continue
+    try:
+        arguments = (process / 'cmdline').read_bytes().split(b'\0')
+    except (FileNotFoundError, ProcessLookupError):
+        continue
+    if any(argument.endswith((b'/build_profile.py', b'/build.sh', b'/sstsim.x', b'/sim_case.py'))
+           for argument in arguments):
+        raise SystemExit(1)
+"""
+    checked = subprocess.run(['docker', 'exec', cid, 'python3', '-c', process_check],
+                             capture_output=True, timeout=20)
+    assert checked.returncode == 0, 'container_has_active_build_or_simulation'
+    if profile.exists():
+        profile.rename(profile.with_name(f'profile-build-incomplete-{time.time_ns()}'))
+    script = str(Path('/work') / tools.relative_to(root) / 'build_profile.py')
+    command = ('source /opt/sim/cann-env.sh; '
+               'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
+               '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
+               'exec python3 "$1"')
+    with (root / f'profile-resume-{time.time_ns()}.log').open('xb') as log:
+        result = subprocess.run(['docker', 'exec', cid, 'timeout', '--kill-after=15', '420',
+                                 'bash', '-c', command, 'bash', script],
+                                stdout=log, stderr=subprocess.STDOUT, timeout=455)
+    assert result.returncode == 0 and json_file(summary)['all_compiled'], 'profile_build_failed'
+
+
 def main(request):
     bs = request['bs']
     root = SESSION_ROOT / f'run-{REVISION[:7]}-a1'
@@ -175,6 +212,9 @@ def main(request):
         for earlier in (size for size in (4, 32) if size < bs):
             assert all(passed(results.get(f'{earlier}-{point}', {})) for point in POINTS), 'earlier_bs_incomplete'
         tools, platform_hashes = stage_tools(root, request['files'])
+        if request['action'] == 'resume':
+            ensure_profile_build(root, cid, tools)
+        assert json_file(root / 'profile-build/build-summary.json')['all_compiled'], 'profile_build_incomplete'
         for point in points:
             name = f'{bs}-{point}'
             if passed(results.get(name, {})):
