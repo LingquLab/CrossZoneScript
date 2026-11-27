@@ -1,0 +1,283 @@
+{
+  "library_source": {
+    "event_id": "green-7582d9fb5c184f7196887da921930def",
+    "task_id": "ht-cast-fix-docs",
+    "iteration": 1,
+    "result": {
+      "libs": {
+        "libAccessSubsysV310.so": "b69a06c53cc8da928d2c04688aea52b17b4970055df3feaad94b32d83db64baf",
+        "libAicoreSubsysV310.so": "0784b13937568563c64f816da940e6a4152b5b30dce649d5db5f4fb89bd40cce",
+        "libDavinciSimulator.so": "aeacef679d4b732abbe394a4cfd5235d8a70d6188d7dfe238aef57330161e09c",
+        "libDavinciSimulatorV310.so": "9864650dd22bc29648d7fabd36a34c2a72d7392ba4cdadf1d1f8ee13f6570be0",
+        "libInterconnectSubsysV310.so": "913381af637f48e9b9f44ef12e9bdea0014f9fc497ebc6181ec6c471cbdef998",
+        "libMemSubsysV310.so": "e5305ae29ffb791c5145f240daf7227f88873b793e5cde3aa89ff1e658515964",
+        "libStarsSubsysV310.so": "eabe55c9ab3d4bcd420a29aa3a3b04866b869da3a8738056452ded3597276283"
+      }
+    }
+  },
+  "base_library_paths": {
+    "event_id": "green-d507d04a3e6e4be2ac8765fed45a08ee",
+    "task_id": "ht-cast-fix-stage",
+    "iteration": 2,
+    "result": {
+      "stage": "cast-v310-repair-0784b139",
+      "count": 7,
+      "find_exit": 0,
+      "paths": {
+        "/opt/sim/plugins/libAccessSubsysV310.so": [
+          "/opt/sim/plugins/libAccessSubsysV310.so",
+          "d984a806b39bf5b7dcdbacf1cfb74304c9cb7c99904d16d735680ae200b568bb"
+        ],
+        "/opt/sim/plugins/libAicoreSubsysV310.so": [
+          "/opt/sim/plugins/libAicoreSubsysV310.so",
+          "3a83bf06936cfa69f38d683b46d5026fe2f3082977e94b728265ced3e587c7f7"
+        ],
+        "/opt/sim/plugins/libStarsSubsysV310.so": [
+          "/opt/sim/plugins/libStarsSubsysV310.so",
+          "c3392a4557238fdecbe436a955aa5a26cf1687f2b135d4755e56b011f8d02099"
+        ],
+        "/opt/sim/plugins/libMemSubsysV310.so": [
+          "/opt/sim/plugins/libMemSubsysV310.so",
+          "c8e20f00a9be91c9ead541931c63e60f5a2d62b6ee3a9696bc9aa35dcfca5da3"
+        ],
+        "/opt/sim/plugins/libInterconnectSubsysV310.so": [
+          "/opt/sim/plugins/libInterconnectSubsysV310.so",
+          "3522076b5b7d092a5c9dc0fef40f4b8a25fa98f4c75e502579bad3abff4c8414"
+        ],
+        "/opt/sim/plugins/libDavinciSimulator.so": [
+          "/opt/sim/plugins/libDavinciSimulator.so",
+          "6d4cd3b729177646ca1c43d57971e5266a946405b6f820f3d0d914114b7ccfce"
+        ],
+        "/opt/sim/plugins/libDavinciSimulatorV310.so": [
+          "/opt/sim/plugins/libDavinciSimulatorV310.so",
+          "3151e670e98aee7ad6c425bc2abd01774737108ee0f7d1693bee8cb287cef9af"
+        ]
+      },
+      "platform": []
+    }
+  },
+  "regression": {
+    "event_id": "green-2a779f0869474a8c91526d1e0090ef2e",
+    "task_id": "ht-cast-fix-regression",
+    "iteration": 3,
+    "result": {
+      "artifact_dir": "/mnt/share/tilexr-sim-jobs/b4f4660a-6144-453c-99f7-339b40f56c54/cast-v310-repair-0784b139/regression-streamed",
+      "input_files_verified": 57,
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "tag": "tilexr-v310-sst:cast-fix-0784b139",
+      "before": {
+        "aligned-bf16": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 20.916,
+          "loaded": 7,
+          "sim": [
+            "1.61377",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "narrow": [
+              64,
+              64,
+              64,
+              true,
+              [
+                [
+                  0,
+                  "0x3f80",
+                  "0x8180"
+                ]
+              ]
+            ],
+            "roundtrip": [
+              64,
+              11,
+              11,
+              true,
+              [
+                [
+                  9,
+                  "0x80000000",
+                  "0x0"
+                ]
+              ]
+            ]
+          }
+        },
+        "aligned-fp16": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 21.038,
+          "loaded": 7,
+          "sim": [
+            "1.53863",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "narrow": [
+              64,
+              64,
+              64,
+              true,
+              [
+                [
+                  0,
+                  "0x3c00",
+                  "0x100"
+                ]
+              ]
+            ],
+            "roundtrip": [
+              64,
+              0,
+              0,
+              true,
+              []
+            ]
+          }
+        }
+      },
+      "after": {
+        "cast-fp16": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 20.959,
+          "loaded": 7,
+          "sim": [
+            "1.8386",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "widen": [
+              65,
+              0,
+              0,
+              true,
+              []
+            ],
+            "narrow": [
+              65,
+              0,
+              0,
+              true,
+              []
+            ]
+          }
+        },
+        "cast-bf16": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 20.947,
+          "loaded": 7,
+          "sim": [
+            "1.8386",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "widen": [
+              65,
+              0,
+              5,
+              true,
+              []
+            ],
+            "narrow": [
+              65,
+              0,
+              3,
+              true,
+              []
+            ]
+          }
+        },
+        "aligned-fp16": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 21.178,
+          "loaded": 7,
+          "sim": [
+            "1.53863",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "narrow": [
+              64,
+              0,
+              0,
+              true,
+              []
+            ],
+            "roundtrip": [
+              64,
+              0,
+              0,
+              true,
+              []
+            ]
+          }
+        },
+        "aligned-bf16": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 21.397,
+          "loaded": 7,
+          "sim": [
+            "1.61377",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "narrow": [
+              64,
+              0,
+              3,
+              true,
+              []
+            ],
+            "roundtrip": [
+              64,
+              0,
+              0,
+              true,
+              []
+            ]
+          }
+        },
+        "bf16-writeback": {
+          "sst_exit": 0,
+          "sst_wall_seconds": 20.684,
+          "loaded": 7,
+          "sim": [
+            "1.93859",
+            "us"
+          ],
+          "check_exit": 0,
+          "values": {
+            "diagnostic_guards": true,
+            "cast_ub_scalar": [
+              16,
+              0,
+              []
+            ],
+            "output_guards": true,
+            "cast_gm": [
+              16,
+              0,
+              []
+            ],
+            "control_gm": [
+              16,
+              0,
+              []
+            ]
+          }
+        }
+      }
+    }
+  },
+  "validation_summary": {
+    "assertions_checked": 564,
+    "numerical_mismatches": 0,
+    "nan_encoding_differences": 11,
+    "all_guards_passed": true
+  }
+}
