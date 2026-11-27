@@ -1,5 +1,4 @@
 """Run or inspect one matrix point in the private Combine-HT simulator container."""
-import fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -30,6 +29,8 @@ def configs(bs, point):
 
 
 def host_main(args):
+    import fcntl
+
     root = Path(args['workspace']) / 'tilexr-sim-jobs' / SESSION / 'run-49f846b-a1'
     identity = read(root/'identity.json')
     cid = identity['container_id']
