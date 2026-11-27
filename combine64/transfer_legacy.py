@@ -34,7 +34,7 @@ with tarfile.open(mode='w|gz',fileobj=sys.stdout.buffer) as out:
         rel=pathlib.PurePosixPath(name)
         assert not rel.is_absolute() and '..' not in rel.parts
         src=p/name
-        assert src.is_file() and src.stat().st_size <= 4*1024*1024, name
+        assert src.is_file() and src.stat().st_size <= 16*1024*1024, name
         content=src.read_bytes()
         assert hashlib.sha256(content).hexdigest() == expected, name
         asset=tarfile.TarInfo(name)
@@ -103,7 +103,7 @@ print(json.dumps({name: {'exists': (p/name).is_file(),
             if mode != 'image_only':
                 reference = subprocess.run(source + ['timeout --kill-after=5 45 python3 -'], input=REFERENCE.encode(),
                                            capture_output=True, timeout=60)
-                if reference.returncode or not 0 < len(reference.stdout) < 1024*1024:
+                if reference.returncode or not 0 < len(reference.stdout) < 16*1024*1024:
                     error = reference.stderr.decode(errors='replace')
                     print(json.dumps({'status':'reference_platform_failed','ssh_exit':reference.returncode,
                                       'platform_archive_bytes':len(reference.stdout),

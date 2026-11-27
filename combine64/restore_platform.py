@@ -17,7 +17,7 @@ def unpack(archive, output):
             assert member.isfile() and not relative.is_absolute() and '..' not in relative.parts
             if member.name == '.manifest.json':
                 continue
-            assert member.size <= 4*1024*1024
+            assert member.size <= 16*1024*1024
             data = package.extractfile(member).read()
             assert hashlib.sha256(data).hexdigest() == manifest[member.name]
             dest = output/relative
