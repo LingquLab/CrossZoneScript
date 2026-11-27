@@ -1,0 +1,156 @@
+{
+  "task_id": "ht-bf16-reduce-probe",
+  "event_id": "green-1bb6a0ae99824742819859eabd62f85f",
+  "iteration": 1,
+  "script_commit": "2f5782463d61fca20593d898a43e7f15c6aa77fb",
+  "input_rank": 0,
+  "tokens": 4,
+  "hidden": 256,
+  "result": {
+    "artifact": {
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "elf_sha256": "c91e68cefb861a357d9f890969409bff3e70981d8a46f4acdc5e90c7315eb4e6",
+      "object_sha256": "6b7b6a013bd4bcbea5e2b0ea91fb81e9d2950d3cbbd6cdb7a7fbbda2aa9914fc"
+    },
+    "case": "reduce-probe-rank0",
+    "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+    "probes": {
+      "gateway": {
+        "blocks": 8,
+        "sst_exit": 0,
+        "sst_wall_seconds": 24.657,
+        "loaded_repair_libraries": 7,
+        "checker_exit": 0,
+        "compared": {
+          "expected": {
+            "tested": 2048,
+            "mismatches": 704,
+            "first": [
+              [
+                192,
+                248.0,
+                189.0
+              ],
+              [
+                193,
+                248.0,
+                368.0
+              ]
+            ]
+          },
+          "pipeline": {
+            "tested": 2048,
+            "mismatches": 371,
+            "first": [
+              [
+                193,
+                189.0,
+                368.0
+              ],
+              [
+                195,
+                189.0,
+                368.0
+              ]
+            ]
+          }
+        },
+        "sample": {
+          "expected": 248.0,
+          "pipeline": 189.0,
+          "probe": 189.0
+        },
+        "sample_column": 192,
+        "status": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "guards": {
+          "guard_workspace_before": true,
+          "guard_workspace_after": true,
+          "guard_output_before": true,
+          "guard_output_after": true
+        },
+        "ready_ok": true
+      },
+      "final": {
+        "blocks": 16,
+        "sst_exit": 0,
+        "sst_wall_seconds": 21.993,
+        "loaded_repair_libraries": 7,
+        "checker_exit": 0,
+        "compared": {
+          "expected": {
+            "tested": 1024,
+            "mismatches": 1008,
+            "first": [
+              [
+                4,
+                960.0,
+                968.0
+              ],
+              [
+                5,
+                960.0,
+                968.0
+              ]
+            ]
+          },
+          "pipeline": {
+            "tested": 1024,
+            "mismatches": 128,
+            "first": [
+              [
+                44,
+                1488.0,
+                748.0
+              ],
+              [
+                45,
+                1488.0,
+                748.0
+              ]
+            ]
+          }
+        },
+        "sample": {
+          "expected": 960.0,
+          "pipeline": 968.0,
+          "probe": 968.0
+        },
+        "sample_column": 4,
+        "status": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "guards": {
+          "guard_workspace_before": true,
+          "guard_workspace_after": true,
+          "guard_output_before": true,
+          "guard_output_after": true
+        },
+        "ready_ok": null
+      }
+    }
+  }
+}
