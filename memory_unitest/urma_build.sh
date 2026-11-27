@@ -3,12 +3,13 @@ set -e -o pipefail
 bind=$1
 name=$2
 image=$3
+shift 3
 cd "$bind"
 test "$(docker image inspect --format '{{.Id}} {{.Architecture}}' "$image")" = "$image arm64"
 id=$(docker run -dt --name "$name" --runtime=ascend --network none --ipc=shareable --shm-size=4g \
     --mount "type=bind,src=$bind,dst=/work" "$image" bash -l)
 printf '%s\n' "$id" > container-id.txt
-docker exec -i "$id" bash -s <<'BUILD' > build-control.log 2>&1
+docker exec -i "$id" bash -s -- "$@" <<'BUILD' > build-control.log 2>&1
 set -eo pipefail
 cd /work
 mkdir receipts
@@ -20,5 +21,5 @@ cmake -S /work/source -B /work/build -DTILEXR_BUILD_COLLECTIVES=ON \
   -DTILEXR_DIAGNOSTICS_SOC_TYPE=Ascend950 -DTILEXR_COLLECTIVES_SOC_TYPE=Ascend950 \
   -DTILEXR_COLLECTIVES_ENABLE_PROFILING=OFF -DBISHENG_EXECUTABLE="$toolchain/bisheng" \
   -DTILEXR_MOONEP_CCE_LINKER="$toolchain/ld.lld" >receipts/configure.log 2>&1
-cmake --build /work/build --target tilexr_alltoall_urma_lr8_kernel_sst --parallel 4 --verbose >receipts/build.log 2>&1
+cmake --build /work/build --target "$@" --parallel 4 --verbose >receipts/build.log 2>&1
 BUILD

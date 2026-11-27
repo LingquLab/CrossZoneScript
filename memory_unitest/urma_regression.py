@@ -12,7 +12,12 @@ import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--args-file", type=Path, required=True)
-revision = json.loads(parser.parse_args().args_file.read_text())["revision"]
+args = json.loads(parser.parse_args().args_file.read_text())
+revision = args["revision"]
+matrix = args.get("full_cases", [])
+for value in matrix:
+    if value not in ("clos_4plus8", "clos_8plus8", "syncall", "clock", "nosync"):
+        raise SystemExit("invalid Full variant")
 if not re.fullmatch(r"[a-f0-9]{40}", revision):
     raise SystemExit("invalid TileXR revision")
 image = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
@@ -75,7 +80,9 @@ try:
         remote(dep + "-stage", f"mkdir -p {target} && tar -xf - -C {target}",
                data=run(dep + "-archive", ["git", "archive", expected], cwd=repo / submodule))
     build = Path(__file__).with_name("urma_build.sh").read_bytes()
-    remote("build", shlex.join(["bash", "-s", "--", bind, name, image]), timeout=900, data=build)
+    targets = ([f"tilexr_alltoall_urma_full_{value}_kernel_sst" for value in matrix]
+               if matrix else ["tilexr_alltoall_urma_lr8_kernel_sst"])
+    remote("build", shlex.join(["bash", "-s", "--", bind, name, image, *targets]), timeout=900, data=build)
     container = remote("identity", f"cat {shlex.quote(bind + '/container-id.txt')}")
     hostname = remote("hostname", "hostname -s")
     cann, ubus = "/opt/sim/cann-env.sh", "/opt/sim/plugins/libUBusSimulator.so"
@@ -105,45 +112,54 @@ try:
                    driver_root="/usr/local/Ascend/driver", cann_env=cann, cann_env_sha256=cann_sha,
                    ubus_library=ubus, ubus_sha256=ubus_sha, kernel_name="urma_lr8", stage_profiling=0,
                    sim_variant="sim-split1")
-    common = ["--inventory", str(inventory)]
-    for field, value in request.items():
-        common += ["--" + field.replace("_", "-"), str(value)]
-    for phase, state, options in (
-        ("verify", "verified_not_simulated", ["--cmake-build-dir", "/work/build",
-                                             "--cmake-build-log", "/work/receipts/build.log"]),
-        ("abi", "host_abi_verified_not_simulated", []),
-        ("inspect", "resources_verified_not_simulated", ["--library-dir", "/opt/sim/plugins",
-                                                          "--inspection-output", "/work/lr8-environment"]),
-    ):
-        output = work / phase
-        run(phase, [sys.executable, "-B", "scripts/run_alltoall_sim_kernel.py", phase, *common,
-                    *options, "--local-output", str(output)], cwd=repo, timeout=1200)
-        assert json.loads((output / "result.json").read_text())["state"] == state
-    request["environment_report"] = "/work/lr8-environment"
-    request["kernel_variant"] = "urma_lr8"
-    request_file = work / "request.json"
-    save(request_file, request)
-    cases = {}
-    for mode, period in (("no_credit", 0), ("credit", 2**32-1), ("clock", 35863)):
+    cases = ([(value, None) for value in matrix] if matrix else
+             [("no_credit", 0), ("credit", 2**32-1), ("clock", 35863)])
+    for mode, period in cases:
+        kernel = f"urma_full_{mode}" if matrix else "urma_lr8"
+        ranks = 16 if mode.startswith("clos_") else 64 if matrix else 32
+        elements = (8192 if ranks == 16 else 2048) if matrix else 128
+        qualification_name = kernel
+        qualification = work / qualification_name
+        if not qualification.exists():
+            qualification.mkdir()
+            request.update(kernel_name=kernel, output="/work/" + kernel + "-qualified")
+            common = ["--inventory", str(inventory), "--rank-size", str(ranks), "--elements-per-peer", str(elements)]
+            for field, value in request.items():
+                common += ["--" + field.replace("_", "-"), str(value)]
+            for phase, state, options in (
+                    ("verify", "verified_not_simulated", ["--cmake-build-dir", "/work/build",
+                                                         "--cmake-build-log", "/work/receipts/build.log"]),
+                    ("abi", "host_abi_verified_not_simulated", []),
+                    ("inspect", "resources_verified_not_simulated", ["--library-dir", "/opt/sim/plugins",
+                                                                      "--inspection-output", "/work/" + kernel + "-environment"]),
+            ):
+                destination = qualification / phase
+                run(kernel + "-" + phase, [sys.executable, "-B", "scripts/run_alltoall_sim_kernel.py",
+                    phase, *common, *options, "--local-output", str(destination)], cwd=repo, timeout=1200)
+                assert json.loads((destination / "result.json").read_text())["state"] == state
+        case_request = dict(request, environment_report="/work/" + kernel + "-environment", kernel_variant=kernel)
+        request_file = qualification / "request.json"
+        save(request_file, case_request)
         config = work / (mode + ".json")
         output = work / mode
-        save(config, dict(schema="tilexr.unitest.sst.v1", rank_size=32, threads=32, timeout=900,
-                          simulation_timeout=600, tool_checkout=str(repo), tool_commit=revision, inventory=str(inventory),
+        save(config, dict(schema="tilexr.unitest.sst.v1", rank_size=ranks, threads=ranks, timeout=1500,
+                          simulation_timeout=1200, tool_checkout=str(repo), tool_commit=revision, inventory=str(inventory),
                           request_file=str(request_file), suite_output="/work/" + mode + "-suite",
-                          build_report=str(work / "verify"), abi_report=str(work / "abi")))
+                          build_report=str(qualification / "verify"), abi_report=str(qualification / "abi")))
+        case = f"alltoall_full_{mode}_sst.json" if matrix else f"alltoall_lr8_{mode}_32p_sst.json"
         run(mode, [sys.executable, "-B", "-m", "tools.unitest.controller", "--case",
-                   f"tools/unitest/cases/alltoall_lr8_{mode}_32p_sst.json", "--target", "sst", "--mode",
-                   "single", "--no-profiling", "--sim-config", str(config), "--output-dir", str(output)],
-            cwd=repo, timeout=1800)
+                   "tools/unitest/cases/" + case, "--target", "sst", "--mode", "single", "--no-profiling",
+                   "--sim-config", str(config), "--output-dir", str(output)], cwd=repo, timeout=1800)
         report = json.loads((output / "result.json").read_text())
         assert report["status"] == "passed" and list(report["phases"]) == ["prepare", "run"]
         result = report["tool_result"]["sst_result"]
-        assert result["lr8_group_period_cycles"] == period
-        assert result["validation"]["rank_count"] == 32
+        if not matrix:
+            assert result["lr8_group_period_cycles"] == period
+        assert result["validation"]["rank_count"] == ranks
         assert result["runner_returncode"] == 0 and not result["remaining_processes"]
-        cases[mode] = dict(period=period, ranks=32, sha256=result["kernel"]["sha256"],
-                           entry=result["kernel"]["entry"], simulated_us=result["simulated_us"])
-        print(json.dumps(dict(stage="verified", revision=revision, bind=bind, mode=mode, **cases[mode])), flush=True)
+        print(json.dumps(dict(stage="verified", revision=revision, bind=bind, mode=mode, period=period,
+                              ranks=ranks, sha256=result["kernel"]["sha256"], entry=result["kernel"]["entry"],
+                              simulated_us=result["simulated_us"])), flush=True)
 except Exception as error:
     (work / "failure.log").write_text(repr(error), encoding="utf-8")
     print(json.dumps(dict(stage=stage, bind=bind, controller_logs=str(work), error_type=type(error).__name__)), flush=True)
