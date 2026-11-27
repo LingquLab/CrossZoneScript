@@ -126,9 +126,53 @@ def host_main(args):
     return summary()
 
 
+def campaign(args):
+    from contextlib import redirect_stdout
+    import fcntl
+    import io
+
+    bs = args['bs']
+    assert bs in (4, 32, 128)
+    revision = '49f846bdba882ecc0b708b0ec18f56d474b252c0'
+    root = Path(args['workspace']) / 'tilexr-sim-jobs' / SESSION / 'run-49f846b-a1'
+    journal = root / f'campaign-bs{bs}.json'
+    rows = []
+    with (root/'campaign.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
+        for point in CHOICES:
+            stage, intra, slots = configs(bs, point)
+            receipts = (root/'cases').glob(f't{bs}-{stage}-a*/phase-result.json')
+            saved = [
+                path for path in receipts
+                if (record := read(path))['status'] == 'sst_and_checker_passed'
+                and record['intra_cores'] == intra and record['peer_slots'] == slots
+                and record['candidate_commit'] == revision
+            ]
+            if saved:
+                row = {'point': point, 'case': str(saved[0].parent), 'result': read(saved[0])}
+            else:
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    host_main(dict(args, action='run', point=point, detail=True))
+                row = json.loads(buf.getvalue())
+            for key in ('result', 'run'):
+                if key in row:
+                    row[key].pop('command', None)
+            rows.append(row)
+            temp = journal.with_suffix('.tmp')
+            temp.write_text(json.dumps(rows, indent=2))
+            temp.replace(journal)
+            if row.get('result', {}).get('status') != 'sst_and_checker_passed':
+                break
+    print(json.dumps({'bs': bs, 'passed': sum(row.get('result', {}).get('status') == 'sst_and_checker_passed'
+                                              for row in rows), 'rows': rows}, separators=(',', ':')))
+    return 0
+
+
+
 def main(args=None):
     if args is not None:
-        return host_main(args)
+        return campaign(args) if args.get('action') == 'campaign' else host_main(args)
 
     import argparse
     from ssh_target import run
@@ -137,11 +181,13 @@ def main(args=None):
     parser.add_argument('--args-file', required=True, type=Path)
     request = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action = request.get('action', 'run')
-    if action == 'run':
+    if action in ('run', 'campaign'):
         request['tools'] = {name: Path(__file__).with_name(name).read_text(encoding='utf-8') for name in TOOLS}
     seconds = request.get('timeout', 0) + ({4:550,32:790,128:1200}[request['bs']] if action=='run' else 60)
+    if action == 'campaign':
+        seconds = seconds + 6*(request['timeout'] + 1300)
     code = Path(__file__).read_text(encoding='utf-8').rsplit('if __name__', 1)[0]
-    return 0 if run(code, request, f"{action}-{request['bs']}-{request['point']}", seconds) else 1
+    return 0 if run(code, request, f"{action}-{request['bs']}-{request.get('point', 'all')}", seconds) else 1
 
 
 if __name__ == '__main__':

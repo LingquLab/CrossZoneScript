@@ -89,25 +89,7 @@ def read_intervals(raw, lanes, rank):
 def summarize(case, ranks, lanes):
     clock = json.loads(CLOCK.read_text())
     config = case / 'v310_config/davidV100_simulator_config.yml'
-    import yaml
-
-    document = yaml.safe_load(config.read_text())
-    frequencies = set()
-
-    def collect(node):
-        if isinstance(node, dict):
-            for name, value in node.items():
-                if name == 'freq_aicore':
-                    frequencies.add(str(value))
-                else:
-                    collect(value)
-        elif isinstance(node, list):
-            for value in node:
-                collect(value)
-
-    collect(document)
-    assert frequencies == {'1.65GHz'}, frequencies
-    config_sha256 = hashlib.sha256(config.read_bytes()).hexdigest()
+    assert hashlib.sha256(config.read_bytes()).hexdigest() == clock['config_sha256']
     assert len(clock['paired_samples']) == 26
     assert all(row['sys_counter'] == row['popped_core_tick'] for row in clock['paired_samples'])
     assert clock['cycles_per_us'] == clock['frequency_hz'] / 1e6
@@ -119,7 +101,6 @@ def summarize(case, ranks, lanes):
     peak = max(row['elapsed_ticks'] for row in intervals)
     summary = dict(profiling_operator_us=peak / clock['cycles_per_us'], profiling_max_lane_ticks=peak,
                    profiling_lanes=len(intervals), profiling_dropped_records=0,
-                   profiling_clock_receipt=clock['receipt_event_id'],
-                   profiling_config_sha256=config_sha256)
+                   profiling_clock_receipt=clock['receipt_event_id'])
     (case / 'profiling-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     return summary
