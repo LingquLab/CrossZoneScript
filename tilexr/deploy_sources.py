@@ -11,11 +11,27 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import time
+from urllib.parse import urlsplit
+
+
+def portable_origin(value):
+    """Preserve credential-free HTTPS and normal Git SSH upstream addresses."""
+    if any(ord(character) < 32 for character in value):
+        raise ValueError('INVALID_ORIGIN_CONTROL_CHARACTER')
+    if re.fullmatch(r'git@[A-Za-z0-9.-]+:[^\s]+', value):
+        return value
+    parsed = urlsplit(value)
+    if parsed.scheme not in ('https', 'http', 'ssh', 'git') or not parsed.hostname or parsed.password:
+        raise ValueError('UNSUPPORTED_ORIGIN_FORMAT')
+    if parsed.username and not (parsed.scheme == 'ssh' and parsed.username == 'git'):
+        raise ValueError('ORIGIN_CONTAINS_CREDENTIALS')
+    return value
 
 
 def main():
@@ -50,7 +66,7 @@ def main():
         return run(['git', '-C', str(path), *argv], timeout).decode('utf-8').strip()
 
     def repositories(path, relative='.'):
-        records = [{'path': relative, 'revision': git(path, 'rev-parse', 'HEAD'), 'origin': git(path, 'remote', 'get-url', 'origin')}]
+        records = [{'path': relative, 'revision': git(path, 'rev-parse', 'HEAD'), 'origin': portable_origin(git(path, 'config', '--get', 'remote.origin.url'))}]
         tree = run(['git', '-C', str(path), 'ls-tree', '-rz', '--full-tree', 'HEAD'])
         for item in tree.split(b'\0'):
             if not item:
@@ -75,7 +91,9 @@ def main():
         if arguments['phase'] == 'package':
             state['stage'] = 'initialize-submodules'
             save()
-            git(source, 'submodule', 'update', '--init', '--recursive', '--depth=1', timeout=1200)
+            current = run(['git', '-C', str(source), 'submodule', 'status', '--recursive']).decode('utf-8')
+            if any(not line.startswith(' ') for line in current.splitlines()):
+                git(source, 'submodule', 'update', '--init', '--recursive', '--depth=1', timeout=1200)
             records = repositories(source)
             state['repositories'] = [{k: record[k] for k in ('path', 'revision')} for record in records]
             save()
@@ -91,11 +109,9 @@ def main():
                     if not target.is_dir() or any(target.iterdir()):
                         raise RuntimeError('PORTABLE_PATH_NOT_EMPTY:' + relative)
                     target.rmdir()
-                run(['git', '-c', 'protocol.file.allow=always', 'clone', '--depth=1', '--no-local', '-c', 'core.autocrlf=false', '-c', 'core.symlinks=false', original.as_uri(), str(target)], 300)
+                run(['git', '-c', 'protocol.file.allow=always', '-c', 'core.longpaths=true', 'clone', '--depth=1', '--no-local', '-c', 'core.autocrlf=false', '-c', 'core.symlinks=false', '-c', 'core.longpaths=true', original.as_uri(), str(target)], 300)
                 assert git(target, 'rev-parse', 'HEAD') == record['revision']
-                origin = record['origin']
-                if not origin.startswith('https://github.com/') or '@' in origin:
-                    raise RuntimeError('UNEXPECTED_SUBMODULE_ORIGIN')
+                origin = portable_origin(record['origin'])
                 git(target, 'remote', 'set-url', 'origin', origin)
                 if (target / '.gitmodules').is_file():
                     git(target, 'submodule', 'init')
@@ -142,8 +158,9 @@ def main():
             state['stage'] = 'upload'
             state['uploads'] = []
             save()
+            upload_timeout = min(1800, 300 + archive.stat().st_size // (1024 * 1024))
             for host in cluster.hosts:
-                run([scp, '-q', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no', str(archive), cluster.user + '@' + host.address + ':' + remote_archive], 300)
+                run([scp, '-q', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UpdateHostKeys=no', str(archive), cluster.user + '@' + host.address + ':' + remote_archive], upload_timeout)
                 state['uploads'].append(host.address)
                 save()
             def ssh_with_key(argv, **kwargs):
@@ -152,7 +169,7 @@ def main():
             command = tssh.remote_command(['python3', '-', remote_archive, arguments['destination'], package['archive_sha256']])
             state['stage'] = 'remote-deploy'
             save()
-            results = tssh.run_cluster(ssh, cluster, command, remote_code, 2, 10, 300, run_process=ssh_with_key)
+            results = tssh.run_cluster(ssh, cluster, command, remote_code, 2, 10, 900, run_process=ssh_with_key)
             summaries = []
             for result in results:
                 log_stem = artifacts / ('remote-' + result.host.name)
