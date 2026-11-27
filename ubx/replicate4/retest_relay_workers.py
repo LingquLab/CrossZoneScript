@@ -62,7 +62,7 @@ def build_candidate():
 
 
 def run_benchmark(destination, work, revision, run_name, label, ports=(31500, 25000, 27000),
-                  traces_only=False):
+                  traces_only=False, cleanup=False):
     result_dir = destination / label
     assert destination.is_absolute() and destination.is_dir()
     assert not result_dir.exists()
@@ -75,7 +75,7 @@ def run_benchmark(destination, work, revision, run_name, label, ports=(31500, 25
         collection = Path(staging) / "verified"
         collection.mkdir()
         trace_collector = relay24_traces.collect if traces_only else None
-        summary = benchmark.main(ports=ports, collection=collection, trace_collector=trace_collector)
+        summary = benchmark.main(ports=ports, cleanup=cleanup, collection=collection, trace_collector=trace_collector)
         if revision == REVISION and not traces_only:
             summary.update(review_traces(collection), relay_workers=24)
         summary["local_results"] = str(result_dir)
@@ -117,6 +117,9 @@ if __name__ == "__main__":
     elif mode == "focused":
         run_benchmark(destination, WORK, REVISION, "full-bs32-f50-relay24-focused", candidate_label + "-focused",
                       ports=(30500, 25000), traces_only=True)
+    elif mode == "cleanup_test":
+        run_benchmark(destination, WORK, REVISION, "full-bs32-f50-relay24-cleanup", candidate_label + "-cleanup",
+                      ports=(30500, 25000), traces_only=True, cleanup=True)
     elif mode == "diagnostics":
         save_failure_evidence(destination, WORK, "full-bs32-f50")
     elif mode == "control_diagnostics":
