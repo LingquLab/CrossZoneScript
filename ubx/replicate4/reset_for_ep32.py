@@ -15,6 +15,8 @@ import sys
 
 mode = sys.argv[1]
 work = Path(sys.argv[2])
+ROOT = work
+OUTPUT = work / "reset-ep32-20261127"
 devices = [int(device) for device in sys.argv[3:]]
 output = work / "reset-ep32-20261127.jsonl"
 assert devices and all(0 <= device < 16 for device in devices)
@@ -55,6 +57,9 @@ if mode == "reset":
     history = rows()
     completed = {row["device"] for row in history if row.get("reset_exit") == 0
                  and row.get("after", {}).get("status", "").lower() == "ok"}
+    current_occupants = occupants()
+    if current_occupants:
+        clear_occupants(current_occupants)
     for device in devices:
         if device in completed:
             continue
@@ -67,12 +72,12 @@ if mode == "reset":
         command = ["npu-smi", "set", "-t", "reset", "-i", str(device), "-m", "1"]
         save(dict(device=device, stage="reset_command_started"))
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(command, input="y\n", capture_output=True, text=True, timeout=110)
         except subprocess.TimeoutExpired:
             save(dict(**row, stopped="reset command timed out"))
             break
         row["reset_exit"] = result.returncode
-        row["reset_output"] = (result.stderr or result.stdout).strip().splitlines()[-2:]
+        row["reset_output"] = (result.stdout + result.stderr).strip().splitlines()[-4:]
         if result.returncode != 0:
             save(row)
             break
