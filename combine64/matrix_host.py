@@ -203,9 +203,13 @@ for process in Path('/proc').glob('[0-9]*'):
     assert result.returncode == 0 and json_file(summary)['all_compiled'], 'profile_build_failed'
 
 
-def matrix_status(root, cid, journal, bs, compact=False):
+def matrix_status(root, cid, journal, bs, compact=False, point=None):
     all_rows = json_file(journal) if journal.exists() else {}
     rows = {name: row for name, row in all_rows.items() if name.startswith(f'{bs}-')}
+    if point is not None:
+        assert point in POINTS
+        name = f'{bs}-{point}'
+        rows = {name: rows[name]} if name in rows else {}
     if compact:
         fields = ('status', 'platform_simulated_us', 'profiling_operator_us', 'sst_wall_seconds',
                   'runner_wall_seconds', 'checked_ranks', 'guards', 'profiling_lanes',
@@ -214,6 +218,9 @@ def matrix_status(root, cid, journal, bs, compact=False):
     progress_file = root / 'progress.json'
     progress = json_file(progress_file) if progress_file.exists() else {}
     report = {'results': rows, 'progress': progress}
+    if point is not None:
+        print(json.dumps({'results': rows}, separators=(',', ':')))
+        return 0
     name = progress.get('case')
     if name and Path(name).name == name:
         case = root / 'cases' / name
@@ -261,7 +268,7 @@ def main(request):
     journal = root / 'matrix-results.json'
     cid = task_container(root, REVISION)
     if request['action'] == 'status':
-        return matrix_status(root, cid, journal, bs, request.get('compact', False))
+        return matrix_status(root, cid, journal, bs, request.get('compact', False), request.get('point'))
     points = request['points']
     rows = []
     with (root / 'matrix.lock').open('a') as lock:
