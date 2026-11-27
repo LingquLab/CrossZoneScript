@@ -1,0 +1,1492 @@
+{
+  "input_rank": 0,
+  "tokens": 4,
+  "hidden": 256,
+  "baseline": {
+    "task_id": "ht-bf16-reduce-probe",
+    "event_id": "green-1bb6a0ae99824742819859eabd62f85f",
+    "file": "bs4-bf16-reduce-probes.json"
+  },
+  "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+  "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+  "per_instruction": {
+    "task_id": "ht-bf16-reduce-instructions",
+    "event_id": "green-1c453c39b9604aadb015fde10d6824c3",
+    "iteration": 1,
+    "script_commit": "232b259e3eaa98f103babe9b332f51c5aa82af8d",
+    "result": {
+      "artifact": {
+        "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "elf_sha256": "0f617e5fbe5afbc5ada262159bf8269e5c73ad9c2145d88bb3f04015da1b8cc7",
+        "object_sha256": "d116e560a6c5a6805850e68be4be3e35d3454fa158a07ea18a9eaa810b324731"
+      },
+      "case": "reduce-probe-instructions-v1",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "probes": {
+        "gateway": {
+          "blocks": 8,
+          "sst_exit": 0,
+          "sst_wall_seconds": 24.707,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 2048,
+              "mismatches": 640,
+              "first": [
+                [
+                  448,
+                  256.0,
+                  196.0
+                ],
+                [
+                  449,
+                  256.0,
+                  380.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 2048,
+              "mismatches": 388,
+              "first": [
+                [
+                  192,
+                  189.0,
+                  248.0
+                ],
+                [
+                  193,
+                  189.0,
+                  248.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 248.0,
+            "pipeline": 189.0,
+            "probe": 248.0
+          },
+          "sample_column": 192,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": true,
+          "trace": {
+            "input0": [
+              0,
+              3.0,
+              3.0
+            ],
+            "cast0": [
+              0,
+              3.0,
+              3.0
+            ],
+            "sum0": [
+              0,
+              3.0,
+              3.0
+            ],
+            "input1": [
+              0,
+              11.0,
+              11.0
+            ],
+            "cast1": [
+              0,
+              11.0,
+              11.0
+            ],
+            "sum1": [
+              0,
+              14.0,
+              14.0
+            ],
+            "input2": [
+              0,
+              19.0,
+              19.0
+            ],
+            "cast2": [
+              0,
+              19.0,
+              19.0
+            ],
+            "sum2": [
+              0,
+              33.0,
+              33.0
+            ],
+            "input3": [
+              0,
+              27.0,
+              27.0
+            ],
+            "cast3": [
+              0,
+              27.0,
+              27.0
+            ],
+            "sum3": [
+              0,
+              60.0,
+              60.0
+            ],
+            "input4": [
+              0,
+              35.0,
+              35.0
+            ],
+            "cast4": [
+              0,
+              35.0,
+              35.0
+            ],
+            "sum4": [
+              0,
+              95.0,
+              95.0
+            ],
+            "input5": [
+              0,
+              43.0,
+              43.0
+            ],
+            "cast5": [
+              0,
+              43.0,
+              43.0
+            ],
+            "sum5": [
+              0,
+              138.0,
+              138.0
+            ],
+            "input6": [
+              0,
+              51.0,
+              51.0
+            ],
+            "cast6": [
+              0,
+              51.0,
+              51.0
+            ],
+            "sum6": [
+              0,
+              189.0,
+              189.0
+            ],
+            "input7": [
+              0,
+              59.0,
+              59.0
+            ],
+            "cast7": [
+              0,
+              59.0,
+              59.0
+            ],
+            "sum7": [
+              0,
+              248.0,
+              248.0
+            ],
+            "narrow": [
+              0,
+              248.0,
+              248.0
+            ]
+          }
+        },
+        "final": {
+          "blocks": 16,
+          "sst_exit": 0,
+          "sst_wall_seconds": 21.89,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 1024,
+              "mismatches": 777,
+              "first": [
+                [
+                  9,
+                  960.0,
+                  968.0
+                ],
+                [
+                  10,
+                  960.0,
+                  968.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 1024,
+              "mismatches": 1008,
+              "first": [
+                [
+                  4,
+                  968.0,
+                  960.0
+                ],
+                [
+                  5,
+                  968.0,
+                  960.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 960.0,
+            "pipeline": 968.0,
+            "probe": 960.0
+          },
+          "sample_column": 4,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": null,
+          "trace": {
+            "input0": [
+              0,
+              224.0,
+              224.0
+            ],
+            "cast0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "input1": [
+              0,
+              736.0,
+              736.0
+            ],
+            "cast1": [
+              192,
+              736.0,
+              736.0
+            ],
+            "reload_sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "add": [
+              237,
+              960.0,
+              960.0
+            ],
+            "narrow": [
+              195,
+              960.0,
+              960.0
+            ]
+          }
+        }
+      }
+    }
+  },
+  "gateway_all_before_cast_and_final_unpack": {
+    "task_id": "ht-bf16-reduce-isolate",
+    "event_id": "green-9b2bfac1fa1e4eb7856c96e2a5f0c41b",
+    "iteration": 1,
+    "script_commit": "c0780b8efee554caf1c80e63be7050a9be42c159",
+    "result": {
+      "artifact": {
+        "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "elf_sha256": "e70ff3f72321542e3b340dd6ded9f67e7437d518268336acfe302a3fbf53914f",
+        "object_sha256": "d97655078edc9ec978834d0db33b648d7d801c41330bb155d832acced9f89d4b"
+      },
+      "case": "reduce-probe-instructions-isolate",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "probes": {
+        "gateway": {
+          "blocks": 8,
+          "sst_exit": 0,
+          "sst_wall_seconds": 24.24,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 2048,
+              "mismatches": 256,
+              "first": [
+                [
+                  768,
+                  248.0,
+                  213.0
+                ],
+                [
+                  769,
+                  248.0,
+                  213.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 2048,
+              "mismatches": 512,
+              "first": [
+                [
+                  192,
+                  189.0,
+                  248.0
+                ],
+                [
+                  193,
+                  189.0,
+                  248.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 248.0,
+            "pipeline": 189.0,
+            "probe": 248.0
+          },
+          "sample_column": 192,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": true,
+          "trace": {}
+        },
+        "final": {
+          "blocks": 16,
+          "sst_exit": 0,
+          "sst_wall_seconds": 21.895,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 1024,
+              "mismatches": 777,
+              "first": [
+                [
+                  9,
+                  960.0,
+                  968.0
+                ],
+                [
+                  10,
+                  960.0,
+                  968.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 1024,
+              "mismatches": 1008,
+              "first": [
+                [
+                  4,
+                  968.0,
+                  960.0
+                ],
+                [
+                  5,
+                  968.0,
+                  960.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 960.0,
+            "pipeline": 968.0,
+            "probe": 960.0
+          },
+          "sample_column": 4,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": null,
+          "trace": {
+            "input0": [
+              0,
+              224.0,
+              224.0
+            ],
+            "cast0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "input1": [
+              0,
+              736.0,
+              736.0
+            ],
+            "cast1": [
+              192,
+              736.0,
+              736.0
+            ],
+            "reload_sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "add": [
+              237,
+              960.0,
+              960.0
+            ],
+            "narrow": [
+              195,
+              960.0,
+              960.0
+            ],
+            "unpack0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "unpack1": [
+              192,
+              736.0,
+              736.0
+            ]
+          }
+        }
+      }
+    }
+  },
+  "gateway_mte2_before_cast_and_final_raw_registers": {
+    "task_id": "ht-bf16-reduce-raw",
+    "event_id": "green-b4b65ec17ebb46bfbd5981686eff8514",
+    "iteration": 1,
+    "script_commit": "6ebb278a27968ee04cde17f39a0b2e7a47c2a06b",
+    "result": {
+      "artifact": {
+        "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "elf_sha256": "ed2f7a9fe82e6d3e96422f2370b71252487853017d874c3d32302a270f73eecc",
+        "object_sha256": "3693369fbe6a96137b3aa68be2eebd734d02b0fdf45ea6cfc9b5076f53351450"
+      },
+      "case": "reduce-probe-instructions-raw",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "probes": {
+        "gateway": {
+          "blocks": 8,
+          "sst_exit": 0,
+          "sst_wall_seconds": 24.812,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 2048,
+              "mismatches": 704,
+              "first": [
+                [
+                  192,
+                  248.0,
+                  189.0
+                ],
+                [
+                  193,
+                  248.0,
+                  368.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 2048,
+              "mismatches": 371,
+              "first": [
+                [
+                  193,
+                  189.0,
+                  368.0
+                ],
+                [
+                  195,
+                  189.0,
+                  368.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 248.0,
+            "pipeline": 189.0,
+            "probe": 189.0
+          },
+          "sample_column": 192,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": true,
+          "trace": {}
+        },
+        "final": {
+          "blocks": 16,
+          "sst_exit": 0,
+          "sst_wall_seconds": 22.3,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 1024,
+              "mismatches": 777,
+              "first": [
+                [
+                  9,
+                  960.0,
+                  968.0
+                ],
+                [
+                  10,
+                  960.0,
+                  968.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 1024,
+              "mismatches": 1008,
+              "first": [
+                [
+                  4,
+                  968.0,
+                  960.0
+                ],
+                [
+                  5,
+                  968.0,
+                  960.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 960.0,
+            "pipeline": 968.0,
+            "probe": 960.0
+          },
+          "sample_column": 4,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": null,
+          "trace": {
+            "input0": [
+              0,
+              224.0,
+              224.0
+            ],
+            "cast0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "input1": [
+              0,
+              736.0,
+              736.0
+            ],
+            "cast1": [
+              192,
+              736.0,
+              736.0
+            ],
+            "reload_sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "add": [
+              237,
+              960.0,
+              960.0
+            ],
+            "narrow": [
+              195,
+              960.0,
+              960.0
+            ],
+            "unpack0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "unpack1": [
+              192,
+              736.0,
+              736.0
+            ],
+            "raw0": [
+              256,
+              17248,
+              1130513248
+            ],
+            "raw1": [
+              256,
+              17464,
+              1144538168
+            ]
+          }
+        }
+      }
+    }
+  },
+  "gateway_mte3_before_cast_and_final_all_before_vector": {
+    "task_id": "ht-bf16-reduce-sync",
+    "event_id": "green-baac5b332e924dcb9e5b86fe1dce67df",
+    "iteration": 1,
+    "script_commit": "44f7f56aac35be259e4fb666d0830f27afc66678",
+    "result": {
+      "artifact": {
+        "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "elf_sha256": "171e3598567d0ecbf7d84af0c2e90b46c47297cda93f47df955aaed7d22ec074",
+        "object_sha256": "8b35d21738045eed9e21dcaba8163dcc50a46db0c62a63f81e1a3146ac01ce68"
+      },
+      "case": "reduce-probe-instructions-sync",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "probes": {
+        "gateway": {
+          "blocks": 8,
+          "sst_exit": 0,
+          "sst_wall_seconds": 24.304,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 2048,
+              "mismatches": 704,
+              "first": [
+                [
+                  192,
+                  248.0,
+                  189.0
+                ],
+                [
+                  193,
+                  248.0,
+                  368.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 2048,
+              "mismatches": 371,
+              "first": [
+                [
+                  193,
+                  189.0,
+                  368.0
+                ],
+                [
+                  195,
+                  189.0,
+                  368.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 248.0,
+            "pipeline": 189.0,
+            "probe": 189.0
+          },
+          "sample_column": 192,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": true,
+          "trace": {}
+        },
+        "final": {
+          "blocks": 16,
+          "sst_exit": 0,
+          "sst_wall_seconds": 22.045,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 1024,
+              "mismatches": 777,
+              "first": [
+                [
+                  9,
+                  960.0,
+                  968.0
+                ],
+                [
+                  10,
+                  960.0,
+                  968.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 1024,
+              "mismatches": 1008,
+              "first": [
+                [
+                  4,
+                  968.0,
+                  960.0
+                ],
+                [
+                  5,
+                  968.0,
+                  960.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 960.0,
+            "pipeline": 968.0,
+            "probe": 960.0
+          },
+          "sample_column": 4,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": null,
+          "trace": {
+            "input0": [
+              0,
+              224.0,
+              224.0
+            ],
+            "cast0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "input1": [
+              0,
+              736.0,
+              736.0
+            ],
+            "cast1": [
+              192,
+              736.0,
+              736.0
+            ],
+            "reload_sum0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "add": [
+              237,
+              960.0,
+              960.0
+            ],
+            "narrow": [
+              195,
+              960.0,
+              960.0
+            ],
+            "unpack0": [
+              228,
+              224.0,
+              224.0
+            ],
+            "unpack1": [
+              192,
+              736.0,
+              736.0
+            ],
+            "raw0": [
+              256,
+              17248,
+              1130513248
+            ],
+            "raw1": [
+              256,
+              17464,
+              1144538168
+            ]
+          }
+        }
+      }
+    }
+  },
+  "raw_register_layout": {
+    "task_id": "ht-bf16-reduce-trace-read",
+    "event_id": "green-6efc0eb851324787b40fc97238fbb9ac",
+    "iteration": 3,
+    "script_commit": "0d3ee1d7f1b26acfe4afa0ef3bd47a6cc9bbce8c",
+    "result": {
+      "final": {
+        "cast0": {
+          "bad_per_64": [
+            56,
+            56,
+            56,
+            60
+          ],
+          "examples": [
+            [
+              5,
+              224.0,
+              226.0
+            ],
+            [
+              6,
+              224.0,
+              226.0
+            ],
+            [
+              7,
+              224.0,
+              226.0
+            ]
+          ]
+        },
+        "sum0": {
+          "bad_per_64": [
+            56,
+            56,
+            56,
+            60
+          ],
+          "examples": [
+            [
+              5,
+              224.0,
+              226.0
+            ],
+            [
+              6,
+              224.0,
+              226.0
+            ],
+            [
+              7,
+              224.0,
+              226.0
+            ]
+          ]
+        },
+        "cast1": {
+          "bad_per_64": [
+            48,
+            48,
+            48,
+            48
+          ],
+          "examples": [
+            [
+              9,
+              736.0,
+              740.0
+            ],
+            [
+              10,
+              736.0,
+              740.0
+            ],
+            [
+              11,
+              736.0,
+              740.0
+            ]
+          ]
+        },
+        "reload_sum0": {
+          "bad_per_64": [
+            56,
+            56,
+            56,
+            60
+          ],
+          "examples": [
+            [
+              5,
+              224.0,
+              226.0
+            ],
+            [
+              6,
+              224.0,
+              226.0
+            ],
+            [
+              7,
+              224.0,
+              226.0
+            ]
+          ]
+        },
+        "add": {
+          "bad_per_64": [
+            59,
+            59,
+            59,
+            60
+          ],
+          "examples": [
+            [
+              5,
+              960.0,
+              962.0
+            ],
+            [
+              6,
+              960.0,
+              962.0
+            ],
+            [
+              7,
+              960.0,
+              962.0
+            ]
+          ]
+        },
+        "narrow": {
+          "bad_per_64": [
+            48,
+            48,
+            48,
+            51
+          ],
+          "examples": [
+            [
+              9,
+              960.0,
+              968.0
+            ],
+            [
+              10,
+              960.0,
+              968.0
+            ],
+            [
+              11,
+              960.0,
+              968.0
+            ]
+          ]
+        },
+        "unpack0": {
+          "bad_per_64": [
+            56,
+            56,
+            56,
+            60
+          ],
+          "examples": [
+            [
+              5,
+              224.0,
+              226.0
+            ],
+            [
+              6,
+              224.0,
+              226.0
+            ],
+            [
+              7,
+              224.0,
+              226.0
+            ]
+          ]
+        },
+        "unpack1": {
+          "bad_per_64": [
+            48,
+            48,
+            48,
+            48
+          ],
+          "examples": [
+            [
+              9,
+              736.0,
+              740.0
+            ],
+            [
+              10,
+              736.0,
+              740.0
+            ],
+            [
+              11,
+              736.0,
+              740.0
+            ]
+          ]
+        },
+        "raw0": {
+          "bad_per_64": [
+            64,
+            64,
+            64,
+            64
+          ],
+          "examples": [
+            [
+              0,
+              "0x4360",
+              "0x43604360"
+            ],
+            [
+              1,
+              "0x4360",
+              "0x43604360"
+            ],
+            [
+              2,
+              "0x4360",
+              "0x43604360"
+            ]
+          ]
+        },
+        "raw1": {
+          "bad_per_64": [
+            64,
+            64,
+            64,
+            64
+          ],
+          "examples": [
+            [
+              0,
+              "0x4438",
+              "0x44384438"
+            ],
+            [
+              1,
+              "0x4438",
+              "0x44384438"
+            ],
+            [
+              2,
+              "0x4438",
+              "0x44384438"
+            ]
+          ]
+        },
+        "register_pattern": {
+          "raw0": {
+            "wrong_low_half": 228,
+            "low_half_vs_unpacked_mismatches": 0,
+            "normal_packed_matches_per_32": [
+              32,
+              32,
+              32,
+              32
+            ],
+            "samples": [
+              [
+                4,
+                "0x4360",
+                "0x43624360"
+              ],
+              [
+                5,
+                "0x4360",
+                "0x43624362"
+              ],
+              [
+                9,
+                "0x4362",
+                "0x43624362"
+              ],
+              [
+                31,
+                "0x4364",
+                "0x43684368"
+              ],
+              [
+                32,
+                "0x4364",
+                "0x43684368"
+              ],
+              [
+                64,
+                "0x4368",
+                "0x43684368"
+              ],
+              [
+                69,
+                "0x4368",
+                "0x436a436a"
+              ]
+            ]
+          },
+          "raw1": {
+            "wrong_low_half": 192,
+            "low_half_vs_unpacked_mismatches": 0,
+            "normal_packed_matches_per_32": [
+              32,
+              32,
+              32,
+              32
+            ],
+            "samples": [
+              [
+                4,
+                "0x4438",
+                "0x44384438"
+              ],
+              [
+                5,
+                "0x4438",
+                "0x44384438"
+              ],
+              [
+                9,
+                "0x4438",
+                "0x44394439"
+              ],
+              [
+                31,
+                "0x4439",
+                "0x443a443a"
+              ],
+              [
+                32,
+                "0x4439",
+                "0x443a443a"
+              ],
+              [
+                64,
+                "0x443a",
+                "0x443a443a"
+              ],
+              [
+                69,
+                "0x443a",
+                "0x443a443a"
+              ]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "gateway_vector_before_cast": {
+    "task_id": "ht-bf16-reduce-vec",
+    "event_id": "green-a64a6f540ad74ed5be56f572b3fbd3d9",
+    "iteration": 1,
+    "script_commit": "0d3ee1d7f1b26acfe4afa0ef3bd47a6cc9bbce8c",
+    "result": {
+      "artifact": {
+        "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "elf_sha256": "5a57cb139a87d89e6adf1bb523afe7107f9398c8d1b5bd4ee9b8f354d503cf68",
+        "object_sha256": "abe49b396c37157015175472a527f1b0ef5de7e43dd33a91dce13598a6070a1b"
+      },
+      "case": "reduce-probe-instructions-vec",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "probes": {
+        "gateway": {
+          "blocks": 8,
+          "sst_exit": 0,
+          "sst_wall_seconds": 24.376,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 2048,
+              "mismatches": 704,
+              "first": [
+                [
+                  192,
+                  248.0,
+                  189.0
+                ],
+                [
+                  193,
+                  248.0,
+                  368.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 2048,
+              "mismatches": 371,
+              "first": [
+                [
+                  193,
+                  189.0,
+                  368.0
+                ],
+                [
+                  195,
+                  189.0,
+                  368.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 248.0,
+            "pipeline": 189.0,
+            "probe": 189.0
+          },
+          "sample_column": 192,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": true,
+          "trace": {}
+        }
+      }
+    }
+  },
+  "gateway_all_after_cast": {
+    "task_id": "ht-bf16-reduce-post",
+    "event_id": "green-be6de00ce7ae4ce291b909dbf017708a",
+    "iteration": 1,
+    "script_commit": "f4fbb6ff2ee4a1b33dd27252b4385f923f7c56f0",
+    "result": {
+      "artifact": {
+        "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+        "elf_sha256": "8349e3cdc74a5056b6170c2650dfeeb138531012a1b42f0a816a969d1bea9374",
+        "object_sha256": "c3b78ebc733b1d709d2ac419f145623997ad978a0320f4a06644f0cfd3e4b86b"
+      },
+      "case": "reduce-probe-instructions-post",
+      "image": "sha256:3940e61fdb7d68ea3f537d42807f6637773af378cf24f660894c02e618a07e27",
+      "probes": {
+        "gateway": {
+          "blocks": 8,
+          "sst_exit": 0,
+          "sst_wall_seconds": 24.01,
+          "loaded_repair_libraries": 7,
+          "checker_exit": 0,
+          "compared": {
+            "expected": {
+              "tested": 2048,
+              "mismatches": 704,
+              "first": [
+                [
+                  192,
+                  248.0,
+                  189.0
+                ],
+                [
+                  193,
+                  248.0,
+                  368.0
+                ]
+              ]
+            },
+            "pipeline": {
+              "tested": 2048,
+              "mismatches": 371,
+              "first": [
+                [
+                  193,
+                  189.0,
+                  368.0
+                ],
+                [
+                  195,
+                  189.0,
+                  368.0
+                ]
+              ]
+            }
+          },
+          "sample": {
+            "expected": 248.0,
+            "pipeline": 189.0,
+            "probe": 189.0
+          },
+          "sample_column": 192,
+          "status": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "guards": {
+            "guard_workspace_before": true,
+            "guard_workspace_after": true,
+            "guard_output_before": true,
+            "guard_output_after": true
+          },
+          "ready_ok": true,
+          "trace": {}
+        }
+      }
+    }
+  }
+}
