@@ -28,7 +28,8 @@ def build(request):
     assert platform.machine() == 'aarch64'
     candidate = request['candidate']
     assert request['revision'] == REVISIONS[candidate]
-    root = workspace / 'tilexr-sim-jobs' / SESSION / f'run-{candidate}-a1'
+    run_name = 'run-49f846b-legacy-a1' if image == 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5' else f'run-{candidate}-a1'
+    root = workspace / 'tilexr-sim-jobs' / SESSION / run_name
     assert execute(['docker','image','inspect','--format','{{.Id}} {{.Os}}/{{.Architecture}}',image]).decode().strip() == image+' linux/arm64'
     root.mkdir(parents=True, exist_ok=False)
     record = {k: request[k] for k in ('revision','tree','source_sha256')}
@@ -54,7 +55,7 @@ def build(request):
     for name, code in request['profile_files'].items():
         (profile_tools / name).write_text(code)
     limit_gib = 64
-    name=f'combine-ht-{SESSION[:8]}-{candidate}-a1'
+    name=f'combine-ht-{SESSION[:8]}-{run_name[4:]}'
     container=execute(['docker','run','-dt','--name',name,'--runtime=runc','--network=none',
                        '--cap-drop=ALL','--security-opt=no-new-privileges','--cpus=8',f'--memory={limit_gib}g',f'--memory-swap={limit_gib}g',
                        '--pids-limit=1024','--shm-size=16g','--ulimit','nofile=524288:524288',

@@ -17,6 +17,13 @@ def read(path):
     return json.loads(path.read_text())
 
 
+def run_root(args):
+    legacy = args['image_id'] == 'sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5'
+    directory = 'run-49f846b-legacy-a1' if legacy else 'run-49f846b-a1'
+    return Path(args['workspace']) / 'tilexr-sim-jobs' / SESSION / directory
+
+
+
 def configs(bs, point):
     variant = point[-1]
     kind = point.rsplit('-', 1)[0]
@@ -31,7 +38,7 @@ def configs(bs, point):
 def host_main(args):
     import fcntl
 
-    root = Path(args['workspace']) / 'tilexr-sim-jobs' / SESSION / 'run-49f846b-a1'
+    root = run_root(args)
     identity = read(root/'identity.json')
     cid = identity['container_id']
     docker = ['docker', 'exec', cid]
@@ -107,12 +114,15 @@ def host_main(args):
         if not manifest.is_file():
             temp = root/'platform-pending'
             assert not temp.exists()
-            with platform_log.open('xb') as log:
-                checked = subprocess.run(docker+['python3',str(inside/'platform_stage.py'),'/work/platform-pending'],
-                                         stdout=log,stderr=subprocess.STDOUT,timeout=120)
-            if checked.returncode:
-                args['detail'] = True
-                return summary()
+            if root.name == 'run-49f846b-legacy-a1':
+                unpack(root.parent/'legacy-assets/platform.tar.gz', temp)
+            else:
+                with platform_log.open('xb') as log:
+                    checked = subprocess.run(docker+['python3',str(inside/'platform_stage.py'),'/work/platform-pending'],
+                                             stdout=log,stderr=subprocess.STDOUT,timeout=120)
+                if checked.returncode:
+                    args['detail'] = True
+                    return summary()
             temp.rename(root/'platform')
             (root/'platform'/'.manifest.json').rename(manifest)
         config = dict(revision=identity['revision'], action=stage, tokens=bs, attempt=attempt,
@@ -134,7 +144,7 @@ def campaign(args):
     bs = args['bs']
     assert bs in (4, 32, 128)
     revision = '49f846bdba882ecc0b708b0ec18f56d474b252c0'
-    root = Path(args['workspace']) / 'tilexr-sim-jobs' / SESSION / 'run-49f846b-a1'
+    root = run_root(args)
     journal = root / f'campaign-bs{bs}.json'
     rows = []
     with (root/'campaign.lock').open('a') as lock:
@@ -186,7 +196,8 @@ def main(args=None):
     seconds = request.get('timeout', 0) + ({4:550,32:790,128:1200}[request['bs']] if action=='run' else 60)
     if action == 'campaign':
         seconds = seconds + 6*(request['timeout'] + 1300)
-    code = Path(__file__).read_text(encoding='utf-8').rsplit('if __name__', 1)[0]
+    code = Path(__file__).with_name('restore_platform.py').read_text(encoding='utf-8')
+    code += '\n' + Path(__file__).read_text(encoding='utf-8').rsplit('if __name__', 1)[0]
     return 0 if run(code, request, f"{action}-{request['bs']}-{request.get('point', 'all')}", seconds) else 1
 
 

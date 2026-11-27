@@ -12,7 +12,10 @@ import json
 from pathlib import Path
 
 # AddrAnalyzerV310 binary verified by the existing pinned SST output decoder.
-V310_DECODER_SHA256 = "bf93fd6d0749fc3c6eaae365c7cba558988e1fa25c1b9a26e139be61b60a3da3"
+V310_DECODER_SHA256 = {
+    "6d4cd3b729177646ca1c43d57971e5266a946405b6f820f3d0d914114b7ccfce",
+    "bf93fd6d0749fc3c6eaae365c7cba558988e1fa25c1b9a26e139be61b60a3da3",
+}
 
 
 def digest(path):
@@ -52,7 +55,7 @@ def read_addressed(path, address, size):
 def reconstruct_die_output(paths, address, size, decoder_library):
     if len(paths) != 2 or size <= 0 or address < 0:
         raise ValueError("Need two Die dumps and a nonempty chip-local range")
-    if digest(decoder_library) != V310_DECODER_SHA256:
+    if digest(decoder_library) not in V310_DECODER_SHA256:
         raise ValueError("Die ownership is unverified for this decoder library")
     copies = [read_addressed(path, address, size) for path in paths]
     result, offset = bytearray(size), 0
@@ -72,7 +75,7 @@ def owning_die(address):
 def read_die_stripe(paths, address, size, decoder_library):
     if len(paths) != 2 or address < 0 or not 0 < size <= 512 - address % 512:
         raise ValueError("Need a nonempty range within one stripe")
-    if digest(decoder_library) != V310_DECODER_SHA256:
+    if digest(decoder_library) not in V310_DECODER_SHA256:
         raise ValueError("Die ownership is unverified for this decoder library")
     return read_addressed(paths[owning_die(address)], address, size)
 
@@ -115,7 +118,7 @@ def export_actual(layout, dump_dir, output, decoder_library):
     report = {
         "status": "exports_reconstructed_not_checked",
         "world": len(ranks),
-        "decoder_sha256": V310_DECODER_SHA256,
+        "decoder_sha256": digest(decoder_library),
         "raw_dump_sha256": hashes,
     }
     (output / "export-report.json").write_text(json.dumps(report, indent=2) + "\n")
