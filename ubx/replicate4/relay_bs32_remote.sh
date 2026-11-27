@@ -4,6 +4,7 @@ set -eo pipefail
 root=$1
 comparison=${3:-default}
 operation=${4:-build}
+idle_wait=${5:-120}
 phase=verify
 trap 'status=$?; printf "%s %s\n" "$phase" "$status" > "$root/status.txt"' EXIT
 printf '%s\n' "$phase" > "$root/status.txt"
@@ -53,7 +54,7 @@ fi
 
 phase=occupancy
 printf '%s\n' "$phase" > "$root/status.txt"
-python3 - "$root" "$operation" <<'PY'
+python3 - "$root" "$operation" "$idle_wait" <<'PY'
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
@@ -75,7 +76,7 @@ def probe(device):
         pass
     return 'unknown'
 
-deadline = time.monotonic() + (120 if sys.argv[2] == 'resume' else 0)
+deadline = time.monotonic() + (int(sys.argv[3]) if sys.argv[2] == 'resume' else 0)
 while True:
     with ThreadPoolExecutor(max_workers=8) as pool:
         devices = list(pool.map(probe, range(16)))

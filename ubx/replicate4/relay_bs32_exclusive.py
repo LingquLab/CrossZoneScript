@@ -70,7 +70,7 @@ def observe(host):
     return data
 
 
-def run(host, bundle, digest, comparison, resume=False):
+def run(host, bundle, digest, comparison, resume=False, idle_wait=120):
     destination = GREEN / host
     destination.mkdir(exist_ok=resume)
     log = 'resume.log' if resume else 'execution.log'
@@ -85,7 +85,8 @@ def run(host, bundle, digest, comparison, resume=False):
             assert uploaded.returncode == 0, step
         step = 'build-and-run'
         script = Path(__file__).with_name('relay_bs32_remote.sh').read_bytes().replace(b'\r\n', b'\n')
-        cmd = shlex.join(['bash', '-s', '--', ROOT, digest, comparison, 'resume' if resume else 'build'])
+        cmd = shlex.join(['bash', '-s', '--', ROOT, digest, comparison, 'resume' if resume else 'build',
+                          str(idle_wait)])
         executed = ssh(host, f'{cmd} > {ROOT}/{log} 2>&1', 1360, script)
         step = 'collect-results'
         data = observe(host)
@@ -158,11 +159,13 @@ def main():
     resume_host = args.get('resume_host')
     if resume_host:
         assert resume_host in HOSTS
+        idle_wait = args.get('idle_wait', 120)
+        assert type(idle_wait) is int and 0 <= idle_wait <= 600
         report = json.loads(receipt.read_text())
         assert report['revision'] == REVISION
         current, = (h for h in report['hosts'] if h['host'] == resume_host)
         assert current['phase'] == 'occupancy 1'
-        recovered = run(resume_host, None, report['source_sha256'], comparison, resume=True)
+        recovered = run(resume_host, None, report['source_sha256'], comparison, resume=True, idle_wait=idle_wait)
         report['hosts'] = [recovered if h['host'] == resume_host else h for h in report['hosts']]
         receipt.write_text(json.dumps(report))
         print_report(report, comparison)
