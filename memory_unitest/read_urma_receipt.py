@@ -41,9 +41,23 @@ if (suite / 'runner.log').is_file():
         stream.seek(max(0, (suite / 'runner.log').stat().st_size - 8192))
         report['runner_tail'] = [line.strip()[:350] for line in stream.read().decode(errors='replace').splitlines()
                                  if any(tag in line.lower() for tag in ('timeout', 'timed out', 'exit_code', 'error'))][-5:]
-trace = [path for path in suite.rglob('*') if path.is_file()
-         and re.search(r'(^|[/_.-])(trace|instr|dump|inst)([/_.-]|$)', path.relative_to(suite).as_posix(), re.I)]
-report['trace_files'] = [(path.relative_to(suite).as_posix(), path.stat().st_size) for path in trace[:12]]
+files = [path for path in suite.rglob('*') if path.is_file()]
+trace = [path for path in files
+         if '/stat_trace/' not in path.as_posix()
+         and re.search(r'cycle|instr|dump|aiv|v310|core|iss|su\.log', path.name, re.I)]
+report['directories'] = collections.Counter(path.relative_to(suite).parts[0] for path in files).most_common(8)
+report['trace_files'] = [(path.relative_to(suite).as_posix(), path.stat().st_size) for path in trace[:16]]
+report['instruction_tails'] = {}
+for path in trace[:16]:
+    if path.suffix not in ('.txt', '.log', '.csv') or 'inst' not in path.name.lower():
+        continue
+    with path.open('rb') as stream:
+        stream.seek(max(0, path.stat().st_size - 8192))
+        lines = stream.read().decode(errors='replace').splitlines()
+    keys = r'\b(?:pc|opcode|cycle|instruction|stall|wait_flag|pipe_barrier)\b'
+    report['instruction_tails'][path.relative_to(suite).as_posix()] = [
+        line.strip()[:240] for line in lines if re.search(keys, line, re.I)
+    ][-3:]
 print(json.dumps(report))
 """
 
@@ -95,6 +109,7 @@ def main():
     parser.add_argument("--args-file", required=True, type=Path)
     config = json.loads(parser.parse_args().args_file.read_bytes())
     revisions = set(config["revisions"])
+    expected_bind = config.get("bind")
     if not revisions or any(not re.fullmatch(r"[0-9a-f]{40}", revision) for revision in revisions):
         parser.error("supply complete commit IDs")
     records = []
@@ -107,14 +122,17 @@ def main():
         revision = marker.read_text().strip()
         if revision not in revisions:
             continue
+        bind_path = work / "bind.stdout.log"
+        bind = bind_path.read_text().strip() if bind_path.is_file() else None
+        if expected_bind is not None and bind != expected_bind:
+            continue
         output = work / "jetty_peers"
         row = dict(revision=revision, result_present=(output / "result.json").is_file(),
                    cleanup_receipt=(work / "cleanup.stdout.log").is_file())
         if row["result_present"]:
             row.update(get_report(output))
-        if config.get("read_remote") is True and (work / "bind.stdout.log").is_file():
-            with (work / "bind.stdout.log").open() as bind:
-                row["remote"] = read_remote(bind.read().strip())
+        if config.get("read_remote") is True and bind is not None:
+            row["remote"] = read_remote(bind)
         records.append(row)
     print(json.dumps({"records": records}))
 
