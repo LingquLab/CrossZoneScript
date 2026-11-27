@@ -1,4 +1,5 @@
 """Read retained Cast regression evidence from the green simulator host."""
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -8,6 +9,21 @@ sys.path.insert(0, str(HERE.parent / "alltoall"))
 from ssh_transport import run
 
 options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
+if options.get("verify_local"):
+    patch = Path("D:/project/仿真配置/修正cast问题")
+    expected = dict(line.split(maxsplit=1)[::-1] for line in (HERE / "fix-case-sha256.txt").read_text().splitlines())
+    reports = []
+    for manifest in patch.rglob("cases.json"):
+        folder = manifest.parent
+        if not (folder / "cases").is_dir():
+            continue
+        missing = [name for name in expected if not (folder / name).is_file()]
+        differences = [name for name, sha in expected.items() if (folder / name).is_file() and
+                       hashlib.sha256((folder / name).read_bytes()).hexdigest() != sha]
+        reports.append(dict(folder=folder.relative_to(patch).as_posix(), matched=len(expected)-len(missing)-len(differences),
+                            missing=missing, differences=differences))
+    print(json.dumps(reports, ensure_ascii=True, separators=(",", ":")))
+    raise SystemExit(0)
 source = r"""
 from pathlib import Path
 import json,re,subprocess,sys
