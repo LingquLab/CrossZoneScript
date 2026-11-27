@@ -58,6 +58,20 @@ def main():
     key = Path(os.environ['USERPROFILE']) / '.ssh' / 'id_ed25519'
     source = ['ssh','-T','-i',str(key),'-o','BatchMode=yes','-o','IdentitiesOnly=yes',
               '-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=10','root@141.61.94.26']
+    if args.get('action') == 'inspect_reference':
+        probe = REFERENCE.split('with tarfile.open(', 1)[0] + """
+import os
+print(json.dumps({name: {'exists': (p/name).is_file(),
+                       'size': (p/name).stat().st_size if (p/name).is_file() else None,
+                       'link': os.readlink(p/name) if (p/name).is_symlink() else None}
+                  for name in sorted(files)}))
+"""
+        result = subprocess.run(source + ['timeout --kill-after=5 30 python3 -'],input=probe.encode(),
+                                capture_output=True,timeout=45)
+        values = json.loads(result.stdout) if result.returncode == 0 else {}
+        print(json.dumps({'ssh_exit':result.returncode,'reference_files':values}))
+        return 0
+
     started = time.monotonic()
 
     def destination(client, deployment):
