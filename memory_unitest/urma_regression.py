@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 
+from read_urma_receipt import get_report, read_remote
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--args-file", type=Path, required=True)
@@ -18,6 +19,8 @@ matrix = args.get("full_cases", [])
 trace = args.get("trace", False)
 if type(trace) is not bool or (trace and matrix != ["jetty_peers"]):
     raise SystemExit("instruction trace requires the single Shared Jetty case")
+simulation_timeout = 150 if trace else 1200
+transport_timeout = simulation_timeout + 300
 staged_cases = {"jetty_peers", "jetty_peers_prefill", "jetty_peers_progress"}
 for value in matrix:
     if value not in staged_cases | {"clos_4plus8", "clos_8plus8", "syncall", "clock", "nosync"}:
@@ -146,8 +149,9 @@ try:
         save(request_file, case_request)
         config = work / (mode + ".json")
         output = work / mode
-        save(config, dict(schema="tilexr.unitest.sst.v1", rank_size=ranks, threads=ranks, timeout=1500,
-                          simulation_timeout=1200, tool_checkout=str(repo), tool_commit=revision, inventory=str(inventory),
+        save(config, dict(schema="tilexr.unitest.sst.v1", rank_size=ranks, threads=ranks, timeout=transport_timeout,
+                          simulation_timeout=simulation_timeout, tool_checkout=str(repo), tool_commit=revision,
+                          inventory=str(inventory),
                           request_file=str(request_file), suite_output="/work/" + mode + "-suite",
                           diagnostics={"instruction_dump_chips": [2]} if trace else {},
                           build_report=str(qualification / "verify"), abi_report=str(qualification / "abi")))
@@ -157,9 +161,22 @@ try:
             case = f"alltoall_full_{mode}_sst.json"
         else:
             case = f"alltoall_lr8_{mode}_32p_sst.json"
-        run(mode, [sys.executable, "-B", "-m", "tools.unitest.controller", "--case",
-                   "tools/unitest/cases/" + case, "--target", "sst", "--mode", "single", "--no-profiling",
-                   "--sim-config", str(config), "--output-dir", str(output)], cwd=repo, timeout=1800)
+        try:
+            run(mode, [sys.executable, "-B", "-m", "tools.unitest.controller", "--case",
+                       "tools/unitest/cases/" + case, "--target", "sst", "--mode", "single", "--no-profiling",
+                       "--sim-config", str(config), "--output-dir", str(output)], cwd=repo,
+                timeout=transport_timeout + 300)
+        except subprocess.CalledProcessError:
+            if not trace or not (output / "result.json").is_file():
+                raise
+            evidence = get_report(output)
+            try:
+                remote_evidence = read_remote(bind)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                remote_evidence = {"error_type": type(error).__name__}
+            print(json.dumps(dict(stage="trace_collected", verification="not_passed", revision=revision,
+                                  bind=bind, controller=evidence, remote=remote_evidence)), flush=True)
+            continue
         report = json.loads((output / "result.json").read_text())
         assert report["status"] == "passed" and list(report["phases"]) == ["prepare", "run"]
         result = report["tool_result"]["sst_result"]
