@@ -40,15 +40,15 @@ def wrap(text, entry):
 '''
     body = match[3]
     if entry == 'tilexr_ht_pipeline_sst':
-        # Mode 2 reuses producer blocks within this SST launch. The outer timer
-        # covers production and final reduce on each physical AIV.
+        # Mode 2 reuses only inter-server sender blocks in the same SST launch.
         body += '''
-    if (args.finalPipeline == 2) {
-        const auto &send = args.send;
+    const auto &send = args.send;
+    const uint32_t interBegin = TileXRCombineHT::IntraCores(args.local.config);
+    if (args.finalPipeline == 2 && sstLane >= interBegin && sstLane < interBegin + send.config.ownerCount) {
         TileXREpHt::FinalReduceDevice::Run(reinterpret_cast<GM_ADDR>(send.workspace),
             reinterpret_cast<GM_ADDR>(args.serverMask), reinterpret_cast<GM_ADDR>(send.workspace + args.localReadyOffset),
             reinterpret_cast<GM_ADDR>(args.output), reinterpret_cast<GM_ADDR>(args.finalStatus),
-            send.config, sstLane, args.finalBlocks);
+            send.config, sstLane - interBegin, args.finalBlocks);
     }
 '''
     marked = match[1] + ', GM_ADDR sstProfile' + match[2] + begin + body + end + match[4]
@@ -177,7 +177,7 @@ def stage_inter_probe(target):
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'profile'
-    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe') and len(sys.argv) <= 2
+    assert mode in ('profile', 'ready-probe', 'joint-probe', 'inter-probe', 'reuse-inter') and len(sys.argv) <= 2
     target = WORK / (mode + '-build')
     target.mkdir()
     entries = ENTRIES
@@ -189,6 +189,8 @@ def main():
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
     elif mode == 'inter-probe':
         stage_inter_probe(target)
+        entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
+    elif mode == 'reuse-inter':
         entries = {'tilexr_ht_pipeline_sst': ENTRIES['tilexr_ht_pipeline_sst']}
     summary = dict(all_compiled=False, sim_send=True, profiling=True, targets={})
     options = [

@@ -106,6 +106,8 @@ def main():
             seconds += len(args['points']) * (args['timeout'] + {4:300, 32:490, 128:1000}[bs])
         if action == 'resume':
             seconds += 485
+        if action != 'status' and any(point.startswith('joint') for point in args['points']):
+            seconds += 485
         code, matrix = execute(client, 'matrix_host.py', args, seconds, log)
     report.update(matrix)
     print(json.dumps(report, separators=(',', ':')))

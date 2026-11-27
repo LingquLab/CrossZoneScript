@@ -157,8 +157,8 @@ def passed(report):
                     ('platform_simulated_us', 'profiling_operator_us', 'sst_wall_seconds', 'runner_wall_seconds')))
 
 
-def ensure_profile_build(root, cid, tools):
-    profile = root / 'profile-build'
+def ensure_profile_build(root, cid, tools, mode='profile'):
+    profile = root / f'{mode}-build'
     summary = profile / 'build-summary.json'
     if summary.is_file() and json_file(summary)['all_compiled']:
         return
@@ -181,15 +181,15 @@ for process in Path('/proc').glob('[0-9]*'):
                              capture_output=True, timeout=20)
     assert checked.returncode == 0, 'container_has_active_build_or_simulation'
     if profile.exists():
-        profile.rename(profile.with_name(f'profile-build-incomplete-{time.time_ns()}'))
+        profile.rename(profile.with_name(f'{profile.name}-incomplete-{time.time_ns()}'))
     script = str(Path('/work') / tools.relative_to(root) / 'build_profile.py')
     command = ('source /opt/sim/cann-env.sh; '
                'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
                '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
-               'exec python3 "$1"')
-    with (root / f'profile-resume-{time.time_ns()}.log').open('xb') as log:
+               'exec python3 "$@"')
+    with (root / f'{mode}-resume-{time.time_ns()}.log').open('xb') as log:
         result = subprocess.run(['docker', 'exec', cid, 'timeout', '--kill-after=15', '420',
-                                 'bash', '-c', command, 'bash', script],
+                                 'bash', '-c', command, 'bash', script, mode],
                                 stdout=log, stderr=subprocess.STDOUT, timeout=455)
     assert result.returncode == 0 and json_file(summary)['all_compiled'], 'profile_build_failed'
 
@@ -255,6 +255,8 @@ def main(request):
                 rows.append(results[name])
                 continue
             stage, intra, slots = point_settings(bs, point)
+            if stage == 'joint-reuse-final':
+                ensure_profile_build(root, cid, tools, 'reuse-inter')
             attempt = (POINTS.index(point) + 1) + 10 * request.get('retry', 0)
             config = dict(action=stage, tokens=bs, attempt=attempt, timeout=request['timeout'],
                           revision=REVISION, profiling=True, platform_sha256=platform_hashes,

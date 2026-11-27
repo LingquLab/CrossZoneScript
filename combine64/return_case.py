@@ -143,7 +143,7 @@ def prepare_return_case(case, asset, action, binary, source_case, revision, retu
     port0, port1 = jetty_counts(peer_slots)
     blocks = block_count(action, intra_cores)
     own_reduce = action == 'joint-reuse-final'
-    final_blocks = blocks if own_reduce else FINAL_CORES
+    final_blocks = INTER_CORES if own_reduce else FINAL_CORES
     routes = read_json(asset / 'routes.json')
     assert len(routes) == WORLD * tokens
     if from_producer:

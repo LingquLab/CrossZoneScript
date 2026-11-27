@@ -510,6 +510,8 @@ def main(config):
     build = read_json(ROOT / build_file)
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] == use_profile
     kernel_build = read_json(ROOT / 'ready-probe-build/build-summary.json') if ready_probe else build
+    if action == 'joint-reuse-final':
+        kernel_build = read_json(ROOT / 'reuse-inter-build/build-summary.json')
     if joint_probe:
         kernel_build = read_json(ROOT / 'joint-probe-build/build-summary.json')
     if inter_probe:
@@ -520,7 +522,7 @@ def main(config):
               'world': WORLD, 'hidden': HIDDEN, 'topk': TOPK, 'dtype': 'fp32', 'sim_send': True,
               'profiling_enabled': use_profile, 'blocks': blocks, 'intra_cores': intra_cores, 'peer_slots': peer_slots,
               'gateway_reducers': REDUCERS,
-              'final_cores': blocks if action == 'joint-reuse-final' else FINAL_CORES,
+              'final_cores': fixture.INTER_CORES if action == 'joint-reuse-final' else FINAL_CORES,
               'inter_cores': fixture.INTER_CORES, 'port_jetties': fixture.jetty_counts(peer_slots),
               'port0_die_mode': fixture.DIE_MODE}
     if return_qp_base:
