@@ -1,0 +1,115 @@
+{
+  "stop": {
+    "event_id": "green-bd8a33c65dca4a7d8465d162e5f1dc8d",
+    "task_id": "ht-tunable-sync-bs1024-stop",
+    "iteration": 1,
+    "result": {
+      "Window": {
+        "running_before": true,
+        "running_after": false,
+        "docker_stop_exit": 0,
+        "run_status": "interrupted",
+        "log_bytes": 26047415
+      },
+      "LogicalChunk": {
+        "running_before": true,
+        "running_after": false,
+        "docker_stop_exit": 0,
+        "run_status": "interrupted",
+        "log_bytes": 26407871
+      },
+      "PhysicalChunk": {
+        "running_before": true,
+        "running_after": false,
+        "docker_stop_exit": 0,
+        "run_status": "interrupted",
+        "log_bytes": 21861319
+      }
+    }
+  },
+  "window": {
+    "event_id": "green-9ecd4666610143b1b6bd79d49dd1c96e",
+    "task_id": "ht-tunable-sync-bs1024-window",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs1024-fp32-profile",
+      "status": "interrupted",
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 287285,
+      "errors": [],
+      "runner_exit_code": 137,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 1024,
+      "blocks": 48,
+      "hidden": 128,
+      "chunks": 7,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "Window",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": true,
+      "runner_wall_seconds": 29508.294
+    }
+  },
+  "logical": {
+    "event_id": "green-a1319bcc894545d686f95557c8d9fecc",
+    "task_id": "ht-tunable-sync-bs1024-logical",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs1024-fp32-logical-profile",
+      "status": "interrupted",
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 291319,
+      "errors": [],
+      "runner_exit_code": 137,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 1024,
+      "blocks": 48,
+      "hidden": 128,
+      "chunks": 7,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "LogicalChunk",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": true,
+      "runner_wall_seconds": 29113.715
+    }
+  },
+  "physical-mem256": {
+    "event_id": "green-d139fe7b4edc41f6885f69b02e6ccb4e",
+    "task_id": "ht-tunable-sync-bs1024-physical-mem256",
+    "iteration": 1,
+    "result": {
+      "case": "ht-tunable-workspace-186dfa18-bs1024-fp32-physical-profile-mem256",
+      "status": "interrupted",
+      "kernel_sha256": "45982fb6c494379d20429d4801b66a51cd98c65afed80790d0b458744b8f3899",
+      "cqe": 241090,
+      "errors": [],
+      "runner_exit_code": 137,
+      "revision": "186dfa18a0358add6af8ef237ebca23edffa86f5",
+      "tokens": 1024,
+      "blocks": 48,
+      "hidden": 128,
+      "chunks": 7,
+      "send_cores": 16,
+      "qp_counts": [
+        16,
+        16
+      ],
+      "sync": "PhysicalChunk",
+      "rotation": "Legacy",
+      "reuse_gather": true,
+      "profiling": true,
+      "container_memory_gib": 256,
+      "runner_wall_seconds": 19877.482
+    }
+  }
+}
