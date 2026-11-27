@@ -234,10 +234,19 @@ def matrix_status(root, cid, journal, bs, compact=False):
             with log.open('rb') as stream:
                 size = stream.seek(0, 2)
                 stream.seek(max(0, size - 65536))
-                cycles = re.findall(rb'Sim: (\d+)\(cycle\)', stream.read())
+                tail = stream.read()
+                cycles = re.findall(rb'Sim: (\d+)\(cycle\)', tail)
             report['sim_log_bytes'] = size
             if cycles:
                 report['last_cycle'] = int(cycles[-1])
+            if report.get('current_run', {}).get('status') in ('failed', 'timed_out', 'interrupted'):
+                report['sst_diagnostics'] = [
+                    line[:280] for line in tail.decode(errors='replace').splitlines()
+                    if re.search(r'error|fatal|exception|assert|invalid|killed|abort', line, re.I)
+                ][-8:]
+                report = {key: report[key] for key in (
+                    'progress', 'current_run', 'sim_log_bytes', 'last_cycle', 'sst_diagnostics', 'results'
+                ) if key in report}
     print(json.dumps(report, separators=(',', ':')))
     return 0
 
