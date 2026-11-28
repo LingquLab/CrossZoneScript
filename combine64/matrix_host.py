@@ -1,6 +1,9 @@
 # Copyright (c) 2026 TileXR Project.
 """Check the task's container and launch one foreground SST case."""
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import fcntl
+import os
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -124,6 +127,7 @@ def status(root):
                 data = {key: data[key] for key in ('revision', 'image', 'platform_environment_sha256', 'container_id')
                         if key in data}
             report[name] = data
+    report['parallel_progress'] = [json_file(path) for path in sorted(root.glob('progress-core*.json'))]
     report['rows'] = [row for case in sorted((root / 'cases').glob('cores*-chunk*-a*'))
                       if (row := report_for(case))]
     available = shutil.disk_usage(root if root.exists() else SESSION_ROOT.parent).free
@@ -136,17 +140,10 @@ def status(root):
     return report
 
 
-def run(root, cid, request):
-    points = [tuple(point) for point in request['points']]
-    assert points and len(set(points)) == len(points) and all(point in POINTS for point in points)
-    assert type(request['timeout']) is int and 120 <= request['timeout'] <= 3600
-    attempt = request.get('attempt', 1)
-    assert type(attempt) is int and 1 <= attempt <= 20
+def run_points(root, cid, script, platform_hashes, points, timeout, attempt, lock_name, progress_file):
     rows = []
-    with (root / 'matrix.lock').open('a') as lock:
+    with (root / lock_name).open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        tools, platform_hashes = stage_tools(root, request['files'])
-        script = str(Path('/work') / tools.relative_to(root) / 'sim_case.py')
         logs = root / 'hapi-logs'
         logs.mkdir(exist_ok=True)
         for cores, chunk in points:
@@ -158,9 +155,9 @@ def run(root, cid, request):
             name = f'cores{cores}-chunk{chunk}-a{attempt}'
             case = root / 'cases' / name
             assert not case.exists() and not case.with_name(case.name + '-asset').exists()
-            timeout = request['timeout']
             config = dict(cores=cores, chunk=chunk, label=name, timeout=timeout,
-                          revision=REVISION, platform_sha256=platform_hashes)
+                          revision=REVISION, platform_sha256=platform_hashes,
+                          progress_file=progress_file)
             with (logs / (name + '.log')).open('xb') as log:
                 command = ['docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + 1000),
                            'python3', script, json.dumps(config)]
@@ -176,6 +173,62 @@ def run(root, cid, request):
             for path in (case / 'actual').glob('rank*/*.bin'):
                 if path.name != 'profile.bin':
                     path.unlink()
+    return rows
+
+
+@contextmanager
+def worker_container(root, core):
+    name = f'combine-ht-{SESSION[:8]}-core{core}'
+    source = root / 'source'
+    command = ['docker', 'run', '--rm', '-dt', '--name', name, '--runtime=runc', '--network=none',
+               '--cap-drop=ALL', '--security-opt=no-new-privileges', '--cpus=8',
+               '--memory=64g', '--memory-swap=64g', '--pids-limit=1024', '--shm-size=64m',
+               '--ulimit', 'nofile=524288:524288', '--label', 'crosszone.session=' + SESSION,
+               '--mount', f'type=bind,src={root},dst=/work',
+               '--mount', f'type=bind,src={source},dst=/work/source,readonly',
+               IMAGE, '/bin/bash', '-c', 'exec tail -f /dev/null']
+    cid = subprocess.check_output(command, timeout=45).decode('ascii').strip()
+    try:
+        details = json.loads(subprocess.check_output(['docker', 'inspect', cid], timeout=20))[0]
+        assert details['Id'] == cid and details['Name'] == '/' + name and details['Image'] == IMAGE
+        assert details['Config']['Labels']['crosszone.session'] == SESSION
+        assert details['State']['Running'] and details['HostConfig']['NetworkMode'] == 'none'
+        assert details['HostConfig']['Memory'] == 64 * 2**30
+        yield cid
+    finally:
+        subprocess.run(['docker', 'stop', '--time', '20', cid], capture_output=True, check=True, timeout=40)
+
+
+def run(root, cid, request):
+    points = [tuple(point) for point in request['points']]
+    assert points and len(set(points)) == len(points) and all(point in POINTS for point in points)
+    timeout = request['timeout']
+    assert type(timeout) is int and 120 <= timeout <= 3600
+    attempt = request.get('attempt', 1)
+    assert type(attempt) is int and 1 <= attempt <= 20
+    with (root / 'stage.lock').open('a') as stage:
+        fcntl.flock(stage, fcntl.LOCK_EX)
+        tools, platform_hashes = stage_tools(root, request['files'])
+    script = str(Path('/work') / tools.relative_to(root) / 'sim_case.py')
+    if request.get('parallel'):
+        groups = {core: [point for point in points if point[0] == core] for core in sorted({p[0] for p in points})}
+        assert set(groups) <= {2, 4, 8} and len(groups) <= 3
+        with open('/proc/meminfo') as memory:
+            available_kib = next(int(line.split()[1]) for line in memory if line.startswith('MemAvailable:'))
+        assert len(os.sched_getaffinity(0)) >= 8 * (len(groups) + 1)
+        assert available_kib >= (64 * (len(groups) + 1) + 32) * 1024**2
+
+        def run_group(core, group):
+            with worker_container(root, core) as worker:
+                return run_points(root, worker, script, platform_hashes, group, timeout, attempt,
+                                  f'core{core}.lock', f'progress-core{core}.json')
+
+        with ThreadPoolExecutor(max_workers=len(groups)) as executor:
+            tasks = [executor.submit(run_group, core, group) for core, group in groups.items()]
+            rows = [row for task in tasks for row in task.result()]
+    else:
+        rows = run_points(root, cid, script, platform_hashes, points, timeout, attempt,
+                          'matrix.lock', 'progress.json')
     print(json.dumps({'rows': rows, 'completed': len(rows)}, separators=(',', ':')))
     return 0 if len(rows) == len(points) and all(passed(row) for row in rows) else 1
 

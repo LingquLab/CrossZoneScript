@@ -63,7 +63,10 @@ def main():
         seconds = 80
         if args['action'] == 'run':
             args['files'] = {name: (HERE / name).read_text(encoding='utf-8') for name in FILES}
-            seconds += len(args['points']) * (args['timeout'] + 1050)
+            points = args['points']
+            depth = (max(sum(point[0] == core for point in points) for core in (2, 4, 8))
+                     if args.get('parallel') else len(points))
+            seconds += depth * (args['timeout'] + 1050) + 100
         code, result = execute(client, 'matrix_host.py', args, seconds, log)
         report.update(result)
     print(json.dumps(report, separators=(',', ':')))

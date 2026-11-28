@@ -181,7 +181,7 @@ def main(config):
                   world=WORLD, tokens=128, topk=6, hidden=128, experts=256,
                   dtype='fp32', sim_send=True, stage='local-send', source_object_sha256=obj['sha256'])
     started = time.monotonic()
-    progress = ROOT / 'progress.json'
+    progress = ROOT / config.get('progress_file', 'progress.json')
     write_json(progress, {'stage': 'prepare_case', 'case': case.name})
     try:
         fixture.prepare(SOURCE, asset, WORLD, 128, binary, disk_backed=True,
