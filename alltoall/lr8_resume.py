@@ -42,11 +42,17 @@ def main():
         assert re.fullmatch(r"[0-9a-f]{64}", container)
         assert git_output(["rev-parse", "HEAD"], REPO).decode().strip() == REVISION
         assert not git_output(["status", "--porcelain"], REPO).strip()
-        identity = remote(["docker", "inspect", "--format",
-                           '{{.Id}} {{.Image}} {{.State.Running}} '
-                           '{{range .Mounts}}{{if eq .Destination "/work"}}{{.Source}}{{end}}{{end}}',
-                           container], "container-identity")
-        assert identity == f"{container} {IMAGE} true {bind}"
+        command = ["docker", "inspect", "--type", "container", container]
+        metadata, = json.loads(remote(command, "container-identity"))
+        assert metadata["Id"] == container and metadata["Image"] == IMAGE
+        assert [mount["Source"] for mount in metadata["Mounts"]
+                if mount["Destination"] == "/work" and mount["Type"] == "bind"] == [bind]
+        if not metadata["State"]["Running"]:
+            assert metadata["State"]["Status"] == "exited"
+            remote(["docker", "start", container], "restart-container", 60)
+            current, = json.loads(remote(command, "recheck-running"))
+            assert current["State"]["Running"]
+            state["restarted_existing_container"] = True
         values = remote(["docker", "exec", container, "sha256sum", "/work/source-lock/SOURCE_LOCK.json",
                          ENV, UBUS, OBJECT], "fingerprints")
         source, cann, ubus, binary = (line.split()[0] for line in values.splitlines())
