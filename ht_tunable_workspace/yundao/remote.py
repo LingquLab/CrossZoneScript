@@ -1,4 +1,5 @@
 """Build the requested revision and run the documented EP8 local HT fixture."""
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -53,12 +54,64 @@ def device_status():
     return {"exit_code": r.returncode, "idle_devices": idle, "process_rows": processes}
 
 
+def write_eid_rootinfo():
+    path = Path(os.environ.get("TILEXR_UDMA_ROOTINFO_PATH") or "/etc/hccl_rootinfo.json")
+    document = json.loads(path.read_text())
+    removed = 0
+    eid_counts = []
+
+    def filter_addresses(node, inside_device=False):
+        nonlocal removed
+        if isinstance(node, dict):
+            inside_device = inside_device or "device_id" in node
+            counts = sum(filter_addresses(value, inside_device) for value in node.values())
+            if "device_id" in node:
+                eid_counts.append(counts)
+            return counts
+        if isinstance(node, list):
+            kept = []
+            counts = 0
+            for value in node:
+                if inside_device and isinstance(value, dict) and "addr" in value:
+                    addr = value["addr"]
+                    if re.fullmatch(r"[0-9a-fA-F]{32}", addr):
+                        counts += 1
+                    elif value.get("addr_type") != "EID" and "backup_addr" in value:
+                        ipaddress.IPv4Address(addr)
+                        removed += 1
+                        continue
+                    else:
+                        raise ValueError("Unexpected non-EID field")
+                counts += filter_addresses(value, inside_device)
+                kept.append(value)
+            node[:] = kept
+            return counts
+        return 0
+
+    filter_addresses(document)
+    result["rootinfo"] = {"eid_counts": eid_counts, "removed_ipv4": removed}
+    if eid_counts != [9] * 8 or removed != 8:
+        raise ValueError("Unexpected RootInfo shape")
+    output = root / "rootinfo-eid.json"
+    with os.fdopen(os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+        json.dump(document, f)
+    return output
+
+
 def main():
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false")
     result["device_preflight"] = device_status()
-    global repo
+    global repo, build
+    resume_run = globals().get("RESUME_RUN", False)
     resume = globals().get("RESUME_BUILD", False)
-    if resume:
+    if resume_run:
+        previous = Path.home() / "tilexr-validation/ht-0b9c3322-ep8-1795842101"
+        build = previous / "build"
+        evidence = json.loads((previous / "result.json").read_text())
+        assert evidence["revision"] == REVISION and evidence["stage"] == "ep8"
+        result["stage"] = "rootinfo"
+        rootinfo = write_eid_rootinfo()
+    elif resume:
         previous = Path.home() / "tilexr-validation/ht-0b9c3322-ep8-1795841798"
         cache = (previous / "build/CMakeCache.txt").read_text()
         repo = Path(re.search(r"^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$", cache, re.M).group(1))
@@ -101,13 +154,14 @@ def main():
         if not result["driver_hal_readable"]:
             result.update(stage="driver_library", failure_kind="real_hal_unreadable")
             return
-    if not command("configure", shell + configure, 45):
-        return
-    if not command("build", shell + ["cmake", "--build", str(build), "--target", "tilexr_combine_ht_test", "-j8"], 300):
-        return
-    if not command("host_contract", shell + ["ctest", "--test-dir", str(build), "-R",
-                                             "^tilexr_combine_ht_contract$", "--output-on-failure"], 45):
-        return
+    if not resume_run:
+        if not command("configure", shell + configure, 45):
+            return
+        if not command("build", shell + ["cmake", "--build", str(build), "--target", "tilexr_combine_ht_test", "-j8"], 300):
+            return
+        if not command("host_contract", shell + ["ctest", "--test-dir", str(build), "-R",
+                                                 "^tilexr_combine_ht_contract$", "--output-on-failure"], 45):
+            return
     result["stage"] = "device_before_launch"
     for attempt in range(13):
         occupancy = device_status()
@@ -123,6 +177,8 @@ def main():
         port = listener.getsockname()[1]
     result["stage"] = "ep8"
     env = dict(os.environ, TILEXR_COMM_ID=f"127.0.0.1:{port}")
+    if resume_run:
+        env["TILEXR_UDMA_ROOTINFO_PATH"] = str(rootinfo)
     test = str(build / "src/moonep/combine_ht/tilexr_combine_ht_test")
     jobs = []
     try:
@@ -156,6 +212,11 @@ def main():
             row["first_kind"] = next((s for s in ("aclinit", "communicator", "registration", "invalid",
                                       "not supported", "partial mismatch", "not permitted", "complete failed",
                                       "error while loading", "error") if s in tail), None)
+            if rank == 0:
+                row["errors"] = [
+                    re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[ip]", line.strip())[:190]
+                    for line in text.splitlines() if re.search(r"error|failed", line, re.I)
+                ][:7]
         checks.append(row)
     result["ranks"] = checks
     result["pass"] = len(checks) == 8 and all(r["exit"] == 0 and len(r["latency_us"]) == 2 for r in checks)
