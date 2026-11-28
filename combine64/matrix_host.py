@@ -411,6 +411,8 @@ def main(request):
         report['active'] = runs
         report.pop('identity', None)
         report.pop('bootstrap-result', None)
+        observed = set(request.get('known_cases', []))
+        report['rows'] = [row for row in report['rows'] if row['case'] not in observed or not row['final']]
         for row in report['rows']:
             if not row['final']:
                 for field in tuple(row):
