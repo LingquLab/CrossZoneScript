@@ -1,10 +1,12 @@
 """Run a bounded offline variant of the original single-node GQA example."""
 import datetime
+import contextlib
 import json
 import math
 import os
 import pathlib
 import re
+import runpy
 import shlex
 import shutil
 import signal
@@ -12,13 +14,24 @@ import subprocess
 import sys
 
 repo = pathlib.Path(sys.argv[1])
+shim_source = sys.argv[2]
 original = repo / 'scripts/example/llm/farescale_gqa.sh'
 assert (repo / '.cross-zone-deployment.json').is_file()
 root = pathlib.Path.home() / 'work/pangu_validation/ma-0/8da52234-c88f-451d-95a1-fa33a978690b'
 run_dir = root / ('gqa-smoke-' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
 run_dir.mkdir(parents=True)
-data = run_dir / 'mock-data'
+data = run_dir / 'synthetic-offline-data'
 data.mkdir()
+# Use the repository's existing synthetic fixture and production offline writer.
+sys.path.insert(0,str(repo))
+with (run_dir / 'data-generation.log').open('w') as generation_log:
+    with contextlib.redirect_stdout(generation_log), contextlib.redirect_stderr(generation_log):
+        fixture = runpy.run_path(str(repo / 'tests/group1/unit_test/datasets/omni_dataset/test_offline_tail_pack.py'))
+        dataset = fixture['SyntheticOfflineMakingDataset'](data, lengths=[32768] * 16, seq_length=32768, packing=False)
+        generated = dataset[0]
+        if hasattr(generated,'__next__'):
+            list(generated)
+assert list(data.rglob('*.bin')) and list(data.rglob('*.idx')), 'Offline fixture writer produced no indexed shards'
 text = original.read_text()
 def replace_once(pattern, replacement):
     global text
@@ -36,7 +49,7 @@ text, removed_count = re.subn(r'(--remove-arguments\s+)(\S+)',
     lambda m:m.group(1) + m.group(2) + ',inject-uce-error-plan,enable-high-availability,enable-hbmfault-repair,stress-detect',text,count=1)
 assert removed_count == 1, 'Expected removable-argument list was not found'
 replace_once(r'2>&1\s*\|\s*tee\s+log_farescale_gqa.txt',
-             '--mock-data --tokenizer-type NullTokenizer --vocab-size 150016 --num-distributed-optimizer-instances 1 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
+             '--tokenizer-type NullTokenizer --vocab-size 150016 --num-distributed-optimizer-instances 1 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
              + ' 2>&1 | tee ' + shlex.quote(str(run_dir / 'console.log')))
 wrapper = run_dir / 'run_farescale_gqa_offline.sh'
 wrapper.write_text('set -eo pipefail\n' + text)
@@ -45,7 +58,10 @@ assert check.returncode == 0, 'Generated wrapper failed bash syntax validation'
 env = os.environ.copy()
 env.update({'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_DATASETS_OFFLINE':'1',
             'WANDB_MODE':'offline','TOKENIZERS_PARALLELISM':'false','BASE_DATA_PATH':str(data)})
-env['PYTHONPATH'] = str(repo) + os.pathsep + env.get('PYTHONPATH','')
+runtime_dir = run_dir / 'runtime'
+runtime_dir.mkdir()
+(runtime_dir / 'sitecustomize.py').write_text(shim_source)
+env['PYTHONPATH'] = str(runtime_dir) + os.pathsep + str(repo) + os.pathsep + env.get('PYTHONPATH','')
 real_torchrun = shutil.which('torchrun')
 assert real_torchrun, 'torchrun is missing'
 guard_dir = run_dir / 'guard-bin'
@@ -90,7 +106,10 @@ iteration_lines = [line for line in lines if re.search(r'iteration\s+\d+|global.
 errors = [line for line in lines if re.search(r'Traceback|Error:|ModuleNotFoundError|AssertionError|RuntimeError|unrecognized arguments|FAILED|killed',line)]
 summary = {'test':'scripts/example/llm/farescale_gqa.sh','source_commit':json.loads((repo / '.cross-zone-deployment.json').read_text())['commit'],
            'run_directory':str(run_dir),'wrapper':str(wrapper),'exit_code':code,'timed_out':timed_out,'termination_confirmed':termination_confirmed,
-           'overrides':{'offline':True,'mock_data':True,'tokenizer_type':'NullTokenizer','vocab_size':150016,'train_samples':8,'global_batch_size':4,
+           'overrides':{'offline':True,'mock_data':False,'synthetic_offline_records':16,'synthetic_record_tokens':32768,
+                        'dataset_writer':'repository SyntheticOfflineMakingDataset / production OfflineMakingDataset',
+                        'runtime_compatibility':'process-local NPU get_device_capability fallback; two-rank HCCL probe passed',
+                        'tokenizer_type':'NullTokenizer','vocab_size':150016,'train_samples':8,'global_batch_size':4,
                         'num_distributed_optimizer_instances':1,'removed_ci_features':['inject-uce-error-plan','enable-high-availability','enable-hbmfault-repair','stress-detect']},
            'preserved':{'devices':list(range(8)),'sequence_length':32768,'layers':6,'tensor_parallel':2,'context_parallel':2,'pipeline_parallel':2},
            'loss_lines':loss_lines[-6:],'iteration_lines':iteration_lines[-6:],'error_lines':errors[-10:],'console_tail':lines[-65:]}

@@ -11,7 +11,8 @@ report('before-gqa-smoke',occupancy)
 assert occupancy['safe_to_use'], 'ma-0 is not confirmed fully idle; training not started'
 commit = run(['git','-C',str(REPO),'rev-parse','HEAD'],'smoke-head')
 try:
-    result = ssh_script('ma-0','remote_smoke.py','/home/ma-user/work/pangu_sophon_pytorch/ma-0/' + commit,timeout=690)
+    result = ssh_script('ma-0','remote_smoke.py','/home/ma-user/work/pangu_sophon_pytorch/ma-0/' + commit,
+                        (HERE/'runtime_sitecustomize.py').read_text(),timeout=750)
 except RuntimeError:
     # Read the captured structured result, never rerun a workload to recover its output.
     path = LOGS / 'ma-0-remote_smoke.stdout'
