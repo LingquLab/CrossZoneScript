@@ -91,7 +91,7 @@ SUMMARY = ('candidate_commit', 'cores', 'chunk_tokens', 'chunks', 'groups', 'sta
            'model_sha256', 'environment_sha256', 'send_rows', 'guards', 'checked_ranks',
            'platform_simulated_us', 'profiling_operator_us', 'profiling_lanes', 'profiling_dropped_records',
            'profiling_batches', 'profiling_cqes_unobserved', 'sst_wall_seconds', 'runner_wall_seconds',
-           'profiling_clock_receipt', 'returncode', 'error')
+           'profiling_clock_receipt', 'returncode', 'error', 'explicit_pipe')
 
 
 def report_for(case):
@@ -141,7 +141,7 @@ def status(root):
     return report
 
 
-def run_points(root, cid, script, platform_hashes, points, timeout, attempt, lock_name, progress_file):
+def run_points(root, cid, script, platform_hashes, points, timeout, attempt, lock_name, progress_file, explicit_pipe_points):
     rows = []
     with (root / lock_name).open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -158,7 +158,7 @@ def run_points(root, cid, script, platform_hashes, points, timeout, attempt, loc
             assert not case.exists() and not case.with_name(case.name + '-asset').exists()
             config = dict(cores=cores, chunk=chunk, label=name, timeout=timeout,
                           revision=REVISION, platform_sha256=platform_hashes,
-                          progress_file=progress_file)
+                          progress_file=progress_file, explicit_pipe=(cores, chunk) in explicit_pipe_points)
             with (logs / (name + '.log')).open('xb') as log:
                 command = ['docker', 'exec', cid, 'timeout', '--kill-after=20', str(timeout + 1000),
                            'python3', script, json.dumps(config)]
@@ -178,12 +178,12 @@ def run_points(root, cid, script, platform_hashes, points, timeout, attempt, loc
 
 
 @contextmanager
-def worker_container(root, core):
+def worker_container(root, core, memory_gib):
     name = f'combine-ht-{SESSION[:8]}-core{core}'
     source = root / 'source'
     command = ['docker', 'run', '--rm', '-dt', '--name', name, '--runtime=runc', '--network=none',
                '--cap-drop=ALL', '--security-opt=no-new-privileges', '--cpus=8',
-               '--memory=64g', '--memory-swap=64g', '--pids-limit=1024', '--shm-size=64m',
+               f'--memory={memory_gib}g', f'--memory-swap={memory_gib}g', '--pids-limit=1024', '--shm-size=64m',
                '--ulimit', 'nofile=524288:524288', '--label', 'crosszone.session=' + SESSION,
                '--mount', f'type=bind,src={root},dst=/work',
                '--mount', f'type=bind,src={source},dst=/work/source,readonly',
@@ -194,7 +194,7 @@ def worker_container(root, core):
         assert details['Id'] == cid and details['Name'] == '/' + name and details['Image'] == IMAGE
         assert details['Config']['Labels']['crosszone.session'] == SESSION
         assert details['State']['Running'] and details['HostConfig']['NetworkMode'] == 'none'
-        assert details['HostConfig']['Memory'] == 64 * 2**30
+        assert details['HostConfig']['Memory'] == memory_gib * 2**30
         yield cid
     finally:
         subprocess.run(['docker', 'stop', '--time', '20', cid], capture_output=True, check=True, timeout=40)
@@ -207,6 +207,10 @@ def run(root, cid, request):
     assert type(timeout) is int and 120 <= timeout <= 3600
     attempt = request.get('attempt', 1)
     assert type(attempt) is int and 1 <= attempt <= 20
+    explicit_pipe_points = {tuple(point) for point in request.get('explicit_pipe_points', [])}
+    assert explicit_pipe_points <= set(points)
+    if explicit_pipe_points:
+        assert json_file(root / 'profile-pipe-build/build-summary.json')['all_compiled']
     with (root / 'stage.lock').open('a') as stage:
         fcntl.flock(stage, fcntl.LOCK_EX)
         tools, platform_hashes = stage_tools(root, request['files'])
@@ -217,19 +221,21 @@ def run(root, cid, request):
         with open('/proc/meminfo') as memory:
             available_kib = next(int(line.split()[1]) for line in memory if line.startswith('MemAvailable:'))
         assert len(os.sched_getaffinity(0)) >= 8 * (len(groups) + 1)
-        assert available_kib >= (64 * (len(groups) + 1) + 32) * 1024**2
+        memory_gib = request.get('memory_gib', 64)
+        assert memory_gib in (64, 128)
+        assert available_kib >= (memory_gib * len(groups) + 160) * 1024**2
 
         def run_group(core, group):
-            with worker_container(root, core) as worker:
+            with worker_container(root, core, memory_gib) as worker:
                 return run_points(root, worker, script, platform_hashes, group, timeout, attempt,
-                                  f'core{core}.lock', f'progress-core{core}.json')
+                                  f'core{core}.lock', f'progress-core{core}.json', explicit_pipe_points)
 
         with ThreadPoolExecutor(max_workers=len(groups)) as executor:
             tasks = [executor.submit(run_group, core, group) for core, group in groups.items()]
             rows = [row for task in tasks for row in task.result()]
     else:
         rows = run_points(root, cid, script, platform_hashes, points, timeout, attempt,
-                          'matrix.lock', 'progress.json')
+                          'matrix.lock', 'progress.json', explicit_pipe_points)
     print(json.dumps({'rows': rows, 'completed': len(rows)}, separators=(',', ':')))
     return 0 if len(rows) == len(points) and all(passed(row) for row in rows) else 1
 
@@ -240,6 +246,24 @@ def main(request):
     assert subprocess.check_output(['hostname', '-s'], timeout=10).decode().strip() == host
     suffix = '-host18' if host == 'host-94-18' else ''
     root = SESSION_ROOT / f'run-{REVISION[:7]}{suffix}-a1'
+    if request['action'] == 'build-entry-pipe':
+        # Use the same production source and platform, with a separate build directory.
+        with worker_container(root, 'build', 64) as cid:
+            tools = root / 'entry-pipe-tools'
+            tools.mkdir()
+            for filename, content in request['build_files'].items():
+                assert filename in ('build_profile.py', 'profile_capture.h')
+                (tools / filename).write_text(content)
+            command = ('set -e; source /opt/sim/cann-env.sh; '
+                       'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
+                       '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
+                       'exec python3 /work/entry-pipe-tools/build_profile.py entry-pipe')
+            with (root / 'profile-pipe-build.log').open('xb') as log:
+                code = subprocess.run(['docker', 'exec', cid, 'bash', '-c', command],
+                                      stdout=log, stderr=subprocess.STDOUT, timeout=340).returncode
+        result = json_file(root / 'profile-pipe-build/build-summary.json')
+        print(json.dumps(result, separators=(',', ':')))
+        return code
     if request['action'] == 'diagnose-log':
         cases = request['cases']
         reports = []

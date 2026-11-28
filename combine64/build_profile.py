@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 WORK = Path('/work')
 SOURCE = WORK / 'source'
@@ -13,11 +14,24 @@ ENTRY = 'tilexr_moonep_combine_ht_kernel'
 
 
 def main():
-    target = WORK / 'profile-build'
+    explicit_pipe = sys.argv[1:] == ['entry-pipe']
+    assert not sys.argv[1:] or explicit_pipe
+    target = WORK / ('profile-pipe-build' if explicit_pipe else 'profile-build')
     target.mkdir()
     source = SOURCE / 'src/moonep/combine_ht/kernels/combine_ht.cpp'
     entry_body = '    RunCombineHT(args);'
     text = source.read_text()
+    if explicit_pipe:
+        header = source.with_name('combine_ht_kernel.h').read_text()
+        start = header.index('__aicore__ inline uint32_t RunCombineHT(')
+        end = header.index('\n__aicore__ inline void PrepareCombineHT', start)
+        function = header[start:end]
+        assert function.count('        TPipe pipe;\n') == 2
+        function = function.replace('const TileXRCombineHT::KernelArgs &args)', 'const TileXRCombineHT::KernelArgs &args, TPipe &pipe)')
+        function = function.replace('        TPipe pipe;\n', '')
+        (target / 'combine_ht_kernel.h').write_text(header[:start] + function + header[end:])
+        text = text.replace(entry_body, '    AscendC::TPipe pipe;\n    RunCombineHT(args, pipe);')
+        entry_body = '    RunCombineHT(args, pipe);'
     assert text.count(entry_body) == 1
     wrapper = target / (ENTRY + '.cpp')
     wrapper.write_text('#include "profile_capture.h"\n' + text.replace(
@@ -57,7 +71,7 @@ def main():
     else:
         row['errors'] = [line.strip()[:250] for line in log.read_text(errors='replace').splitlines()
                          if 'error:' in line.lower()][:6]
-    summary = dict(all_compiled=code == 0, sim_send=True, profiling=True, targets={'fp32-' + ENTRY: row})
+    summary = dict(all_compiled=code == 0, explicit_pipe=explicit_pipe, sim_send=True, profiling=True, targets={'fp32-' + ENTRY: row})
     (target / 'build-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     return code
 

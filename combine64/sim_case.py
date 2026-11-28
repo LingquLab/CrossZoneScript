@@ -169,7 +169,10 @@ def main(config):
     cores, chunk = config['cores'], config['chunk']
     revision = config['revision']
     assert read_json(ROOT / 'identity.json')['revision'] == revision
-    build = read_json(ROOT / 'profile-build/build-summary.json')
+    explicit_pipe = config.get('explicit_pipe', False)
+    build_dir = 'profile-pipe-build' if explicit_pipe else 'profile-build'
+    build = read_json(ROOT / build_dir / 'build-summary.json')
+    assert build.get('explicit_pipe', False) == explicit_pipe
     assert build['all_compiled'] and build['sim_send'] and build['profiling']
     obj = build['targets']['fp32-' + LOCAL_ENTRY]
     binary = ROOT / obj['path']
@@ -179,7 +182,8 @@ def main(config):
     asset = case.with_name(case.name + '-asset')
     record = dict(candidate_commit=revision, cores=cores, chunk_tokens=chunk,
                   world=WORLD, tokens=128, topk=6, hidden=128, experts=256,
-                  dtype='fp32', sim_send=True, stage='local-send', source_object_sha256=obj['sha256'])
+                  dtype='fp32', sim_send=True, stage='local-send', explicit_pipe=explicit_pipe,
+                  source_object_sha256=obj['sha256'])
     started = time.monotonic()
     progress = ROOT / config.get('progress_file', 'progress.json')
     write_json(progress, {'stage': 'prepare_case', 'case': case.name})
