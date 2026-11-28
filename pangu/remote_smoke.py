@@ -31,7 +31,7 @@ replace_once(r'2>&1\s*\|\s*tee\s+log_farescale_gqa.txt',
              '--mock-data --tokenizer-type NullTokenizer --vocab-size 150016 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
              + ' 2>&1 | tee ' + shlex.quote(str(run_dir / 'console.log')))
 wrapper = run_dir / 'run_farescale_gqa_offline.sh'
-wrapper.write_text('set -euo pipefail\n' + text)
+wrapper.write_text('set -eo pipefail\n' + text)
 check = subprocess.run(['bash','-n',str(wrapper)],capture_output=True,text=True,timeout=10)
 assert check.returncode == 0, 'Generated wrapper failed bash syntax validation'
 env = os.environ.copy()
