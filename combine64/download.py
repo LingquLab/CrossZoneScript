@@ -17,6 +17,7 @@ DESTINATION = Path(r'D:\00_项目\02_moonep_URAM\test 1128 机内发送')
 FILES = ('phase-result.json', 'profiling-summary.json', 'profiling-records.json',
          'profiling/intra_send_perfetto.json', 'profiling/intra_send_batches.csv')
 REMOTE = '''
+import gzip
 import hashlib
 import json
 import socket
@@ -31,11 +32,12 @@ case = root / 'cases' / CASE
 row = json.loads((case / 'phase-result.json').read_text())
 assert row['status'] == 'sst_and_checker_passed' and row['candidate_commit'] == REVISION
 assert row['checked_ranks'] == 64 and row['profiling_dropped_records'] == 0
-with tarfile.open(fileobj=sys.stdout.buffer, mode='w|gz', compresslevel=1) as archive:
-    for name in FILES:
-        path = case / name
-        assert path.is_file() and not path.is_symlink()
-        archive.add(path, arcname=name, recursive=False)
+with gzip.GzipFile(fileobj=sys.stdout.buffer, mode='wb', compresslevel=1) as compressed:
+    with tarfile.open(fileobj=compressed, mode='w|') as archive:
+        for name in FILES:
+            path = case / name
+            assert path.is_file() and not path.is_symlink()
+            archive.add(path, arcname=name, recursive=False)
 evidence = {}
 for name in FILES:
     path = case / name
