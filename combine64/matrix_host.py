@@ -347,7 +347,15 @@ def main(request):
         print(json.dumps({'matrix_passed':len(rows),'docker_state':report['docker_state']}))
         return 0
     if request['action'] == 'status':
-        print(json.dumps(status(root), separators=(',', ':')))
+        report = status(root)
+        report.pop('identity', None)
+        report.pop('bootstrap-result', None)
+        for row in report['rows']:
+            if not row['final']:
+                for field in tuple(row):
+                    if field not in ('case', 'status', 'final'):
+                        del row[field]
+        print(json.dumps(report, separators=(',', ':')))
         return 0
     assert request['action'] == 'run'
     return run(root, task_container(root, REVISION), request)
