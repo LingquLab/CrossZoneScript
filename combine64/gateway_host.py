@@ -124,14 +124,14 @@ def status_summary(row):
     return {key: row[key] for key in fields if key in row}
 
 
-def run_case(point, tools, platform, attempt, timeout):
+def run_case(point, tools, platform, attempt, timeout, stage_only):
     cores, chunk = point
     micro = cores == 1
     label = f'cores{cores}-chunk{chunk}-a{attempt}'
     existing = sorted((ROOT / 'cases').glob(f'cores{cores}-chunk{chunk}-a*'))
     for prior in existing:
         row = logs(prior, prior.name)
-        if row['status'] == 'sst_and_checker_passed':
+        if row['status'] == 'sst_and_checker_passed' and (row.get('profiling_detail') == 'stages') == stage_only:
             return row
     directory = ROOT / 'hapi-logs'
     directory.mkdir(exist_ok=True)
@@ -140,7 +140,7 @@ def run_case(point, tools, platform, attempt, timeout):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert not case.exists(), 'use a new attempt for incomplete cases'
         config = dict(revision=REVISION, cores=cores, chunk=chunk, micro=micro, label=label,
-                      platform_sha256=platform, timeout=timeout, threads=8)
+                      platform_sha256=platform, timeout=timeout, threads=8, stage_only=stage_only)
         script = '/work/' + str(tools.relative_to(ROOT) / 'gateway_case.py')
         with worker_container(ROOT, f'{cores}-{chunk}-a{attempt}', 128) as cid:
             with (directory / (label + '.log')).open('xb') as output:
@@ -186,6 +186,24 @@ def main(request):
                               if re.search(patterns, line, re.I)][:20]
         print(json.dumps(evidence))
         return 0
+    if action == 'build-stage':
+        stage_tools_dir = ROOT / 'gateway-stage-build-tools'
+        stage_tools_dir.mkdir()
+        files = request['build_files']
+        assert set(files) == {'profile_capture.h', 'build_profile.py'}
+        for name, content in files.items():
+            (stage_tools_dir / name).write_text(content)
+        bash = ('set -e; source /opt/sim/cann-env.sh; '
+                'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
+                '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
+                'exec python3 /work/gateway-stage-build-tools/build_profile.py stage-only')
+        with worker_container(ROOT, 'stagebuild', 32) as cid:
+            with (ROOT / 'gateway-stage-build.log').open('xb') as log:
+                code = subprocess.run(['docker', 'exec', cid, 'bash', '-c', bash], stdout=log,
+                                      stderr=subprocess.STDOUT, timeout=385).returncode
+        summary = ROOT / 'gateway-stage-profile-build/build-summary.json'
+        print(json.dumps(json_file(summary) if summary.is_file() else {'exit_code': code}))
+        return code
     if action == 'finish':
         active = subprocess.check_output(['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION,
                                           '--format', '{{.ID}}'], timeout=20).decode().splitlines()
@@ -206,6 +224,8 @@ def main(request):
     timeout = request.get('timeout', 1800)
     assert type(attempt) is int and 1 <= attempt <= 20
     assert type(timeout) is int and 200 <= timeout <= 3600
+    stage_only = request.get('stage_only', False)
+    assert not stage_only or all(core == 1 for core, _ in points)
     desired = request.get('workers', 1)
     assert type(desired) is int and 1 <= desired <= 4
     available = next(int(line.split()[1]) // 1024**2 for line in Path('/proc/meminfo').read_text().splitlines()
@@ -215,7 +235,7 @@ def main(request):
         fcntl.flock(stage, fcntl.LOCK_EX)
         tools, platform = stage_tools(ROOT, request['files'])
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(run_case, point, tools, platform, attempt, timeout) for point in points]
+        futures = [executor.submit(run_case, point, tools, platform, attempt, timeout, stage_only) for point in points]
         rows = []
         for point, future in zip(points, futures):
             try:

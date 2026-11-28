@@ -76,7 +76,7 @@ def reconstruct_profile(paths, address, size, decoder):
     return bytes(image)
 
 
-def summarize(case, rank_stats, cores):
+def summarize(case, rank_stats, cores, stage_only=False):
     sys.path.insert(0, str(SOURCE / 'tools/profiling/python'))
     sys.path.insert(0, str(SOURCE / 'tests/moonep_combine_ht'))
     from intra_send_profile import read_sst_streams
@@ -111,8 +111,11 @@ def summarize(case, rank_stats, cores):
             rank_reduced += len(events.get(10, []))
             rank_contributions += len(events.get(11, []))
             lanes.append((rank, lane, stats, events))
-        assert rank_reduced == stats['reduced_tokens']
-        assert rank_contributions == stats['contributions'] - stats['tokens']
+        if stage_only:
+            assert rank_reduced == rank_contributions == 0
+        else:
+            assert rank_reduced == stats['reduced_tokens']
+            assert rank_contributions == stats['contributions'] - stats['tokens']
 
     assert len(lanes) == sum(row['active'] for row in rank_stats) * cores
     origin = min(events[1][0] for _, _, _, events in lanes)

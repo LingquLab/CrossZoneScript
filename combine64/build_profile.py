@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 WORK = Path('/work')
 SOURCE = WORK / 'source'
@@ -13,10 +14,21 @@ ENTRY = 'tilexr_moonep_combine_ht_kernel'
 
 
 def main():
-    target = WORK / 'profile-build'
+    stage_only = sys.argv[1:] == ['stage-only']
+    assert not sys.argv[1:] or stage_only
+    target = WORK / ('gateway-stage-profile-build' if stage_only else 'profile-build')
     target.mkdir()
     source = SOURCE / 'src/moonep/combine_ht/kernels/combine_ht.cpp'
     text = source.read_text()
+    if stage_only:
+        header = source.with_name('combine_ht_kernel.h').read_text()
+        recorder = '    writer.RecordAt(event, GetSystemCycle());'
+        assert header.count(recorder) == 1
+        header = header.replace(recorder, '''    if (event == Begin || event == End || event == StageBegin ||
+        event == StageReady || event == WorkEnd || event == ReduceBegin) {
+        writer.RecordAt(event, GetSystemCycle());
+    }''')
+        (target / 'combine_ht_kernel.h').write_text(header)
     entry_body = '    RunCombineHT(args);'
     assert text.count(entry_body) == 1
     text = text.replace(entry_body, entry_body + '\n    HtSstProfile::Flush(args.profiling, AscendC::GetBlockIdx());')
@@ -57,7 +69,7 @@ def main():
     else:
         row['errors'] = [line.strip()[:250] for line in log.read_text(errors='replace').splitlines()
                          if 'error:' in line.lower()][:6]
-    summary = dict(all_compiled=code == 0, sim_send=True, profiling=True, targets={'fp32-' + ENTRY: row})
+    summary = dict(all_compiled=code == 0, sim_send=True, profiling=True, stage_only=stage_only, targets={'fp32-' + ENTRY: row})
     (target / 'build-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     return code
 

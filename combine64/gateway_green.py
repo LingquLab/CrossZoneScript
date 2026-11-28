@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action = args['action']
-    assert action in ('build', 'run', 'status', 'finish', 'saved-run', 'diagnose-micro')
+    assert action in ('build', 'run', 'status', 'finish', 'saved-run', 'diagnose-micro', 'build-stage')
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION
     if action == 'saved-run':
         relevant = sorted(logs.glob('run-*'))
@@ -72,6 +72,10 @@ def main():
             code, result = execute(client, 'bootstrap_host.py', source, 510, log)
         else:
             seconds = 60
+            if action == 'build-stage':
+                seconds = 460
+                args['build_files'] = {name: (HERE / name).read_text(encoding='utf-8')
+                                       for name in ('profile_capture.h', 'build_profile.py')}
             if action == 'run':
                 args['files'] = {name: (HERE / name).read_text(encoding='utf-8') for name in (
                     'gateway_fixture.py', 'gateway_args.cpp', 'gateway_case.py', 'gateway_profile.py',

@@ -141,7 +141,9 @@ def main(config):
     identity = read_json(ROOT / 'identity.json')
     revision = config['revision']
     assert identity['revision'] == revision
-    build = read_json(ROOT / 'profile-build/build-summary.json')
+    stage_only = config.get('stage_only', False)
+    build_dir = 'gateway-stage-profile-build' if stage_only else 'profile-build'
+    build = read_json(ROOT / build_dir / 'build-summary.json')
     obj = build['targets']['fp32-' + gateway_fixture.ENTRY]
     binary = ROOT / obj['path']
     assert build['all_compiled'] and build['sim_send'] and build['profiling'] and digest(binary) == obj['sha256']
@@ -150,7 +152,7 @@ def main(config):
     cores, chunk, micro = (config[key] for key in ('cores', 'chunk', 'micro'))
     record = dict(case=case.name, candidate_commit=revision, cores=cores, chunk_tokens=chunk,
                   stage='single-core' if micro else 'gateway-reduce', sim_send=True,
-                  source_object_sha256=obj['sha256'])
+                  source_object_sha256=obj['sha256'], profiling_detail='stages' if stage_only else 'tokens')
     started = time.monotonic()
     try:
         stats = gateway_fixture.prepare(SOURCE, case, binary, cores, chunk, micro)
@@ -165,7 +167,7 @@ def main(config):
         record.update(model_sha256=digest(model), environment_sha256=digest(case / 'sst-environment.json'))
         run_sst(case, environment, config['timeout'], record, threads=config['threads'])
         check_outputs(case, environment, record)
-        record.update(summarize(case, stats['rank_stats'], cores))
+        record.update(summarize(case, stats['rank_stats'], cores, stage_only=stage_only))
         record['status'] = 'sst_and_checker_passed'
     except BaseException as error:
         if record.get('status') not in ('interrupted', 'timed_out'):
