@@ -4,11 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import shlex
+from subprocess import TimeoutExpired
 import time
 
 import benchmark
 import reset_for_ep32
-from retest_two_groups import HOSTS, ROOT
+from retest_two_groups import HOSTS, ROOT, main as benchmark_main
 
 
 HERE = Path(__file__).resolve().parent
@@ -85,8 +86,8 @@ def probe(host):
     try:
         output = benchmark.ssh(host, command, payload=(HELPERS + STATUS + REPORT).encode(),
                                timeout=55, stage="NPU reset status")
-    except RuntimeError as error:
-        return dict(host=host, ssh_error=str(error))
+    except (RuntimeError, TimeoutExpired) as error:
+        return dict(host=host, ssh_error=str(error) if isinstance(error, RuntimeError) else "SSH timeout")
     return dict(host=host, **json.loads(output))
 
 
@@ -106,6 +107,26 @@ def compact(report):
                 last=history[-1] if history else None)
 
 
+def wait_for_recovery(pool, hosts, output):
+    deadline = time.monotonic() + 970
+    settled_since = None
+    while True:
+        reports = list(pool.map(probe, hosts))
+        states = list(map(compact, reports))
+        output.write_text(json.dumps(reports, indent=2) + "\n", encoding="utf-8")
+        if all(state.get("done") and state.get("healthy") == 16 and state.get("idle") == 16 for state in states):
+            return
+        now = time.monotonic()
+        if all(state.get("done") for state in states):
+            if settled_since is None:
+                settled_since = now
+        else:
+            settled_since = None
+        if now >= deadline or (settled_since is not None and now - settled_since >= 80):
+            raise RuntimeError("NPUs did not recover after reset: " + json.dumps(states, separators=(",", ":")))
+        time.sleep(15)
+
+
 def main(args):
     mode = args["mode"]
     hosts = args.get("hosts", HOSTS)
@@ -113,6 +134,10 @@ def main(args):
     destination = Path(args["destination"]) / ("replicate4-rdma-two-groups-bs32-af8c365-diagnostics")
     destination.mkdir(exist_ok=True)
     with ThreadPoolExecutor(max_workers=2) as pool:
+        if mode == "benchmark":
+            assert tuple(hosts) == HOSTS
+            wait_for_recovery(pool, hosts, destination / "npu-reset-evidence-recovery.json")
+            return benchmark_main({**args, "mode": "resume"})
         if mode == "reset":
             list(pool.map(launch, hosts))
         else:
