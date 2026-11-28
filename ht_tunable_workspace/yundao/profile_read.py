@@ -28,8 +28,9 @@ for reducers in (12, 16, 24, 40):
         for capture in load_record_files([path]):
             for stream in capture.streams:
                 overflow += stream.overflow or stream.dropped_count != 0
-                role = "gather" if stream.id < 8 else "gateway"
-                if (role == "gateway" and stream.id >= 8 + reducers) or not stream.records:
+                lane = stream.id & 0xffff
+                role = "gather" if lane < 8 else "gateway"
+                if (role == "gateway" and lane >= 8 + reducers) or not stream.records:
                     continue
                 incomplete += not stream.complete
                 for name, (begin, end) in pairs.items():
