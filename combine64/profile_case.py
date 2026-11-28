@@ -1,5 +1,6 @@
 # Copyright (c) 2026 TileXR Project.
 """Bind native Combine-HT capture and export its complete SST profiling streams."""
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -12,20 +13,20 @@ ADDRESS = 0x430000000
 SOURCE = Path('/work/source')
 
 
-def profile_image(address, lanes):
+def profile_image(address, lanes, capacity):
     timestamps = 512
-    events = timestamps + lanes * CAPACITY * 8
-    counts = events + lanes * CAPACITY * 4
+    events = timestamps + lanes * capacity * 8
+    counts = events + lanes * capacity * 4
     dropped = counts + lanes * STATE_STRIDE * 4
     states = dropped + lanes * STATE_STRIDE * 4
     image = bytearray(states + lanes * STATE_STRIDE * 4)
-    struct.pack_into('<8I7Q', image, 0, 2, 88, 1, lanes, CAPACITY, CAPACITY, STATE_STRIDE, 0,
+    struct.pack_into('<8I7Q', image, 0, 2, 88, 1, lanes, capacity, capacity, STATE_STRIDE, 0,
                      address + timestamps, address + events, address + counts, address + dropped,
                      address + states, 0, 1)
     return image
 
 
-def bind(case, lanes):
+def bind(case, lanes, timing_only=False):
     workload_path = case / 'workload.yml'
     export_path = case / 'export-layout.json'
     workload = json.loads(workload_path.read_text())
@@ -36,7 +37,7 @@ def bind(case, lanes):
         address = row['sys_va_base_addr'] + ADDRESS
         folder = case / 'input_bin' / f"rank{row['rank']:02}"
         profile = folder / 'profile.bin'
-        image = profile_image(address, lanes)
+        image = profile_image(address, lanes, 16 if timing_only else CAPACITY)
         end = address + len(image)
         assert end <= row['sys_va_base_addr'] + chip['gm_size']
         assert all(end <= segment['addr'] or address >= segment['addr'] + segment['size']
@@ -45,10 +46,17 @@ def bind(case, lanes):
         arguments = folder / 'kernel_args.bin'
         data = bytearray(arguments.read_bytes())
         assert len(data) == 296 and struct.unpack_from('<Q', data, 80)[0] == 0
-        struct.pack_into('<Q', data, 80, address)
-        arguments.write_bytes(data)
         values = chip['kernel_param']
-        values['word10']['value'] = address
+        if timing_only:
+            data.extend(struct.pack('<Q', address))
+            for key, value in values.items():
+                if key.startswith('load_'):
+                    value['param_offset'] = str(int(value['param_offset']) + 8)
+            values['sstProfile'] = dict(value=address, param_offset='296', param_type='11')
+        else:
+            struct.pack_into('<Q', data, 80, address)
+            values['word10']['value'] = address
+        arguments.write_bytes(data)
         for key, value in values.items():
             if key.startswith('load_'):
                 limit = value['value'] + Path(value['input_bin']).stat().st_size
@@ -64,7 +72,7 @@ def bind(case, lanes):
     export_path.write_text(json.dumps(exports, indent=2) + '\n')
 
 
-def summarize(case, ranks, lanes, send_rows):
+def summarize(case, ranks, lanes, send_rows, timing_only=False):
     sys.path.insert(0, str(SOURCE / 'tools/profiling/python'))
     sys.path.insert(0, str(SOURCE / 'tests/moonep_combine_ht'))
     from intra_send_profile import decode_stream, export, read_sst_streams
@@ -90,16 +98,34 @@ def summarize(case, ranks, lanes, send_rows):
             end = [record.timestamp for record in stream.records if record.event_id == 2]
             assert len(begin) == len(end) == 1 and 0 < begin[0] < end[0], ('profiling_markers', rank, lane)
             intervals.append(dict(rank=rank, lane=lane, begin=begin[0], end=end[0], elapsed_ticks=end[0] - begin[0]))
-            submissions.extend(decode_stream(stream))
+            if timing_only:
+                assert len(stream.records) == 2
+            else:
+                submissions.extend(decode_stream(stream))
     assert len(intervals) == ranks * lanes
-    assert sum(sent.wqes for sent in submissions if not sent.signal) == send_rows
-    missing = sum(sent.cq_requests - len(sent.observed) for sent in submissions)
-    export(submissions, case / 'profiling', cycles_per_us)
+    if timing_only:
+        out = case / 'profiling'
+        out.mkdir()
+        origin = min(row['begin'] for row in intervals)
+        events = [{'ph': 'X', 'name': 'Combine-HT local send', 'pid': row['rank'], 'tid': row['lane'],
+                   'ts': (row['begin'] - origin) / cycles_per_us, 'dur': row['elapsed_ticks'] / cycles_per_us}
+                  for row in intervals]
+        (out / 'intra_send_perfetto.json').write_text(json.dumps({'traceEvents': events}))
+        with (out / 'operator_intervals.csv').open('w', newline='') as stream:
+            writer = csv.DictWriter(stream, fieldnames=intervals[0].keys())
+            writer.writeheader()
+            writer.writerows(intervals)
+    else:
+        assert sum(sent.wqes for sent in submissions if not sent.signal) == send_rows
+        export(submissions, case / 'profiling', cycles_per_us)
     (case / 'profiling-records.json').write_text(json.dumps(intervals, indent=2) + '\n')
     peak = max(row['elapsed_ticks'] for row in intervals)
     summary = dict(profiling_operator_us=peak / cycles_per_us, profiling_max_lane_ticks=peak,
                    profiling_lanes=len(intervals), profiling_dropped_records=0,
                    profiling_clock_receipt=clock['receipt_event_id'],
-                   profiling_cqes_unobserved=missing, profiling_batches=len(submissions))
+                   profiling_detail='operator_intervals' if timing_only else 'sq_cq')
+    if not timing_only:
+        summary.update(profiling_cqes_unobserved=sum(sent.cq_requests - len(sent.observed) for sent in submissions),
+                       profiling_batches=len(submissions))
     (case / 'profiling-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     return summary

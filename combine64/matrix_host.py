@@ -91,7 +91,7 @@ SUMMARY = ('candidate_commit', 'cores', 'chunk_tokens', 'chunks', 'groups', 'sta
            'model_sha256', 'environment_sha256', 'send_rows', 'guards', 'checked_ranks',
            'platform_simulated_us', 'profiling_operator_us', 'profiling_lanes', 'profiling_dropped_records',
            'profiling_batches', 'profiling_cqes_unobserved', 'sst_wall_seconds', 'runner_wall_seconds',
-           'profiling_clock_receipt', 'returncode', 'error', 'explicit_pipe', 'variant')
+           'profiling_clock_receipt', 'returncode', 'error', 'explicit_pipe', 'variant', 'profiling_detail')
 
 
 def report_for(case):
@@ -205,8 +205,9 @@ def run(root, cid, request):
     points = [tuple(point) for point in request['points']]
     assert points and len(set(points)) == len(points) and all(point in POINTS for point in points)
     variant = request.get('variant', 'baseline')
-    assert variant in ('baseline', 'inline-post', 'fixed-events')
-    variant_builds = {'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build'}
+    assert variant in ('baseline', 'inline-post', 'fixed-events', 'timing-only')
+    variant_builds = {'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build',
+                      'timing-only': 'profile-timing-build'}
     if variant in variant_builds:
         assert json_file(root / variant_builds[variant] / 'build-summary.json')['all_compiled']
     timeout = request['timeout']
@@ -223,8 +224,8 @@ def run(root, cid, request):
     script = str(Path('/work') / tools.relative_to(root) / 'sim_case.py')
     if request.get('parallel'):
         groups = {core: [point for point in points if point[0] == core] for core in sorted({p[0] for p in points})}
-        assert set(groups) <= ({1, 2, 4} if variant == 'fixed-events' else {2, 4, 8}) and len(groups) <= 3
-        if variant == 'fixed-events':
+        assert set(groups) <= ({1, 2, 4} if variant in ('fixed-events', 'timing-only') else {2, 4, 8}) and len(groups) <= 3
+        if variant in ('fixed-events', 'timing-only'):
             assert all(not any(case_dir.name.startswith(f'cores{core}-chunk{chunk}-a') and
                                case_dir.name in request.get('active_cases', [])
                                for case_dir in (root / 'cases').iterdir()) for core, chunk in points)
@@ -236,7 +237,7 @@ def run(root, cid, request):
         assert available_kib >= (memory_gib * len(groups) + 160) * 1024**2
 
         def run_group(core, group):
-            name = f'{core}-fixed' if variant == 'fixed-events' else core
+            name = f'{core}-{variant}' if variant in ('fixed-events', 'timing-only') else core
             with worker_container(root, name, memory_gib) as worker:
                 return run_points(root, worker, script, platform_hashes, group, timeout, attempt,
                                   f'core{name}.lock', f'progress-core{name}.json', explicit_pipe_points, variant)
@@ -289,9 +290,10 @@ def main(request):
         assert task_container(root, REVISION) == cid
         print(json.dumps({'host':host, 'container_restarted': True, 'old_exit': details['State']['ExitCode']}))
         return 0
-    if request['action'] in ('build-inline-post', 'build-fixed-events'):
+    if request['action'] in ('build-inline-post', 'build-fixed-events', 'build-timing-only'):
         variant = request['action'][len('build-'):]
-        build_dir = 'profile-inline-build' if variant == 'inline-post' else 'profile-fixed-events-build'
+        build_dir = {'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build',
+                     'timing-only': 'profile-timing-build'}[variant]
         # Use the same production source and platform, with a separate build directory.
         with worker_container(root, 'build', 64) as cid:
             tools = root / (variant + '-tools')

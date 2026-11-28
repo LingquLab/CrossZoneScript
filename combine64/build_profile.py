@@ -16,10 +16,11 @@ ENTRY = 'tilexr_moonep_combine_ht_kernel'
 def main():
     assert len(sys.argv) <= 2
     mode = sys.argv[1] if len(sys.argv) == 2 else 'baseline'
-    assert mode in ('baseline', 'entry-pipe', 'inline-post', 'fixed-events')
+    assert mode in ('baseline', 'entry-pipe', 'inline-post', 'fixed-events', 'timing-only')
     explicit_pipe = mode == 'entry-pipe'
     target = WORK / {'baseline': 'profile-build', 'entry-pipe': 'profile-pipe-build',
-                     'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build'}[mode]
+                     'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build',
+                     'timing-only': 'profile-timing-build'}[mode]
     target.mkdir()
     source = SOURCE / 'src/moonep/combine_ht/kernels/combine_ht.cpp'
     entry_body = '    RunCombineHT(args);'
@@ -58,8 +59,24 @@ def main():
             alternate.write_text(content.replace(declaration, declaration.split(' = ')[0] + ' = EVENT_ID6;'))
     assert text.count(entry_body) == 1
     wrapper = target / (ENTRY + '.cpp')
-    wrapper.write_text('#include "profile_capture.h"\n' + text.replace(
-        entry_body, entry_body + '\n    HtSstProfile::Flush(args.profiling, AscendC::GetBlockIdx());'))
+    if mode == 'timing-only':
+        signature = ENTRY + '(TileXRCombineHT::KernelArgs args)'
+        assert text.count(signature) == 1
+        text = text.replace(signature, ENTRY + '(TileXRCombineHT::KernelArgs args, GM_ADDR sstProfile)')
+        timing = '''
+    TileXR::Profiling::DirectWriter sstTiming;
+    const uint32_t lane = AscendC::GetBlockIdx();
+    sstTiming.Initialize(sstProfile, lane);
+    sstTiming.RecordAt(1U, AscendC::GetSystemCycle());
+    RunCombineHT(args);
+    sstTiming.RecordAt(2U, AscendC::GetSystemCycle());
+    sstTiming.Publish();
+    HtSstProfile::Flush(sstProfile, lane);'''
+        text = text.replace(entry_body, timing.strip('\n'))
+    else:
+        text = text.replace(entry_body,
+                            entry_body + '\n    HtSstProfile::Flush(args.profiling, AscendC::GetBlockIdx());')
+    wrapper.write_text('#include "profile_capture.h"\n' + text)
     options = [
         '-xcce', '-O2', '-DCATLASS_ARCH=3510', '--cce-auto-sync', '--cce-aicore-arch=dav-c310-vec',
         '-Wno-deprecated-declarations', '-mllvm', '-cce-aicore-stack-size=0x8000',

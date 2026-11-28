@@ -172,7 +172,7 @@ def main(config):
     explicit_pipe = config.get('explicit_pipe', False)
     variant = config.get('variant', 'entry-pipe' if explicit_pipe else 'baseline')
     build_dir = {'baseline': 'profile-build', 'entry-pipe': 'profile-pipe-build',
-                 'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build'}[variant]
+                 'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build', 'timing-only': 'profile-timing-build'}[variant]
     build = read_json(ROOT / build_dir / 'build-summary.json')
     assert build.get('variant', variant) == variant
     assert build['all_compiled'] and build['sim_send'] and build['profiling']
@@ -199,7 +199,7 @@ def main(config):
         local_phase(case, asset, cores)
         shutil.rmtree(asset)
         from profile_case import bind, summarize
-        bind(case, cores)
+        bind(case, cores, timing_only=variant == 'timing-only')
         record['kernel_sha256'] = digest(case / 'kernel/inter_server_send.o')
         environment = stage_platform(case, config['platform_sha256'])
         import yaml
@@ -212,7 +212,7 @@ def main(config):
         run_sst(case, environment, config['timeout'], record)
         write_json(progress, {'stage': 'checker', 'case': case.name})
         check_outputs(case, environment, record)
-        record.update(summarize(case, WORLD, cores, record['send_rows']))
+        record.update(summarize(case, WORLD, cores, record['send_rows'], timing_only=variant == 'timing-only'))
         record['status'] = 'sst_and_checker_passed'
     except BaseException as error:
         if record.get('status') not in ('interrupted', 'timed_out'):

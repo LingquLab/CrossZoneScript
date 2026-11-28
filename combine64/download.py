@@ -15,7 +15,9 @@ from transport import connect
 REVISION = REVISIONS['a50893f']
 DESTINATION = Path(r'D:\00_项目\02_moonep_URAM\test 1128 机内发送')
 FILES = ('phase-result.json', 'profiling-summary.json', 'profiling-records.json',
-         'profiling/intra_send_perfetto.json', 'profiling/intra_send_batches.csv')
+         'profiling/intra_send_perfetto.json')
+DETAILED = 'profiling/intra_send_batches.csv'
+TIMING = 'profiling/operator_intervals.csv'
 REMOTE = '''
 import gzip
 import hashlib
@@ -32,6 +34,8 @@ case = root / 'cases' / CASE
 row = json.loads((case / 'phase-result.json').read_text())
 assert row['status'] == 'sst_and_checker_passed' and row['candidate_commit'] == REVISION
 assert row['checked_ranks'] == 64 and row['profiling_dropped_records'] == 0
+FILES += ('profiling/operator_intervals.csv' if row.get('variant') == 'timing-only'
+          else 'profiling/intra_send_batches.csv',)
 with gzip.GzipFile(fileobj=sys.stdout.buffer, mode='wb', compresslevel=1) as compressed:
     with tarfile.open(fileobj=compressed, mode='w|') as archive:
         for name in FILES:
@@ -64,12 +68,13 @@ def verify(directory, cores, chunk, evidence):
     assert (result['cores'], result['chunk_tokens'], result['checked_ranks']) == (cores, chunk, 64)
     assert result['port0_die_histogram'] == {'0': 32, '1': 32}
     assert result['profiling_lanes'] == 64 * cores and result['profiling_dropped_records'] == 0
-    assert set(evidence) == set(FILES)
+    assert set(evidence) == set(FILES) | {TIMING if result.get('variant') == 'timing-only' else DETAILED}
     for name, item in evidence.items():
         path = directory / name
         assert path.stat().st_size == item['bytes'] > 0 and sha256(path) == item['sha256']
     capture = json.loads((directory / 'profiling/intra_send_perfetto.json').read_text())
-    assert any(row['name'] == 'Doorbell' for row in capture['traceEvents'])
+    event = 'Combine-HT local send' if result.get('variant') == 'timing-only' else 'Doorbell'
+    assert any(row['name'] == event for row in capture['traceEvents'])
 
 
 def download(client, host, case, cores, chunk):
@@ -94,8 +99,10 @@ def download(client, host, case, cores, chunk):
         evidence = json.loads(output)
         content = temporary / 'checked'
         with tarfile.open(zipped, 'r:gz') as archive:
-            assert set(archive.getnames()) == set(FILES) and len(archive.getmembers()) == len(FILES)
-            for name in FILES:
+            names = set(archive.getnames())
+            assert set(FILES) <= names and names - set(FILES) in ({DETAILED}, {TIMING})
+            assert len(archive.getmembers()) == len(names) == len(evidence)
+            for name in names:
                 item = archive.getmember(name)
                 assert item.isfile()
                 path = content / name
