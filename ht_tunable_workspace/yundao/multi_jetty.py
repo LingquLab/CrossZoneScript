@@ -87,11 +87,12 @@ def run():
     rootinfo = remote.write_eid_rootinfo()
     env = dict(os.environ, TILEXR_UDMA_ROOTINFO_PATH=str(rootinfo))
 
-    deadline = time.monotonic() + (600 if resume else 60)
+    deadline = time.monotonic() + (120 if resume else 60)
     while True:
         occupancy = remote.device_status()
         if occupancy["idle_devices"] == RANKS or time.monotonic() >= deadline:
             break
+        print("EP8 occupancy wait", flush=True)
         time.sleep(10)
     SUMMARY["initial_devices"] = occupancy
     if qp:
@@ -154,8 +155,45 @@ def run():
                     row["status"] = "missing_checks"
 
 
-try:
+def running_resume():
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdecimal() or int(entry.name) == os.getpid():
+            continue
+        try:
+            arguments = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if len(arguments) >= 3 and arguments[1].endswith(b"/multi_jetty.py") and arguments[2] == b"resume":
+            return True
+    return False
+
+
+def recover():
+    # The preceding SSH connection may have reset while its remote runner
+    # still had an active process. Read its result before launching any case.
+    deadline = time.monotonic() + 125
+    while running_resume():
+        if time.monotonic() >= deadline:
+            SUMMARY.update(status="prior_process_active")
+            return
+        print("Waiting for the prior EP8 runner", flush=True)
+        time.sleep(10)
+    previous_runs = sorted(ROOT.parent.glob("ht-4d37ae67-multi-jetty-ep8-*"), reverse=True)
+    for folder in previous_runs:
+        report = folder / "result.json"
+        if folder == ROOT or not report.is_file():
+            continue
+        evidence = json.loads(report.read_text())
+        sections = ("qp", "gather_gateway_reduce", "local_return", "final_reduce")
+        if evidence.get("revision") == REVISION and any(
+                row.get("status") in {"pass", "failed", "timeout", "missing_checks"}
+                for section in sections for row in evidence.get(section, {}).values()):
+            SUMMARY.update(evidence, recovered=True)
+            return
     run()
+
+try:
+    recover() if resume else run()
 except (ValueError, OSError, AttributeError, subprocess.SubprocessError) as exc:
     SUMMARY["failure_type"] = type(exc).__name__
 (ROOT / "result.json").write_text(json.dumps(SUMMARY, indent=2) + "\n")

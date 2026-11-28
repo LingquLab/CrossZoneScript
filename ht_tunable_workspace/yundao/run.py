@@ -107,7 +107,9 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             if packed is None:
                 print(json.dumps(status, ensure_ascii=True, separators=(",", ":")))
                 raise SystemExit(0)
-        proc = subprocess.run(args[:-2] + [remote], input=packed, capture_output=True, timeout=1450)
+        keepalive = ["-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+        proc = subprocess.run(args[:1] + keepalive + args[1:-2] + [remote],
+                              input=packed, capture_output=True, timeout=760)
     elif options.get("stage_source"):
         from source_bundle import prepare
         packed, status = prepare(here / "remote.py", Path(temp))
