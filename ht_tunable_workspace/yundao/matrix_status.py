@@ -25,6 +25,18 @@ for path in sorted(root.glob("ht-0b9c3322-ep8-*"))[-6:]:
                                              for s in ("pass", "failed", "timeout", "devices_busy")}
                                      for name, rows in result.items()
                                      if name in ("qp", "gather", "final", "native_send", "local_return", "concurrent")}
+        if path.name in ("ht-0b9c3322-ep8-1795847411", "ht-0b9c3322-ep8-1795848318"):
+            examples = {}
+            for group in groups:
+                log = group / "rank-0.log"
+                if log.is_file():
+                    lines = log.read_text(errors="replace").splitlines()
+                    failures = [re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[ip]", line.strip())[:160]
+                                for line in lines if line.startswith("error:") or "[error]" in line]
+                    checked = [line for line in lines if line.startswith("MODULE_RESULT")]
+                    if failures or checked:
+                        examples[group.name] = {"errors": failures[-2:], "checked": len(checked)}
+            case["rank0"] = examples
         if groups:
             newest = max(groups, key=lambda p: p.stat().st_mtime)
             case["last"] = newest.name
