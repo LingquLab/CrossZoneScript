@@ -183,11 +183,8 @@ def compile_send_kernel(repo):
     return output
 
 
-def module_case(executable, env, mode, tokens, sync, cores, spec, binary):
-    case = f"{mode}-t{tokens}-s{sync}-c{cores}-q{spec}"
-    logs, result = run_group(case, lambda rank: [str(executable), mode, str(rank), str(tokens), str(sync),
-                            str(cores), str(binary)], range(8),
-                            dict(env, TILEXR_UDMA_SHARED_QP_SPEC=spec), 65, barriers=True)
+def timed_module(case, args, env):
+    logs, result = run_group(case, args, range(8), env, 65, barriers=True)
     if logs:
         events = [[m.split() for m in re.findall(r"^MODULE_RESULT (.*)$", log, re.M)] for log in logs]
         result["checked_rounds"] = sum(map(len, events))
@@ -199,6 +196,39 @@ def module_case(executable, env, mode, tokens, sync, cores, spec, binary):
         elif result["status"] == "pass":
             result["status"] = "missing_checks"
     return result
+
+
+def module_case(executable, env, mode, tokens, sync, cores, spec, binary):
+    case = f"{mode}-t{tokens}-s{sync}-c{cores}-q{spec}"
+    return timed_module(case, lambda rank: [str(executable), mode, str(rank), str(tokens), str(sync),
+                        str(cores), str(binary)], dict(env, TILEXR_UDMA_SHARED_QP_SPEC=spec))
+
+
+def concurrent_matrix(repo, env):
+    lib_dir = BASE_BUILD / "src/moonep/combine_ht"
+    ep_dir = BASE_BUILD / "src/ep/combine_ht"
+    comm_dir = BASE_BUILD / "src/comm"
+    executable = compile_fixture("ep8_concurrent", "ep8_concurrent.cpp", repo, BASE_BUILD,
+        lib_dir, "tilexr-moonep-combine-ht",
+        ("-DTILEXR_COMBINE_HT_PIPELINE=1", "-I" + str(repo / "tests/moonep_combine_ht"),
+         "-I" + str(repo / "src/moonep/combine_ht/common"), "-I" + str(repo / "src/ep/combine_ht"),
+         "-I" + str(SDK / "pkg_inc"), "-I" + str(SDK / "pkg_inc/runtime"),
+         "-L" + str(comm_dir), "-Wl,-rpath," + str(comm_dir), "-ltile-comm", "-lruntime",
+         "-L" + str(ep_dir), "-Wl,-rpath," + str(ep_dir), "-ltilexr-moonep-combine-ht-pipeline",
+         "-ltilexr-ep-ht-local-return", "-ltilexr-ep-ht-final-reduce", "-ltilexr-ep-ht-send"))
+    if not executable:
+        return
+    rows = SUMMARY["concurrent"] = {}
+    pipeline_obj = lib_dir / "tilexr_moonep_combine_ht_kernel.o"
+    local_obj = ep_dir / "tilexr_ep_ht_local_return_kernel.o"
+    for tokens in (32, 1024):
+        for sync in range(3):
+            for mode in ("concurrent", "serial"):
+                name = f"{mode}-t{tokens}-s{sync}"
+                rows[name] = timed_module(name, lambda rank: [str(executable), str(rank), str(tokens),
+                    str(sync), str(int(mode == "concurrent")), str(pipeline_obj), str(local_obj)],
+                    dict(env, TILEXR_UDMA_SHARED_QP_SPEC="8:8+direct"))
+
 
 
 def native_modules(repo, env):
@@ -242,6 +272,9 @@ def main():
         raise ValueError("unexpected source")
     env = dict(os.environ, TILEXR_UDMA_ROOTINFO_PATH=str(remote.write_eid_rootinfo()),
                TILEXR_UDMA_SHARED_QP_SPEC="16:16")
+    if sys.argv[1:] == ["concurrent"]:
+        concurrent_matrix(repo, env)
+        return
     if sys.argv[1:] == ["finish"]:
         initial = ROOT.parent / "ht-0b9c3322-ep8-1795846177"
         for _ in range(24):
