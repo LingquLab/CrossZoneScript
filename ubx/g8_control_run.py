@@ -25,7 +25,7 @@ def main():
     hosts = ['90.90.93.83', '90.90.93.86']
     assert settings.get('variant', 'control') in ['control', 'group8']
     assert settings.get('profile', 'off') in ['off', 'on']
-    roots = ['/root/ubx-g8-control-b212b5f4-r2'] * 2
+    roots = [settings.get('test_root','/root/ubx-g8-control-b212b5f4-r2')] * 2
     logdir = Path.cwd() / ('ablation-' + uuid.uuid4().hex[:10])
     logdir.mkdir()
 
