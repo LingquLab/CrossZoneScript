@@ -53,7 +53,7 @@ def stage_tools(root, files):
     tools.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
         assert name in {'fixture.py', 'prefill.cpp', 'sim_case.py', 'addressed_exports.py',
-                        'profile_case.py', 'clock_evidence.json'}
+                        'profile_case.py', 'clock_evidence.json', 'recover_profile.py'}
         path = tools / name
         if path.exists():
             assert path.read_bytes() == content.encode()
@@ -91,7 +91,7 @@ SUMMARY = ('candidate_commit', 'cores', 'chunk_tokens', 'chunks', 'groups', 'sta
            'model_sha256', 'environment_sha256', 'send_rows', 'guards', 'checked_ranks',
            'platform_simulated_us', 'profiling_operator_us', 'profiling_lanes', 'profiling_dropped_records',
            'profiling_batches', 'profiling_cqes_unobserved', 'sst_wall_seconds', 'runner_wall_seconds',
-           'profiling_clock_receipt', 'returncode', 'error', 'explicit_pipe', 'variant', 'profiling_detail')
+           'profiling_clock_receipt', 'returncode', 'error', 'explicit_pipe', 'variant', 'profiling_detail', 'recovery_check_wall_seconds')
 
 
 def report_for(case):
@@ -311,6 +311,25 @@ def main(request):
         result = json_file(root / build_dir / 'build-summary.json')
         print(json.dumps(result, separators=(',', ':')))
         return code
+    if request['action'] == 'recover-profile':
+        case = root / 'cases' / request['case']
+        assert case.parent == root / 'cases' and case.name == 'cores2-chunk64-a3'
+        row = report_for(case)
+        assert row['returncode'] == 0 and row['status'] == 'failed'
+        assert 'Missing dump bytes:' in row['error'] and 'profile.bin' in row['error']
+        with (root / 'stage.lock').open('a') as stage:
+            fcntl.flock(stage, fcntl.LOCK_EX)
+            tools, _ = stage_tools(root, request['files'])
+        script = str(Path('/work') / tools.relative_to(root) / 'recover_profile.py')
+        with worker_container(root, 'profile-recover', 64) as cid:
+            log = root / 'hapi-logs' / (case.name + '.recover-profile.log')
+            with log.open('xb') as stream:
+                proc = subprocess.run(['docker', 'exec', cid, 'python3', script, case.name],
+                                      stdout=stream, stderr=subprocess.STDOUT, timeout=295)
+        result = report_for(case)
+        errors = (root / 'hapi-logs' / (case.name + '.recover-profile.log')).read_text(errors='replace').splitlines()
+        print(json.dumps({'rows': [result], 'diagnostic': errors[-1:] if proc.returncode else []}))
+        return proc.returncode
     if request['action'] == 'diagnose-log':
         cases = request['cases']
         reports = []

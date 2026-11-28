@@ -72,6 +72,57 @@ def bind(case, lanes, timing_only=False):
     export_path.write_text(json.dumps(exports, indent=2) + '\n')
 
 
+def reconstruct_profile(paths, address, size, decoder):
+    from addressed_exports import V310_DECODER_SHA256, digest, owning_die
+
+    assert digest(decoder) == V310_DECODER_SHA256
+    blocks = {}
+    for die, path in enumerate(paths):
+        with path.open('rb') as stream:
+            while record := stream.read(520):
+                assert len(record) == 520
+                offset = int.from_bytes(record[:8], 'little')
+                if owning_die(offset) != die:
+                    continue
+                if address < offset + 512 and offset < address + size:
+                    assert blocks.setdefault(offset, record[8:]) == record[8:]
+    image = bytearray(size)
+
+    def copy(offset, size_to_copy):
+        assert 0 <= offset <= len(image) and offset + size_to_copy <= len(image)
+        end = offset + size_to_copy
+        while offset < end:
+            absolute = address + offset
+            block = absolute // 512 * 512
+            start = absolute - block
+            count = min(end - offset, 512 - start)
+            if block not in blocks:
+                raise ValueError(f'missing owned profiling bytes at {absolute:#x}')
+            image[offset:offset + count] = blocks[block][start:start + count]
+            offset += count
+
+    copy(0, 88)
+    descriptor = struct.unpack_from('<8I7Q', image)
+    version, descriptor_size, enabled, lanes, capacity, stride, state_stride, _ = descriptor[:8]
+    assert (version, descriptor_size, enabled) == (2, 88, 1)
+    assert 0 < lanes <= 8 and 0 < capacity <= stride <= CAPACITY and state_stride == STATE_STRIDE
+    timestamps, events, counts, dropped, states = descriptor[8:13]
+    base = descriptor[8] - 512
+    assert base >= 0 and (base - address) % 0x2000000000 == 0
+    for lane in range(lanes):
+        state = lane * state_stride * 4
+        for region in (counts, dropped, states):
+            copy(region - base + state, 4)
+        count = struct.unpack_from('<I', image, counts - base + state)[0]
+        saved_drops = struct.unpack_from('<I', image, dropped - base + state)[0]
+        completion = struct.unpack_from('<I', image, states - base + state)[0]
+        assert 2 <= count <= capacity and saved_drops == 0 and completion == 2
+        first = lane * stride
+        copy(timestamps - base + first * 8, count * 8)
+        copy(events - base + first * 4, count * 4)
+    return bytes(image)
+
+
 def summarize(case, ranks, lanes, send_rows, timing_only=False):
     sys.path.insert(0, str(SOURCE / 'tools/profiling/python'))
     sys.path.insert(0, str(SOURCE / 'tests/moonep_combine_ht'))

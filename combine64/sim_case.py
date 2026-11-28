@@ -133,13 +133,13 @@ def run_sst(case, environment, timeout, record, stop_at_us=None, threads=8):
     record['platform_simulated_us'] = float(match[1]) * {'ns': .001, 'us': 1, 'ms': 1000, 's': 1e6}[match[2]]
 
 
-def check_outputs(case, environment, record):
+def check_outputs(case, environment, record, output_dir='actual'):
     from addressed_exports import reconstruct_die_output, verify_guards
 
     layout = read_json(case / 'export-layout.json')
     dump_dir = case / 'bin'
     decoder = Path(environment['decoder_library'])
-    actual = case / 'actual'
+    actual = case / output_dir
     actual.mkdir()
     assert len(layout['ranks']) == WORLD
     record['guards'] = verify_guards(layout, dump_dir, decoder)['count']
@@ -151,7 +151,12 @@ def check_outputs(case, environment, record):
         out.mkdir()
         for name, segment in row['exports'].items():
             paths = [dump_dir / f'david_{rank}_die{die}_{name}.bin' for die in (1, 2)]
-            data = reconstruct_die_output(paths, segment['addr'] - row['sys_va_base_addr'], segment['size'], decoder)
+            address = segment['addr'] - row['sys_va_base_addr']
+            if name == 'profile':
+                from profile_case import reconstruct_profile
+                data = reconstruct_profile(paths, address, segment['size'], decoder)
+            else:
+                data = reconstruct_die_output(paths, address, segment['size'], decoder)
             (out / f'{name}.bin').write_bytes(data)
             fields[name] = fields.get(name, 0) + len(data)
             if name == 'profile':
