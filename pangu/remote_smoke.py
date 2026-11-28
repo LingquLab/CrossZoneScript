@@ -23,7 +23,11 @@ def replace_once(pattern, replacement):
     global text
     text, count = re.subn(pattern, lambda m:replacement, text, count=1, flags=re.M)
     assert count == 1, 'Expected example-script structure was not found: ' + pattern
-replace_once(r'^\s*project_root=.*$', 'project_root=' + shlex.quote(str(repo)))
+# Keep the original script's directory calculations despite storing this wrapper elsewhere.
+anchors = ('${BASH_SOURCE[0]}', '${0}', '$0')
+assert any(anchor in text for anchor in anchors), 'Unknown script self-location convention'
+for anchor in anchors:
+    text = text.replace(anchor, str(original))
 replace_once(r'--data-url(?:=|\s+)\S+', '--data-url=' + shlex.quote(str(data)))
 replace_once(r'--tokenizer-model(?:=|\s+)\S+', '--tokenizer-model=' + shlex.quote(str(pathlib.Path.home() / 'work')))
 replace_once(r'--train-samples\s+40\b', '--train-samples 8')
