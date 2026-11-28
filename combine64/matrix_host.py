@@ -237,7 +237,13 @@ def run(root, cid, request):
         assert available_kib >= (memory_gib * len(groups) + 160) * 1024**2
 
         def run_group(core, group):
-            name = f'{core}-{variant}' if variant in ('fixed-events', 'timing-only') else core
+            if request.get('aligned_retry'):
+                assert group == [(2, 64)] and core == 2
+                previous = report_for(root / 'cases/cores2-chunk64-a3')
+                assert previous['final'] and previous['returncode'] == 0 and 'Missing dump bytes:' in previous['error']
+                name = '2-aligned'
+            else:
+                name = f'{core}-{variant}' if variant in ('fixed-events', 'timing-only') else core
             with worker_container(root, name, memory_gib) as worker:
                 return run_points(root, worker, script, platform_hashes, group, timeout, attempt,
                                   f'core{name}.lock', f'progress-core{name}.json', explicit_pipe_points, variant)
