@@ -21,6 +21,25 @@ CASES = (
 )
 IMAGE = "sha256:19e063d4eebab9785ad24b175ee1567dfb24c1180698f67fe0ab32a731a19cd5"
 WORKTREES = Path("D:/workspace/TileXR-worktrees")
+
+
+def case_inputs(repo, cases, diagnostic):
+    if (not isinstance(cases, (list, tuple)) or not cases
+            or not all(isinstance(case, str) for case in cases) or len(cases) != len(set(cases))):
+        raise ValueError("Expected distinct Memory SST cases")
+    if diagnostic and tuple(cases) != ("memory_ordered",):
+        raise ValueError("Status injection is qualified only for Ordered")
+    ranks = {}
+    for case in cases:
+        if not re.fullmatch(r"memory_[a-z0-9_]+", case):
+            raise ValueError("Invalid Memory SST case")
+        config = json.loads((repo / "tools/unitest/cases" / f"alltoall_{case}_sst.json").read_text(encoding="utf-8"))
+        if config["variant"] != case or config["world_size"] not in {8, 32, 64}:
+            raise ValueError("Unexpected Memory SST case contract")
+        ranks[case] = config["world_size"]
+    return ranks
+
+
 def execute(argv, log, cwd, timeout, data=None):
     with log.open("wb") as stream:
         result = subprocess.run(argv, cwd=cwd, timeout=timeout, input=data,
@@ -35,7 +54,7 @@ def main():
     side = args["side"]
     revision = REVISIONS[side]
     diagnostic = side.startswith("diagnostic-")
-    cases = ("memory_ordered",) if diagnostic else CASES
+    cases = args.get("cases", ("memory_ordered",) if diagnostic else CASES)
     target = args.get("ssh_target", "root@141.61.94.30")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]*", target):
         raise ValueError("Invalid SST SSH destination")
@@ -67,6 +86,15 @@ def main():
         if status_log.stat().st_size:
             raise ValueError("Green worktree is dirty")
         state["worktree"] = str(repo)
+        ranks = case_inputs(repo, cases, diagnostic)
+        state["case_ranks"] = ranks
+        # The acceptance wrapper runs one case at a time in each container.
+        acceptance_timeout = 400 + sum(1020 if value == 64 else 900 for value in ranks.values())
+        state["acceptance_timeout"] = acceptance_timeout
+        if args.get("plan_only"):
+            step("cases-verified", 0)
+            print(json.dumps(state, separators=(",", ":")))
+            return 0
         source = work / "staged"
         step("source-lock", execute([sys.executable, "-B", "tools/collectives/memory_sst/memory_sst.py",
                                      "stage", "--revision", revision, "--output", str(source)],
@@ -90,7 +118,7 @@ def main():
                    bind, Path(bind).name, IMAGE, *cases]
         state["acceptance_argv"] = command
         step("before-acceptance", 0)
-        status = remote(command, "acceptance.log", 2200)
+        status = remote(command, "acceptance.log", acceptance_timeout)
         state["acceptance_exit"] = status
         step("after-acceptance", 0)
         summary = Path(__file__).with_name("memory_summary.py").read_bytes()

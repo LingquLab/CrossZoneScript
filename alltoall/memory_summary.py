@@ -29,6 +29,7 @@ summary = dict(acceptance_exit=int(status), revision=qual.get("revision"),
                cases={})
 for case in cases:
     path = root / "results" / case
+    expected = read(root / "source/tools/unitest/cases" / f"alltoall_{case}_sst.json")["world_size"]
     controller = read(path / "result.json")
     run = read(path / "run/result.json")
     ranks = read(path / "run/ranks.json")
@@ -53,7 +54,9 @@ for case in cases:
                deployed_sha256=run.get("kernel", {}).get("sha256"),
                object_sha256=qual.get("kernels", {}).get(case, {}).get("sha256"),
                runner_returncode=run.get("runner_returncode"),
-               rank_count=run.get("rank_count"), ranks_sha256=digest(path / "run/ranks.json"),
+               rank_count=run.get("rank_count"), expected_rank_count=expected,
+               ranks_complete=[item["rank"] for item in ranks] == list(range(expected)),
+               ranks_sha256=digest(path / "run/ranks.json"),
                failed_ranks=failed[:4], simulated_us=run.get("simulated_us"), logs=str(path),
                library_mappings=run.get("loaded_libraries", {}).get("state"))
     if case == "memory_direct_schedule_local_cross" and run.get("schedule"):
@@ -65,6 +68,6 @@ if int(status) == 0:
     assert summary["container_removed"] and summary["revision"] == revision
     assert all(row["controller_status"] == "passed" and row["runner_returncode"] == 0
                and row["deployed_sha256"] and row["deployed_sha256"] == row["object_sha256"]
-               and row["rank_count"] == ranks and not row["failed_ranks"]
-               for row, ranks in zip(summary["cases"].values(), (8, 32, 64)))
+               and row["rank_count"] == row["expected_rank_count"] and row["ranks_complete"]
+               and not row["failed_ranks"] for row in summary["cases"].values())
 print(json.dumps(summary))
