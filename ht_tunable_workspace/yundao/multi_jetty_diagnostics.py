@@ -33,6 +33,7 @@ def log_evidence():
         evidence[folder.name] = {"ranks": len(counts), "completed_rounds": sum(counts),
                                  "markers_by_rank": dict(marker_counts)}
     flags = Counter()
+    ub_causes = Counter()
     earliest = min(path.stat().st_mtime for path in ORIGINAL.glob("return-*/rank-*.log"))
     latest = max(path.stat().st_mtime for path in ORIGINAL.glob("return-*/rank-*.log"))
     locations = (Path.home() / "ascend/log/debug/plog", Path.home() / "ascend/log/run/plog",
@@ -52,10 +53,18 @@ def log_evidence():
                 with path.open("rb") as handle:
                     handle.seek(max(0, path.stat().st_size - 1024 * 1024))
                     lines = handle.read().decode(errors="replace").splitlines()
+                for line in lines:
+                    for reason in ("UB address out of range", "UB address is out of range",
+                                   "UB address out of bounds", "UB address overflow", "UB address not aligned",
+                                   "UB address alignment", "MTE write UB", "MTE read UB",
+                                   "MTE instruction error", "MTE instruction exception"):
+                        if reason.lower() in line.lower():
+                            ub_causes[reason] += 1
                 for label, pattern in tokens.items():
                     flags[label] += sum(bool(re.search(pattern, line, re.I)) for line in lines)
     RESULT["retained_cases"] = evidence
     RESULT["plog_markers"] = {key: count for key, count in flags.items() if count}
+    RESULT["plog_ub_cause_phrases"] = dict(ub_causes)
 
 
 def qualify():
@@ -64,10 +73,17 @@ def qualify():
         data = json.loads(report.read_text())
         if data.get("mode") == "aiv_only" and data.get("status") == "pass":
             return data
-    completed = subprocess.run([sys.executable, str(HERE / "hccl_baseline.py")], capture_output=True, timeout=440)
+    env = dict(os.environ, TILEXR_VALIDATION_RUN_LABEL="ht-4d37ae67-ep8-hccl")
+    completed = subprocess.run([sys.executable, str(HERE / "hccl_baseline.py")],
+                               env=env, capture_output=True, timeout=440)
     rows = [line[len("TILEXR_RESULT "):] for line in completed.stdout.decode(errors="replace").splitlines()
             if line.startswith("TILEXR_RESULT ")]
-    return json.loads(rows[-1]) if rows else {"status": "qualification_runner_failed", "exit": completed.returncode}
+    if rows:
+        return json.loads(rows[-1])
+    stderr = completed.stderr.decode(errors="replace")
+    kind = re.search(r"(?m)^([A-Za-z]+Error):", stderr)
+    return {"status": "qualification_runner_failed", "exit": completed.returncode,
+            "error_type": kind[1] if kind else None}
 
 
 def test():
