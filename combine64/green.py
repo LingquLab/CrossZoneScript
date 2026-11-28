@@ -74,6 +74,8 @@ def main():
             points = args['points']
             depth = (max(sum(point[0] == core for point in points) for core in (1, 2, 4, 8))
                      if args.get('parallel') else len(points))
+            if args.get('point_workers'):
+                depth = 1
             seconds += depth * (args['timeout'] + 1050) + 100
         code, result = execute(client, 'matrix_host.py', args, seconds, log)
         report.update(result)

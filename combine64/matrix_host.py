@@ -222,7 +222,27 @@ def run(root, cid, request):
         fcntl.flock(stage, fcntl.LOCK_EX)
         tools, platform_hashes = stage_tools(root, request['files'])
     script = str(Path('/work') / tools.relative_to(root) / 'sim_case.py')
-    if request.get('parallel'):
+    if request.get('point_workers'):
+        assert variant == 'timing-only' and len(points) <= 4
+        assert len(os.sched_getaffinity(0)) >= 8 * len(points)
+        with open('/proc/meminfo') as memory:
+            available_kib = next(int(line.split()[1]) for line in memory if line.startswith('MemAvailable:'))
+        assert available_kib >= (128 * len(points) + 256) * 1024**2
+
+        def run_point(point):
+            core, chunk = point
+            label = f'{core}-chunk{chunk}'
+            assert not any(item.get('stage') in ('prepare_case', 'sst', 'checker')
+                           and item.get('case', '').startswith(f'cores{core}-chunk{chunk}-')
+                           and item.get('case') in request.get('active_cases', [])
+                           for item in status(root).get('parallel_progress', []))
+            with worker_container(root, label, 128) as worker:
+                return run_points(root, worker, script, platform_hashes, [point], timeout, attempt,
+                                  f'core{label}.lock', f'progress-core{label}.json', explicit_pipe_points, variant)
+
+        with ThreadPoolExecutor(max_workers=len(points)) as executor:
+            rows = [row for group in executor.map(run_point, points) for row in group]
+    elif request.get('parallel'):
         groups = {core: [point for point in points if point[0] == core] for core in sorted({p[0] for p in points})}
         assert set(groups) <= ({1, 2, 4} if variant in ('fixed-events', 'timing-only') else {2, 4, 8}) and len(groups) <= 3
         if variant in ('fixed-events', 'timing-only'):
