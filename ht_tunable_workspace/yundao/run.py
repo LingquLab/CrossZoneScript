@@ -38,7 +38,17 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             "-p", "30527", target, "python3", "-"]
     options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
     entry = "inspect.py" if options.get("inspect") else "remote.py"
-    proc = subprocess.run(args, input=(here / entry).read_bytes(), capture_output=True, timeout=820)
+    if options.get("stage_source"):
+        from source_bundle import prepare
+        packed, status = prepare(here / "remote.py", Path(temp))
+        if packed is None:
+            print(json.dumps(status, ensure_ascii=True, separators=(",", ":")))
+            raise SystemExit(0)
+        remote = ('umask 077; d=$(mktemp -d /tmp/tilexr-ep8-source.XXXXXXXX) && '
+                  'tar -xzf - -C "$d" && python3 "$d/remote.py" "$d"')
+        proc = subprocess.run(args[:-2] + [remote], input=packed, capture_output=True, timeout=820)
+    else:
+        proc = subprocess.run(args, input=(here / entry).read_bytes(), capture_output=True, timeout=820)
 output = proc.stdout.decode(errors="replace").splitlines()
 lines = [s.removeprefix("TILEXR_RESULT ") for s in output if s.startswith("TILEXR_RESULT ")]
 if lines:

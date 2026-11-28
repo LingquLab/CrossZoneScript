@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import socket
+import sys
 import subprocess
 import time
 
@@ -51,19 +52,28 @@ def main():
     if code or idle != list(range(8)):
         result.update(exit_code=code, failure_kind="devices_not_confirmed_idle")
         return
-    if not command("clone", ["git", "clone", "--depth", "1", "--branch", BRANCH,
-                             "https://github.com/LingquLab/TileXR.git", str(repo)], 75, env=env):
-        return
-    head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=8, text=True).strip()
-    if head != REVISION and not command("fetch_revision", ["git", "-C", str(repo), "fetch", "--depth", "1",
-                     "origin", REVISION], 55, env=env):
-        return
-    if not command("checkout", ["git", "-C", str(repo), "checkout", "--detach", REVISION], 12, env=env):
-        return
-    assert subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=8, text=True).strip() == REVISION
-    if not command("dependencies", ["git", "-C", str(repo), "submodule", "update", "--init", "--depth", "1",
-                                    "3rdparty/spdlog", "3rdparty/picojson"], 90, env=env):
-        return
+    if len(sys.argv) == 2:
+        source = Path(sys.argv[1]).resolve()
+        result["stage"] = "source_bundle"
+        assert (source / "revision.txt").read_text().strip() == REVISION
+        assert (source / "source/3rdparty/spdlog/include/spdlog/spdlog.h").is_file()
+        assert (source / "source/3rdparty/picojson/picojson.h").is_file()
+        global repo
+        repo = source / "source"
+    else:
+        if not command("clone", ["git", "clone", "--depth", "1", "--branch", BRANCH,
+                                 "https://github.com/LingquLab/TileXR.git", str(repo)], 75, env=env):
+            return
+        head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=8, text=True).strip()
+        if head != REVISION and not command("fetch_revision", ["git", "-C", str(repo), "fetch", "--depth", "1",
+                         "origin", REVISION], 55, env=env):
+            return
+        if not command("checkout", ["git", "-C", str(repo), "checkout", "--detach", REVISION], 12, env=env):
+            return
+        assert subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=8, text=True).strip() == REVISION
+        if not command("dependencies", ["git", "-C", str(repo), "submodule", "update", "--init", "--depth", "1",
+                                        "3rdparty/spdlog", "3rdparty/picojson"], 90, env=env):
+            return
     shell = ["bash", "-c", 'source "$1/set_env.sh" >/dev/null 2>&1 || exit 66; shift; exec "$@"', "tilexr", TOOLKIT]
     configure = ["cmake", "-S", str(repo), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                  "-DTILEXR_BUILD_COMBINE_HT=ON", "-DTILEXR_BUILD_UNITEST=OFF", "-DBUILD_TESTING=ON",
