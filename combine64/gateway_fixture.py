@@ -127,7 +127,7 @@ def make_rank(rank, tokens, chunk, cores, items, micro, metadata, helper, probe,
     if not gathered:
         gathered.extend(GUARD * HIDDEN)
     config = (rank, workload_world, tokens, HIDDEN, TOPK, len(fp32_input) // STRIPE,
-              len(gathered) // STRIPE, chunk, 1, int(not active), cores, 2, 0, 8, 8, 1, 1, 2, 1)
+              len(gathered) // STRIPE, chunk, 1, int(not active), cores, 2, 0, 8, 1 if workload_world == 8 else 8, 1, 1, 2, 1)
     prefix.with_suffix('.config').write_bytes(struct.pack('<19I', *config))
     subprocess.run([str(helper), str(prefix)], check=True)
     raw = prefix.with_suffix('.args').read_bytes()
