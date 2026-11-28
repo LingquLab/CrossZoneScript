@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import time
 
 from matrix import ROOT, download
 from run import SSH
@@ -14,10 +15,26 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--args-file", type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
+    if args.get("wait_for_campaign") and not wait_for_campaign(args["wait_timeout"]):
+        return
     ssh = SSH + [args["host"]]
     for campaign in args["campaigns"]:
         assert re.fullmatch(r"matrix-(reduce|send)-[0-9a-f]{12}", campaign)
         restore(ssh, campaign)
+
+
+def wait_for_campaign(timeout):
+    receipt = Path("runs/ht-882a27b-campaign/1/execution/execution.json")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if receipt.is_file():
+            state = json.loads(receipt.read_text(encoding="utf-8"))["status"]
+            if state not in ("STARTING", "RUNNING"):
+                print(json.dumps({"stage": "prior_campaign_terminal", "status": state}))
+                return True
+        time.sleep(10)
+    print(json.dumps({"stage": "prior_campaign_wait_expired"}))
+    return False
 
 
 def restore(ssh, campaign):
