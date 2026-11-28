@@ -258,6 +258,8 @@ def concurrent_matrix(repo, env, smoke=False, remaining=False):
             if remaining and tokens == 32 and sync == 0:
                 continue
             for mode in ("concurrent", "serial"):
+                if remaining and tokens == 32 and sync == 1 and mode == "concurrent":
+                    continue
                 name = f"{mode}-t{tokens}-s{sync}"
                 rows[name] = timed_module(name, lambda rank: [str(executable), str(rank), str(tokens),
                     str(sync), str(int(mode == "concurrent")), str(pipeline_obj), str(local_obj)],

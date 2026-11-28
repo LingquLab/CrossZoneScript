@@ -30,4 +30,7 @@ installed = shutil.which("all_reduce_test")
 if installed:
     binaries.add(installed)
 print("TILEXR_RESULT " + json.dumps({"aiv_only_record_files": sorted(records)[:10],
-                                     "all_reduce_test": sorted(binaries)[:8]}, separators=(",", ":")))
+                                     "all_reduce_test": sorted(binaries)[:8],
+                                     "sdk_source": (sdk / "tools/hccl_test/Makefile").is_file(),
+                                     "mpirun": shutil.which("mpirun") is not None,
+                                     "mpicxx": shutil.which("mpicxx") is not None}, separators=(",", ":")))
