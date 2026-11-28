@@ -22,7 +22,6 @@ SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "green-sst-30"]
 CANN = "/opt/sim/Ascend/cann-9.1.0"
 ENV = "/opt/sim/cann-env.sh"
 UBUS = "/opt/sim/plugins/libUBusSimulator.so"
-INVENTORY = REPO / "tools/tssh/clusters.json"
 
 
 class RunFailed(RuntimeError):
@@ -41,17 +40,17 @@ def git_output(args, cwd=REPO):
     return subprocess.check_output(["git", *args], cwd=cwd, timeout=45)
 
 
-def make_payload():
-    assert git_output(["rev-parse", "HEAD"]).decode().strip() == REVISION
-    assert not git_output(["status", "--porcelain"]).strip()
-    source_lock = json.loads((LOCK / "SOURCE_LOCK.json").read_text(encoding="utf-8"))
-    assert source_lock["runtime_commit"] == REVISION
-    backups = [(REPO, REVISION, "source/")]
+def make_payload(repo=REPO, revision=REVISION, lock=LOCK):
+    assert git_output(["rev-parse", "HEAD"], repo).decode().strip() == revision
+    assert not git_output(["status", "--porcelain"], repo).strip()
+    source_lock = json.loads((lock / "SOURCE_LOCK.json").read_text(encoding="utf-8"))
+    assert source_lock["runtime_commit"] == revision
+    backups = [(repo, revision, "source/")]
     for submodule in ("spdlog", "picojson"):
         path = "3rdparty/" + submodule
-        ref = git_output(["rev-parse", "HEAD:" + path]).decode().strip()
-        assert git_output(["rev-parse", "HEAD"], REPO / path).decode().strip() == ref
-        backups.append((REPO / path, ref, "source/" + path + "/"))
+        ref = git_output(["rev-parse", "HEAD:" + path], repo).decode().strip()
+        assert git_output(["rev-parse", "HEAD"], repo / path).decode().strip() == ref
+        backups.append((repo / path, ref, "source/" + path + "/"))
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz") as archive:
         for repo, commit, prefix in backups:
@@ -59,22 +58,24 @@ def make_payload():
             with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as source:
                 for member in source:
                     archive.addfile(member, source.extractfile(member) if member.isfile() else None)
-        archive.add(LOCK, arcname="source-lock")
+        archive.add(lock, arcname="source-lock")
     return output.getvalue()
 
 
-def qualify(work, side, name, container_id, hostname, fingerprints, ranks):
+def qualify(work, side, name, container_id, hostname, fingerprints, ranks, *, repo=REPO,
+            revision=REVISION, kernel="urma_lr8", elements=129):
     stage = work / f"{ranks}p"
     stage.mkdir()
+    inventory = repo / "tools/tssh/clusters.json"
     common = {
-        "inventory": str(INVENTORY), "cluster": "c01-b03", "host": "C01-B03-5",
+        "inventory": str(inventory), "cluster": "c01-b03", "host": "C01-B03-5",
         "hostname": hostname, "container": name, "container_id": container_id,
         "image_id": IMAGE, "sources": "/work/source-lock", "output": f"/work/{ranks}p-qualified",
-        "runtime_commit": REVISION, "source_lock_sha256": fingerprints[0],
+        "runtime_commit": revision, "source_lock_sha256": fingerprints[0],
         "cann_root": CANN, "driver_root": "/usr/local/Ascend/driver", "cann_env": ENV,
         "cann_env_sha256": fingerprints[1], "ubus_library": UBUS, "ubus_sha256": fingerprints[2],
-        "sim_variant": side, "kernel_name": "urma_lr8", "stage_profiling": "0",
-        "rank_size": str(ranks), "elements_per_peer": "129",
+        "sim_variant": side, "kernel_name": kernel, "stage_profiling": "0",
+        "rank_size": str(ranks), "elements_per_peer": str(elements),
     }
     environment = f"/work/{ranks}p-environment"
     cli = [sys.executable, "-B", "scripts/run_alltoall_sim_kernel.py"]
@@ -85,27 +86,29 @@ def qualify(work, side, name, container_id, hostname, fingerprints, ranks):
     ):
         options = [piece for key, value in common.items() for piece in ("--" + key.replace("_", "-"), value)]
         argv = [*cli, phase, *options, *extras, "--local-output", str(stage / (phase + "-report"))]
-        run(argv, REPO, stage / (phase + ".log"), 180)
+        run(argv, repo, stage / (phase + ".log"), 180)
 
     request = json.loads((stage / "verify-report/request.json").read_text(encoding="utf-8"))
     request["environment_report"] = environment
     request_path = stage / "current-request.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
     config = {
-        "schema": "tilexr.unitest.sst.v1", "tool_checkout": str(REPO), "tool_commit": REVISION,
+        "schema": "tilexr.unitest.sst.v1", "tool_checkout": str(repo), "tool_commit": revision,
         "build_report": str(stage / "verify-report"), "abi_report": str(stage / "abi-report"),
-        "request_file": str(request_path), "inventory": str(INVENTORY),
+        "request_file": str(request_path), "inventory": str(inventory),
         "suite_output": f"/work/{ranks}p-suite", "rank_size": ranks, "threads": 32,
-        "simulation_timeout": 600, "timeout": 900, "diagnostics": {"queue_state_dumps": True},
+        "simulation_timeout": 600, "timeout": 900,
+        "diagnostics": {"queue_state_dumps": True} if kernel == "urma_lr8" else {"instruction_dump_chips": [0]},
     }
     config_path = stage / "sst.json"
     config_path.write_text(json.dumps(config), encoding="utf-8")
     return stage, config_path
 
 
-def run_case(stage, config, ranks):
-    controller = REPO / "tools/unitest"
-    argv = [sys.executable, "-B", "-m", "controller", "--case", f"cases/alltoall_lr8_{ranks}p_516b_sst.json",
+def run_case(stage, config, ranks, *, repo=REPO, case=None):
+    controller = repo / "tools/unitest"
+    case = case or f"alltoall_lr8_{ranks}p_516b_sst.json"
+    argv = [sys.executable, "-B", "-m", "controller", "--case", f"cases/{case}",
             "--mode", "single", "--target", "sst", "--sim-config", str(config),
             "--no-profiling", "--output-dir", str(stage / "unitest")]
     code = 0

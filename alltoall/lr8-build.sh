@@ -3,6 +3,19 @@ set -eo pipefail
 cd /work
 split=$1
 [[ "$split" == 0 || "$split" == 1 ]]
+case ${2:-lr8} in
+    lr8)
+        option=TILEXR_ALLTOALL_LR8_SST_SPLIT_UDMA_WRITES
+        target=tilexr_alltoall_urma_lr8_kernel
+        elf_log=lr8-elf.log
+        ;;
+    clos-4plus8)
+        option=TILEXR_ALLTOALL_CLOS_4PLUS8_SST_SPLIT_SQ_FETCH
+        target=tilexr_alltoall_urma_full_clos_4plus8_kernel
+        elf_log=clos-4plus8-elf.log
+        ;;
+    *) exit 2 ;;
+esac
 mkdir receipts
 source /opt/sim/cann-env.sh
 export ASCEND_HOME_PATH=/opt/sim/Ascend/cann-9.1.0
@@ -18,10 +31,10 @@ cmake -S /work/source -B /work/build -DTILEXR_BUILD_COLLECTIVES=ON \
     -DTILEXR_BUILD_UNITEST=OFF -DTILEXR_BUILD_EP=OFF -DBUILD_TESTING=OFF \
     -DTILEXR_DIAGNOSTICS_SOC_TYPE=Ascend950 -DTILEXR_COLLECTIVES_SOC_TYPE=Ascend950 \
     -DTILEXR_COLLECTIVES_ENABLE_PROFILING=OFF \
-    -DTILEXR_ALLTOALL_LR8_SST_SPLIT_UDMA_WRITES="$split" \
+    -D"$option=$split" \
     -DBISHENG_EXECUTABLE="$toolchain/bisheng" -DTILEXR_MOONEP_CCE_LINKER="$toolchain/ld.lld" \
     >receipts/configure.log 2>&1
-cmake --build /work/build --target tilexr_alltoall_urma_lr8_kernel_sst --parallel 4 --verbose \
+cmake --build /work/build --target "${target}_sst" --parallel 4 --verbose \
     >receipts/build.log 2>&1
-readelf -Whs /work/build/src/collectives/sst/tilexr_alltoall_urma_lr8_kernel.o >receipts/lr8-elf.log
+readelf -Whs "/work/build/src/collectives/sst/${target}.o" >"receipts/$elf_log"
 
