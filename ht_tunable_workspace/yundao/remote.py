@@ -41,17 +41,19 @@ def device_status():
     r = subprocess.run(["npu-smi", "info"], capture_output=True, timeout=15)
     field = r.stdout.decode(errors="replace")
     idle = sorted(set(int(i) for i in re.findall(r"No running processes found in NPU\s+(\d+)", field, re.I)))
-    return r.returncode, idle
+    processes = 0
+    section = False
+    for line in field.splitlines():
+        if "Process id" in line and "Process memory" in line:
+            section = True
+        if section and re.match(r"^\s*\|\s*\d+\s+\d+\s+\|\s*\d+\s+\|", line, re.I):
+            processes += 1
+    return {"exit_code": r.returncode, "idle_devices": idle, "process_rows": processes}
 
 
 def main():
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false")
-    result["stage"] = "device_preflight"
-    code, idle = device_status()
-    result["idle_devices"] = idle
-    if code or idle != list(range(8)):
-        result.update(exit_code=code, failure_kind="devices_not_confirmed_idle")
-        return
+    result["device_preflight"] = device_status()
     if len(sys.argv) == 2:
         source = Path(sys.argv[1]).resolve()
         result["stage"] = "source_bundle"
@@ -86,9 +88,14 @@ def main():
                                              "^tilexr_combine_ht_contract$", "--output-on-failure"], 45):
         return
     result["stage"] = "device_before_launch"
-    code, idle = device_status()
-    if code or idle != list(range(8)):
-        result.update(exit_code=code, idle_devices=idle, failure_kind="devices_not_confirmed_idle")
+    for attempt in range(13):
+        occupancy = device_status()
+        if occupancy["exit_code"] == 0 and occupancy["idle_devices"] == list(range(8)):
+            break
+        if attempt < 12:
+            time.sleep(5)
+    else:
+        result.update(occupancy=occupancy, failure_kind="devices_not_confirmed_idle")
         return
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
