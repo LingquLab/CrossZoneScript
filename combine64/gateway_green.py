@@ -10,6 +10,8 @@ from bootstrap_green import REVISIONS, SESSION, source_request
 from transport import connect
 
 HERE = Path(__file__).parent
+
+
 def execute(client, filename, args, seconds, log):
     program = (HERE / filename).read_text(encoding='utf-8')
     program += '\nraise SystemExit(main(' + repr(args) + '))\n'
@@ -40,8 +42,28 @@ def main():
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action = args['action']
-    assert action in ('build', 'run', 'status', 'finish')
-    log = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION / f'{action}-{time.time_ns()}'
+    assert action in ('build', 'run', 'status', 'finish', 'saved-run')
+    logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION
+    if action == 'saved-run':
+        relevant = sorted(logs.glob('run-*'))
+        evidence = []
+        for directory in relevant[-2:]:
+            row = {'log_files': sorted(path.name for path in directory.iterdir())}
+            stdout = directory / 'gateway_host.py.stdout'
+            stderr = directory / 'gateway_host.py.stderr'
+            if stdout.is_file() and stdout.stat().st_size < 65536:
+                output = stdout.read_text(encoding='utf-8', errors='replace').strip()
+                if output:
+                    parsed = json.loads(output)
+                    row['errors'] = [{key: item[key] for key in ('case', 'status', 'error') if key in item}
+                                     for item in parsed.get('rows', [])]
+            if stderr.is_file():
+                lines = stderr.read_text(encoding='utf-8', errors='replace').splitlines()
+                row['diagnostics'] = [line.strip()[:260] for line in lines if 'Error' in line or ' line ' in line][-6:]
+            evidence.append(row)
+        print(json.dumps({'run_count': len(relevant), 'evidence': evidence}))
+        return 0
+    log = logs / f'{action}-{time.time_ns()}'
     log.mkdir(parents=True)
     with connect('18', 'password') as client:
         if action == 'build':
