@@ -38,6 +38,8 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             "-p", "30527", target, "python3", "-"]
     options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
     entry = "inspect.py" if options.get("inspect") else "remote.py"
+    if options.get("rootinfo"):
+        entry = "rootinfo.py"
     if options.get("stage_source"):
         from source_bundle import prepare
         packed, status = prepare(here / "remote.py", Path(temp))
