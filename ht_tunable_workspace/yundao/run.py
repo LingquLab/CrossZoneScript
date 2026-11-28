@@ -80,7 +80,21 @@ def available_alternative(temp):
 
 
 with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
-    if options.get("alternate_host"):
+    if options.get("alternate_diagnostics"):
+        for profile in profiles():
+            if profile[0] == "30527":
+                continue
+            candidate = connection(profile, temp)
+            match = subprocess.run(candidate[:-2] + [
+                "test -f ~/tilexr-validation/ht-4d37ae67-multi-jetty-ep8-1795859849/result.json"
+            ], capture_output=True, timeout=20)
+            if match.returncode == 0:
+                args = candidate
+                break
+        else:
+            print(json.dumps(dict(stage="alternate_diagnostics_host", status="unavailable")))
+            raise SystemExit(0)
+    elif options.get("alternate_host"):
         args = available_alternative(temp)
     else:
         args = connection(next(profile for profile in profiles() if profile[0] == "30527"), temp)
@@ -93,7 +107,17 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
         entry = "profile_read.py"
     if options.get("matrix_status"):
         entry = "matrix_status.py"
-    if options.get("hccl_baseline"):
+    if options.get("alternate_diagnostics"):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for name in ("multi_jetty_diagnostics.py", "hccl_baseline.py", "remote.py", "matrix.py"):
+                archive.add(here / name, arcname=name)
+        command = ('umask 077; d=$(mktemp -d /tmp/tilexr-multi-jetty-diagnostic.XXXXXXXX) && '
+                   'tar -xzf - -C "$d" && python3 "$d/multi_jetty_diagnostics.py"')
+        keepalive = ["-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+        proc = subprocess.run(args[:1] + keepalive + args[1:-2] + [command],
+                              input=buffer.getvalue(), capture_output=True, timeout=820)
+    elif options.get("hccl_baseline"):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
             for name in ("hccl_baseline.py", "remote.py"):
