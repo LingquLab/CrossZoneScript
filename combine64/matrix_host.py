@@ -402,12 +402,27 @@ def main(request):
         runs = {}
         for line in active:
             cid, name = line.split()
-            proc = subprocess.run(['docker', 'top', cid, '-eo', 'comm,args'], timeout=10, capture_output=True)
-            procs = proc.stdout.decode(errors='replace').splitlines()
-            workers = [line for line in procs[1:] if '/sim_case.py' in line or '/sstsim.x' in line]
-            runs[name] = {'known': proc.returncode == 0, 'processes':len(workers),
-                          'cases': sorted({match for line in workers for match in re.findall(
-                             r'cores[1248]-chunk(?:16|32|64|128)-a[0-9]+', line)})}
+            inspect = '''import json, re
+from pathlib import Path
+count = 0
+cases = set()
+for entry in Path('/proc').glob('[0-9]*/cmdline'):
+    try:
+        arguments = entry.read_bytes().split(bytes([0]))
+    except (OSError, ProcessLookupError):
+        continue
+    if not any(arg.endswith((b'/sim_case.py', b'/sstsim.x')) for arg in arguments):
+        continue
+    count += 1
+    cases.update(match.decode('ascii') for arg in arguments for match in re.findall(
+        rb'cores[1248]-chunk(?:16|32|64|128)-a[0-9]+', arg))
+memory = Path('/sys/fs/cgroup/memory/memory.max_usage_in_bytes')
+print(json.dumps({'known': True, 'processes': count, 'cases': sorted(cases),
+                  'memory_peak_bytes': int(memory.read_text()) if memory.is_file() else None}))
+'''
+            proc = subprocess.run(['docker', 'exec', cid, 'python3', '-c', inspect],
+                                  timeout=10, capture_output=True)
+            runs[name] = json.loads(proc.stdout) if proc.returncode == 0 else {'known': False}
         report['active'] = runs
         report.pop('identity', None)
         report.pop('bootstrap-result', None)
