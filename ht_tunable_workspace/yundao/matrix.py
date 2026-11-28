@@ -1,5 +1,6 @@
 """Run existing HT fixtures and the shared-QP API probe on the eight-device host."""
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -172,16 +173,28 @@ def final_matrix(bench, env):
 def compile_device_probe(repo, target, source):
     stem = f"tilexr_ep_ht_{target}_kernel"
     rule = BASE_BUILD / f"src/ep/combine_ht/CMakeFiles/{stem}.dir/build.make"
-    line = next(line.split(" && ", 1)[1] for line in rule.read_text().splitlines()
-                if "bisheng" in line and " -xcce " in line)
-    args = shlex.split(line)
+    recipes = [shlex.split(line.split(" && ", 1)[1]) for line in rule.read_text().splitlines()
+               if " && " in line]
+    compile_args = next(args for args in recipes if "-xcce" in args and "-c" in args)
+    link_args = next(args for args in recipes if "-m" in args and "aicorelinux" in args)
     output = ROOT / (Path(source).stem + ".o")
-    args[args.index("-o") + 1] = str(output)
-    args[args.index("-c") + 1] = str(HERE / source)
-    args.extend(["-I" + str(repo / "src/ep/combine_ht")])
-    if not remote.command(output.stem, SHELL + args, 180, cwd=ROOT):
-        SUMMARY.setdefault("build_errors", {})[output.stem] = remote.result.get("first_errors", [])
+    intermediate = output.with_suffix(".rel.o")
+    object_arg = compile_args.index("-o") + 1
+    link_args[link_args.index(compile_args[object_arg])] = str(intermediate)
+    compile_args[object_arg] = str(intermediate)
+    compile_args[compile_args.index("-c") + 1] = str(HERE / source)
+    compile_args.append("-I" + str(repo / "src/ep/combine_ht"))
+    link_args[link_args.index("-o") + 1] = str(output)
+    for phase, args in (("compile", compile_args), ("link", link_args)):
+        stage = f"{output.stem}_{phase}"
+        if not remote.command(stage, SHELL + args, 180, cwd=ROOT):
+            SUMMARY.setdefault("build_errors", {})[stage] = remote.result.get("first_errors", [])
+            return None
+    binary = output.read_bytes()
+    if binary[:4] != b"\x7fELF" or int.from_bytes(binary[16:18], "little") != 2:
+        SUMMARY.setdefault("build_errors", {})[output.stem] = ["expected linked AICore ELF"]
         return None
+    SUMMARY.setdefault("kernel_sha256", {})[output.stem] = hashlib.sha256(binary).hexdigest()
     return output
 
 
@@ -270,23 +283,17 @@ def native_modules(repo, env):
 
 
 def final_wait_matrix(repo, env):
-    cached = ROOT.parent / "ht-0b9c3322-ep8-1795849443"
-    probe = cached / "final_probe.o"
-    bench = cached / "final_wait_bench"
-    receipt = cached / "matrix.json"
-    if not (receipt.is_file() and probe.is_file() and os.access(bench, os.X_OK) and
-            json.loads(receipt.read_text())["revision"] == remote.REVISION):
-        probe = compile_device_probe(repo, "final_reduce", "final_probe.cpp")
-        bench = compile_fixture("final_wait_bench", "final_bench.cpp", repo, BASE_BUILD,
-                                BASE_BUILD / "src/ep/combine_ht", "tilexr-ep-ht-final-reduce",
-                                ("-DTILEXR_FINAL_PROBE=1", "-I" + str(SDK / "pkg_inc"),
-                                 "-I" + str(SDK / "pkg_inc/runtime"), "-lruntime"))
-        if not (probe and bench):
-            return
+    probe = compile_device_probe(repo, "final_reduce", "final_probe.cpp")
+    bench = compile_fixture("final_wait_bench", "final_bench.cpp", repo, BASE_BUILD,
+                            BASE_BUILD / "src/ep/combine_ht", "tilexr-ep-ht-final-reduce",
+                            ("-DTILEXR_FINAL_PROBE=1", "-I" + str(SDK / "pkg_inc"),
+                             "-I" + str(SDK / "pkg_inc/runtime"), "-lruntime"))
+    if not (probe and bench):
+        return
     SUMMARY["device_preflight"] = remote.device_status()
     env = dict(env, TILEXR_FINAL_PROBE_OBJECT=str(probe))
     rows = SUMMARY["final_wait"] = {}
-    for tokens in (4096, 256, 16384, 32):
+    for tokens in (32, 4096, 256, 16384):
         for _ in range(24):
             active = idle_devices()
             if active:
@@ -308,6 +315,8 @@ def final_wait_matrix(repo, env):
             if result["status"] == "pass" and (len(result["blocks_mode_waitsteps_p50_p95_verify"]) != 24 or
                 not all(row[-1] == 1 for row in result["blocks_mode_waitsteps_p50_p95_verify"])):
                 result["status"] = "missing_checks"
+        if result["status"] in ("timeout", "failed"):
+            break
 
 
 
