@@ -78,7 +78,13 @@ def main():
     p.add_argument("--host", default="public_fp8")
     p.add_argument("--revision", default="2b00ab8decae75b3a93a9a8471762e107205189a")
     p.add_argument("--ref", default="refs/heads/codex/combine-ht-multi-jetty")
+    p.add_argument("--args-file", type=Path)
     args = p.parse_args()
+    if args.args_file is not None:
+        for key, value in json.loads(args.args_file.read_text(encoding="utf-8")).items():
+            if key not in ("host", "revision", "ref") or not isinstance(value, str):
+                p.error(f"invalid script argument {key!r}")
+            setattr(args, key, value)
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         p.error("--revision must be a full SHA")
     os.environ["GIT_TERMINAL_PROMPT"] = "0"
