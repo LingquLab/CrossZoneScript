@@ -54,7 +54,9 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
                 archive.add(here / name, arcname=name)
         remote = ('umask 077; d=$(mktemp -d /tmp/tilexr-ep8-matrix.XXXXXXXX) && '
                   'tar -xzf - -C "$d" && python3 "$d/matrix.py"')
-        if options.get("final_wait"):
+        if options.get("smoke"):
+            remote += " smoke"
+        elif options.get("final_wait"):
             remote += " final_wait"
         elif options.get("device"):
             remote += " device"

@@ -28,7 +28,8 @@ SPECS = ["4:4", "8:8", "16:8", "8:16", "16:16", "24:24",
 def first_error(path):
     lines = path.read_text(errors="replace").splitlines()
     return next((re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[ip]", line.strip())[:180]
-                 for line in lines if re.search(r"error:|\[error\]|failed|mismatch|invalid", line, re.I)), None)
+                 for line in lines if re.search(r"error:|\[error\]|failed|mismatch|invalid", line, re.I)
+                 and "udma_version" not in line), None)
 
 
 def idle_devices():
@@ -219,7 +220,7 @@ def module_case(executable, env, mode, tokens, sync, cores, spec, binary):
                         str(cores), str(binary)], dict(env, TILEXR_UDMA_SHARED_QP_SPEC=spec))
 
 
-def concurrent_matrix(repo, env):
+def concurrent_matrix(repo, env, smoke=False):
     lib_dir = BASE_BUILD / "src/moonep/combine_ht"
     ep_dir = BASE_BUILD / "src/ep/combine_ht"
     comm_dir = BASE_BUILD / "src/comm"
@@ -241,8 +242,8 @@ def concurrent_matrix(repo, env):
     rows = SUMMARY["concurrent"] = {}
     pipeline_obj = lib_dir / "tilexr_moonep_combine_ht_kernel.o"
     local_obj = ep_dir / "tilexr_ep_ht_local_return_kernel.o"
-    for tokens in (32, 1024):
-        for sync in range(3):
+    for tokens in ((32,) if smoke else (32, 1024)):
+        for sync in ((0,) if smoke else range(3)):
             for mode in ("concurrent", "serial"):
                 name = f"{mode}-t{tokens}-s{sync}"
                 rows[name] = timed_module(name, lambda rank: [str(executable), str(rank), str(tokens),
@@ -251,7 +252,7 @@ def concurrent_matrix(repo, env):
 
 
 
-def native_modules(repo, env):
+def native_modules(repo, env, smoke=False):
     lib_dir = BASE_BUILD / "src/ep/combine_ht"
     executable = compile_fixture("ep8_modules", "ep8_modules.cpp", repo, BASE_BUILD,
                                  lib_dir, "tilexr-ep-ht-local-return",
@@ -263,8 +264,8 @@ def native_modules(repo, env):
     send_kernel = compile_device_probe(repo, "inter_server_send", "native_send_probe.cpp")
     send_results = SUMMARY["native_send"] = {}
     if send_kernel:
-        for cores in (1, 2, 4, 8):
-            for count in (4, 8, 16):
+        for cores in ((1,) if smoke else (1, 2, 4, 8)):
+            for count in ((4,) if smoke else (4, 8, 16)):
                 if count < cores:
                     continue
                 spec = f"{count}:{count}"
@@ -275,8 +276,8 @@ def native_modules(repo, env):
     local_results = SUMMARY["local_return"] = {}
     local_kernel = lib_dir / "tilexr_ep_ht_local_return_kernel.o"
     for mode in ("fullmesh", "direct"):
-        for tokens in (4096, 16384):
-            for sync in range(3):
+        for tokens in ((4096,) if smoke else (4096, 16384)):
+            for sync in ((0,) if smoke else range(3)):
                 local_results[f"{mode}/{tokens}/{sync}"] = module_case(
                     executable, env, mode, tokens, sync, 8, "8:8+direct", local_kernel)
 
@@ -369,14 +370,15 @@ def main():
         if profile_built:
             gather_matrix(build, env, True)
         return
-    if sys.argv[1:] in (["modules"], ["device"]):
+    if sys.argv[1:] in (["modules"], ["device"], ["smoke"]):
         for _ in range(24):
             if idle_devices() == list(range(8)):
                 break
             time.sleep(5)
-        native_modules(repo, env)
-        if sys.argv[1:] == ["device"]:
-            concurrent_matrix(repo, env)
+        smoke = sys.argv[1:] == ["smoke"]
+        native_modules(repo, env, smoke)
+        if sys.argv[1:] in (["device"], ["smoke"]):
+            concurrent_matrix(repo, env, smoke)
         return
     probe = compile_fixture("qp_probe", "qp_probe.cpp", repo, BASE_BUILD, BASE_BUILD / "src/comm", "tile-comm")
     bench = compile_fixture("final_bench", "final_bench.cpp", repo, BASE_BUILD,

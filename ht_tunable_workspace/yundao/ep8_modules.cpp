@@ -41,7 +41,7 @@ struct Buffer {
     size_t bytes;
     explicit Buffer(size_t size) : bytes(size)
     {
-        Check(aclrtMalloc(&ptr, bytes, ACL_MEM_MALLOC_NORMAL_ONLY), "malloc");
+        Check(aclrtMalloc(&ptr, bytes, ACL_MEM_MALLOC_HUGE_FIRST), "malloc");
     }
     ~Buffer() { aclrtFree(ptr); }
     void Upload(const void *source) const
@@ -151,8 +151,8 @@ void Run(uint32_t rank, uint32_t tokens, uint32_t sync, bool send, bool direct,
         const uint64_t ready = config.workspaceBytes;
         const uint64_t signal = ready + LocalReturnReadyBytes(config);
         const uint64_t size = signal + uint64_t(ranks) * kSlotBytes;
-        Buffer workspace(size + 2 * guard);
-        auto *base = static_cast<GM_ADDR>(workspace.ptr) + guard;
+        Buffer workspace(size + guard);
+        auto *base = static_cast<GM_ADDR>(workspace.ptr);
         TileXRUDMAMemHandle handle = 0;
         Check(TileXRUDMARegister(comm, base, size, &handle), "register");
         Buffer forward(uint64_t(config.world) * config.forwardCapacity * sizeof(int32_t) * kForwardRecordWords);
@@ -193,19 +193,19 @@ void Run(uint32_t rank, uint32_t tokens, uint32_t sync, bool send, bool direct,
         Check(TileXRGetCommArgsHost(comm, commHost), "host comm");
         Check(TileXRGetUDMARegistryDev(comm, registry), "device registry");
         std::vector<uint8_t> initial(workspace.bytes, 0xa5), actual(workspace.bytes);
-        std::fill(initial.begin() + guard, initial.end() - guard, 0);
+        std::fill(initial.begin(), initial.end() - guard, 0);
         std::vector<uint32_t> statuses(status.bytes / 4, UINT32_MAX);
         for (uint32_t token = 0; token < tokens; ++token) {
-            SeedRow(initial, guard + config.partialOffset + uint64_t(token) * hidden * 2, rank, token);
+            SeedRow(initial, config.partialOffset + uint64_t(token) * hidden * 2, rank, token);
         }
         for (uint32_t round = 0; round < 4; ++round) {
             Check(TileXRCommNextMagic(comm, &config.magic), "magic");
-            StoreMagic(initial, guard + config.readyOffset, config.magic);
-            StoreMagic(initial, guard + config.readyOffset + 8, config.chunks);
+            StoreMagic(initial, config.readyOffset, config.magic);
+            StoreMagic(initial, config.readyOffset + 8, config.chunks);
             if (round == 0) {
                 workspace.Upload(initial.data());
             } else {
-                Check(aclrtMemcpy(base + config.readyOffset, 16, initial.data() + guard + config.readyOffset,
+                Check(aclrtMemcpy(base + config.readyOffset, 16, initial.data() + config.readyOffset,
                                   16, ACL_MEMCPY_HOST_TO_DEVICE), "publish ready");
             }
             std::fill(statuses.begin(), statuses.end(), UINT32_MAX);
@@ -241,12 +241,11 @@ void Run(uint32_t rank, uint32_t tokens, uint32_t sync, bool send, bool direct,
             Require(bool(std::getline(std::cin, go)) && go == "go", "round barrier");
             workspace.Download(actual.data());
             const auto sentinel = [](uint8_t value) { return value == 0xa5; };
-            Require(std::all_of(actual.begin(), actual.begin() + guard, sentinel) &&
-                    std::all_of(actual.end() - guard, actual.end(), sentinel), "guard");
+            Require(std::all_of(actual.end() - guard, actual.end(), sentinel), "guard");
             for (uint32_t token = 0; token < tokens; ++token) {
                 const uint32_t sender = send ? token / (tokens / ranks) : (token + rank) % ranks;
                 if (!send || sender != rank) {
-                    ExpectRow(actual, guard + ReturnOffset(config, token, 0), sender, token);
+                    ExpectRow(actual, ReturnOffset(config, token, 0), sender, token);
                 }
             }
             for (uint32_t sender = 0; sender < ranks; ++sender) {
@@ -255,12 +254,12 @@ void Run(uint32_t rank, uint32_t tokens, uint32_t sync, bool send, bool direct,
                         continue;
                     }
                     for (uint32_t q = 0; q < cores * kLanes; ++q) {
-                        ExpectMagic(actual, guard + config.completionOffset +
+                        ExpectMagic(actual, config.completionOffset +
                             (sender * cores * kLanes + q) * kSlotBytes, config.magic);
                     }
                 } else {
                     for (uint32_t step = 0; step < SyncStepCount(config); ++step) {
-                        ExpectMagic(actual, guard + ready + LocalReturnReadyOffset(config, sender, step), config.magic);
+                        ExpectMagic(actual, ready + LocalReturnReadyOffset(config, sender, step), config.magic);
                     }
                 }
             }

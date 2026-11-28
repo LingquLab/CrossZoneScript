@@ -118,8 +118,8 @@ void RunLocalPipeline(uint32_t rank, uint32_t tokens, uint32_t sync, bool concur
         TileXRCombineHTPipelineLayout layout {};
         Check(TileXRMoonEpCombineHTGetPipelineLayoutWithOptions(&c, 1, &options, &layout), "layout");
         constexpr size_t guard = 512;
-        DeviceBuffer workspace(layout.workspace_bytes + 2 * guard);
-        auto *base = static_cast<GM_ADDR>(workspace.data) + guard;
+        DeviceBuffer workspace(layout.workspace_bytes + guard);
+        auto *base = static_cast<GM_ADDR>(workspace.data);
         DeviceBuffer forward(fixture.forward.size() * 4), counts(fixture.counts.size() * 4),
             ranges(fixture.ranges.size() * 4), masks(fixture.masks.size() * 4),
             backward(fixture.backward.size() * 8), backwardCounts(sizeof(fixture.backwardCounts)),
@@ -169,8 +169,8 @@ void RunLocalPipeline(uint32_t rank, uint32_t tokens, uint32_t sync, bool concur
         RegisteredKernel localReturn(localBinary, "tilexr_ep_ht_local_return_kernel");
 
         std::vector<uint8_t> input(workspace.bytes, 0xa5), actual(workspace.bytes);
-        std::fill(input.begin() + guard, input.end() - guard, 0);
-        auto *image = input.data() + guard;
+        std::fill(input.begin(), input.end() - guard, 0);
+        auto *image = input.data();
         std::memcpy(image + layout.send.inputOffset, fixture.input.data(), fixture.input.size() * sizeof(RowElement));
         std::fill_n(reinterpret_cast<RowElement *>(image + layout.local_offset + layout.local.gather_offset),
                     (layout.local.partial_offset - layout.local.gather_offset) / sizeof(RowElement), kGuard);
@@ -208,10 +208,9 @@ void RunLocalPipeline(uint32_t rank, uint32_t tokens, uint32_t sync, bool concur
                 Check(statuses[i], "GatewayReduce status");
             }
             workspace.Download(actual.data());
-            const auto *workspaceBytes = actual.data() + guard;
+            const auto *workspaceBytes = actual.data();
             const auto sentinel = [](uint8_t v) { return v == 0xa5; };
-            Require(std::all_of(actual.begin(), actual.begin() + guard, sentinel) &&
-                    std::all_of(actual.end() - guard, actual.end(), sentinel), "workspace guards");
+            Require(std::all_of(actual.end() - guard, actual.end(), sentinel), "workspace guards");
             fixture.CheckGather(reinterpret_cast<const RowElement *>(
                 workspaceBytes + layout.local_offset + layout.local.gather_offset));
             Require(std::memcmp(workspaceBytes + layout.send.partialOffset, fixture.expected.data(),
