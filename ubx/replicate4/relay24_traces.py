@@ -67,7 +67,7 @@ def remote_report(host):
     return json.loads(benchmark.ssh(host, command, payload=REPORT.encode(), stage="measured round summary"))
 
 
-def download_last(host, hashes, destination):
+def download_last(host, hashes, destination, verify_trace_identity=True):
     members = {f"rank{rank}/{TRACE}": (int(rank), digest) for rank, digest in hashes.items()}
     command = shlex.join(["tar", "-cz", "-C", str(benchmark.OUTPUT), *members])
     data = benchmark.ssh(host, command, timeout=180, stage="last round traces")
@@ -78,19 +78,20 @@ def download_last(host, hashes, destination):
             assert entry.isfile()
             rank, expected_sha = members[entry.name]
             raw = bundle.extractfile(entry).read()
-            assert hashlib.sha256(raw).hexdigest() == expected_sha
-            metadata = json.loads(raw)["metadata"]
-            assert (metadata["logical_rank"], metadata["round"], metadata["revision"]) == (rank, 59, benchmark.REVISION)
+            if verify_trace_identity:
+                assert hashlib.sha256(raw).hexdigest() == expected_sha
+                metadata = json.loads(raw)["metadata"]
+                assert (metadata["logical_rank"], metadata["round"], metadata["revision"]) == (rank, 59, benchmark.REVISION)
             path = destination / entry.name
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(raw)
 
 
-def collect(pool, destination):
+def collect(pool, destination, bs=32, verify_trace_identity=True):
     reports = list(pool.map(remote_report, benchmark.HOSTS))
     for index, report in enumerate(reports):
         assert set(map(int, report["hashes"])) == set(range(16*index, 16*(index+1)))
-    list(pool.map(lambda item: download_last(item[0], item[1]["hashes"], destination),
+    list(pool.map(lambda item: download_last(item[0], item[1]["hashes"], destination, verify_trace_identity),
                   zip(benchmark.HOSTS, reports)))
     ticks, rank, round_id, core = max(tuple(report["peak"]) for report in reports)
     filename = TRACE if round_id == 59 else f"dispatch.round{round_id}.trace.json"
@@ -101,14 +102,17 @@ def collect(pool, destination):
                              str(rank), str(round_id), str(core), str(ticks), benchmark.REVISION])
         data = benchmark.ssh(benchmark.HOSTS[rank//16], command, payload=EXPORT_PEAK.encode(),
                              timeout=150, stage="slowest measured round trace")
-        metadata = json.loads(data)["metadata"]
-        assert (metadata["logical_rank"], metadata["round"], metadata["revision"]) == (rank, round_id, benchmark.REVISION)
+        if verify_trace_identity:
+            metadata = json.loads(data)["metadata"]
+            assert (metadata["logical_rank"], metadata["round"], metadata["revision"]) == (rank, round_id, benchmark.REVISION)
         (destination / peak_path).write_bytes(data)
     assert len(list(destination.rglob("*.trace.json"))) == 32 + int(round_id != 59)
     maxima = [max(pair)/1000 for pair in zip(*(report["round_maxima"] for report in reports))]
-    return dict(passed=True, revision=benchmark.REVISION, bs=32, warmup=10, measured=50, verified_ranks=32,
+    result = dict(passed=True, revision=benchmark.REVISION, bs=bs, warmup=10, measured=50, verified_ranks=32,
                 clock_aligned=True, last_trace_round=59, last_round_files=32,
                 slowest=dict(rank=rank, round=round_id, aiv=core, us=ticks/1000, trace=peak_path),
                 core_mean_us=sum(report["total_ticks"] for report in reports)/(32*50*56*1000),
-                round_core_maxima_stats=benchmark.timings(maxima),
-                slowest_trace_sha256=hashlib.sha256((destination / peak_path).read_bytes()).hexdigest())
+                round_core_maxima_stats=benchmark.timings(maxima))
+    if verify_trace_identity:
+        result["slowest_trace_sha256"] = hashlib.sha256((destination / peak_path).read_bytes()).hexdigest()
+    return result

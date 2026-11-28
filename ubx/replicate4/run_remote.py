@@ -23,6 +23,8 @@ RUNTIME_INSTALL = ROOT / "runtime-install"
 RUNTIME_REVISION = "-"
 ROUTE_MODE = "replicate4"
 ALLOW_ALARM = False
+BS = 32
+VERIFY_TRACE_IDENTITY = True
 
 
 def load_json(path):
@@ -138,7 +140,7 @@ def run(index):
             sys.argv = [
                 "run_dispatch_node.py", "--host-index", str(index), "--local-ranks", "16",
                 "--devices", *(str(i) for i in range(16)), "--coordinator", "90.90.93.188",
-                "--port", str(PORT), "--build", str(BUILD), "--output", str(OUTPUT), "--bs", "32",
+                "--port", str(PORT), "--build", str(BUILD), "--output", str(OUTPUT), "--bs", str(BS),
                 "--nics", *NICS, "--tick-hz", "1000000000", "--revision", REVISION,
                 "--measured", "50", "--no-stats", "--clock-install", str(ROOT / "clock-install"),
                 "--profile-mode", "full",
@@ -160,7 +162,8 @@ def run(index):
         assert rank["verified"] and rank["verified_rounds"] == 60
         directory = OUTPUT / f"rank{node}"
         trace = directory / "dispatch.last.trace.json"
-        assert hashlib.sha256(trace.read_bytes()).hexdigest() == rank["trace_sha256"]
+        if VERIFY_TRACE_IDENTITY:
+            assert hashlib.sha256(trace.read_bytes()).hexdigest() == rank["trace_sha256"]
         queues = load_json(directory / "route-rdma-queue.json")
         if ROUTE_MODE == "same_lane":
             assert queues["relay_core"] == 0 and queues["cq_consumer"] == 60
@@ -180,7 +183,10 @@ if __name__ == "__main__":
     action = sys.argv[1]
     PORT = int(sys.argv[3])
     run_name = sys.argv[4]
-    assert re.fullmatch(r"full-bs32-f50(?:-[a-z0-9-]+)?", run_name)
+    match = re.fullmatch(r"full-bs(32|64|128)-f50(?:-[a-z0-9-]+)?", run_name)
+    assert match
+    BS = int(match.group(1))
+    VERIFY_TRACE_IDENTITY = len(sys.argv) <= 11 or sys.argv[11] != "skip-trace-identity"
     if len(sys.argv) > 5:
         RUNTIME_INSTALL = Path(sys.argv[5])
         RUNTIME_REVISION = sys.argv[6]

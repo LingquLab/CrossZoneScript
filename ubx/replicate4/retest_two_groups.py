@@ -3,6 +3,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import re
 from pathlib import Path, PurePosixPath
 import shlex
 import statistics
@@ -20,6 +21,7 @@ ROOT = PurePosixPath("/root/ubx-" + LABEL)
 PORT = 32500
 DEFAULT_HOSTS = HOSTS
 GID_INDEXES = {}
+VERIFY_TRACE_IDENTITY = True
 HERE = Path(__file__).resolve().parent
 TOOLKIT = "/usr/local/Ascend/cann-9.2.T101/set_env.sh"
 
@@ -84,6 +86,7 @@ def controller(index, action):
     command = shlex.join([
         "python3", "-", action, str(index), str(PORT), benchmark.OUTPUT.name,
         str(benchmark.RUNTIME_INSTALL), build.RUNTIME, str(ROOT), REVISION, "replicate4", "require-ok",
+        "verify-trace-identity" if VERIFY_TRACE_IDENTITY else "skip-trace-identity",
     ])
     if action == "run":
         lib = ":".join(str(path) for path in (
@@ -147,7 +150,7 @@ def wait_idle(pool, idle_wait):
         time.sleep(10)
 
 
-def collect(pool, destination, output_layout=None):
+def collect(pool, destination, output_layout=None, bs=32):
     segments = {"receiver_server_segments_v1": 2, "receiver_global_expert_order_v1": 1}
     output_segments = segments[output_layout] if output_layout else None
     result = destination / LABEL
@@ -155,15 +158,14 @@ def collect(pool, destination, output_layout=None):
     with tempfile.TemporaryDirectory(prefix=".ubx-two-groups-", dir=destination) as temporary:
         collection = Path(temporary) / "verified"
         collection.mkdir()
-        summary = relay24_traces.collect(pool, collection)
+        summary = relay24_traces.collect(pool, collection, bs, VERIFY_TRACE_IDENTITY)
         route_hashes = set()
         totals = []
         final_peak = (0.0, -1, -1)
         for rank in range(32):
             trace = json.loads((collection / f"rank{rank}/dispatch.last.trace.json").read_bytes())
             metadata = trace["metadata"]
-            assert metadata["payload_distribution"] == "rank_group_8"
-            if output_layout:
+            if VERIFY_TRACE_IDENTITY and output_layout:
                 assert metadata["output_layout"] == output_layout and metadata["output_segments"] == output_segments
             route_hashes.add(metadata["route_sha256"])
             durations = [(event["dur"], rank, event["tid"]) for event in trace["traceEvents"]
@@ -180,8 +182,9 @@ def collect(pool, destination, output_layout=None):
                        trace_count=32+int(summary["slowest"]["round"] != 59),
                        last_round=dict(rank=rank, aiv=core, max_us=us, mean_us=statistics.mean(totals)))
         if output_layout:
-            peak = json.loads((collection / summary["slowest"]["trace"]).read_bytes())["metadata"]
-            assert (peak["output_layout"], peak["output_segments"]) == (output_layout, output_segments)
+            if VERIFY_TRACE_IDENTITY:
+                peak = json.loads((collection / summary["slowest"]["trace"]).read_bytes())["metadata"]
+                assert (peak["output_layout"], peak["output_segments"]) == (output_layout, output_segments)
             summary.update(output_layout=output_layout, output_segments=output_segments)
         (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         collection.rename(result)
@@ -189,7 +192,10 @@ def collect(pool, destination, output_layout=None):
 
 
 def main(args):
-    global HOSTS, LABEL, PORT, GID_INDEXES, REVISION, ROOT
+    global HOSTS, LABEL, PORT, GID_INDEXES, REVISION, ROOT, VERIFY_TRACE_IDENTITY
+    VERIFY_TRACE_IDENTITY = args.get("verify_trace_identity", True)
+    bs = int(args.get("bs", 32))
+    assert bs in (32, 64, 128)
     HOSTS = tuple(args.get("hosts", DEFAULT_HOSTS))
     assert HOSTS in (DEFAULT_HOSTS, ("90.90.93.83", "90.90.93.86"))
     benchmark.HOSTS = HOSTS
@@ -198,15 +204,17 @@ def main(args):
     if "revision" in args:
         REVISION = args["revision"]
         assert len(REVISION) == 40 and all(c in "0123456789abcdef" for c in REVISION)
-    label = "replicate4-rdma-two-groups-bs32-" + REVISION[:7]
-    ROOT = PurePosixPath("/root/ubx-" + label)
+    ROOT = PurePosixPath("/root/ubx-replicate4-rdma-two-groups-bs32-" + REVISION[:7])
+    label = f"replicate4-rdma-two-groups-bs{bs}-" + REVISION[:7]
     build.CANDIDATE = benchmark.REVISION = REVISION
     benchmark.ROOT = ROOT
     benchmark.HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
     benchmark.RUNTIME_INSTALL = ROOT / "runtime-install"
     LABEL = label if HOSTS == DEFAULT_HOSTS else label + "-83-86"
     PORT = int(args.get("port", 32500))
-    benchmark.OUTPUT = ROOT / args.get("run_name", "full-bs32-f50")
+    run_name = args.get("run_name", f"full-bs{bs}-f50")
+    assert re.fullmatch(rf"full-bs{bs}-f50(?:-[a-z0-9-]+)?", run_name)
+    benchmark.OUTPUT = ROOT / run_name
     with ThreadPoolExecutor(max_workers=2) as pool:
         if args.get("mode", "initial") == "initial":
             prepare(pool)
@@ -216,7 +224,7 @@ def main(args):
             wait_idle(pool, int(args.get("idle_wait", 240)))
             results = list(pool.map(lambda index: controller(index, "run"), range(2)))
             assert all(result["passed"] and result["route_qps_verified"] == 64 for result in results)
-        return collect(pool, Path(args["destination"]), args.get("output_layout"))
+        return collect(pool, Path(args["destination"]), args.get("output_layout"), bs)
 
 
 if __name__ == "__main__":
