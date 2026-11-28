@@ -169,17 +169,18 @@ def final_matrix(bench, env):
     SUMMARY["final"] = rows
 
 
-def compile_send_kernel(repo):
-    rule = BASE_BUILD / "src/ep/combine_ht/CMakeFiles/tilexr_ep_ht_inter_server_send_kernel.dir/build.make"
+def compile_device_probe(repo, target, source):
+    stem = f"tilexr_ep_ht_{target}_kernel"
+    rule = BASE_BUILD / f"src/ep/combine_ht/CMakeFiles/{stem}.dir/build.make"
     line = next(line.split(" && ", 1)[1] for line in rule.read_text().splitlines()
                 if "bisheng" in line and " -xcce " in line)
     args = shlex.split(line)
-    output = ROOT / "native_send_probe.o"
+    output = ROOT / (Path(source).stem + ".o")
     args[args.index("-o") + 1] = str(output)
-    args[args.index(str(repo / "src/ep/combine_ht/inter_server_send_kernel.cpp"))] = str(HERE / "native_send_probe.cpp")
+    args[args.index("-c") + 1] = str(HERE / source)
     args.extend(["-I" + str(repo / "src/ep/combine_ht")])
-    if not remote.command("native_send_kernel", SHELL + args, 180, cwd=ROOT):
-        SUMMARY.setdefault("build_errors", {})["native_send_kernel"] = remote.result.get("first_errors", [])
+    if not remote.command(output.stem, SHELL + args, 180, cwd=ROOT):
+        SUMMARY.setdefault("build_errors", {})[output.stem] = remote.result.get("first_errors", [])
         return None
     return output
 
@@ -246,7 +247,7 @@ def native_modules(repo, env):
                                   "-Wl,-rpath," + str(BASE_BUILD / "src/comm"), "-ltile-comm", "-lruntime"))
     if not executable:
         return
-    send_kernel = compile_send_kernel(repo)
+    send_kernel = compile_device_probe(repo, "inter_server_send", "native_send_probe.cpp")
     send_results = SUMMARY["native_send"] = {}
     if send_kernel:
         for cores in (1, 2, 4, 8):
@@ -268,6 +269,40 @@ def native_modules(repo, env):
 
 
 
+def final_wait_matrix(repo, env):
+    probe = compile_device_probe(repo, "final_reduce", "final_probe.cpp")
+    bench = compile_fixture("final_wait_bench", "final_bench.cpp", repo, BASE_BUILD,
+                            BASE_BUILD / "src/ep/combine_ht", "tilexr-ep-ht-final-reduce",
+                            ("-DTILEXR_FINAL_PROBE=1", "-I" + str(SDK / "pkg_inc"), "-I" + str(SDK / "pkg_inc/runtime"), "-lruntime"))
+    if not (probe and bench):
+        return
+    env = dict(env, TILEXR_FINAL_PROBE_OBJECT=str(probe))
+    rows = SUMMARY["final_wait"] = {}
+    for tokens in (32, 256, 4096, 16384):
+        for _ in range(24):
+            active = idle_devices()
+            if active:
+                break
+            time.sleep(5)
+        if not active:
+            rows[tokens] = {"status": "devices_busy"}
+            break
+        logs, result = run_group(f"final-t{tokens}", lambda rank: [str(bench), "--device", str(rank),
+            "--world", "64", "--tokens", str(tokens), "--hidden", "128", "--active-servers", "8",
+            "--blocks", "8,12,16,24", "--sync-modes", "0,1,2,3,4,5", "--rotation-policy", "1",
+            "--warmup", "5", "--iters", "30", "--csv", "1"], active[:1], env, 110)
+        rows[tokens] = result
+        if logs:
+            parsed = (row for row in csv.reader(logs[0].splitlines()) if len(row) == 20 and row[0] == "bf16")
+            result["blocks_mode_waitsteps_p50_p95_verify"] = [
+                [int(row[8]), row[9], int(row[10]), float(row[13]), float(row[15]), int(row[19])]
+                for row in parsed]
+            if result["status"] == "pass" and (len(result["blocks_mode_waitsteps_p50_p95_verify"]) != 24 or
+                not all(row[-1] == 1 for row in result["blocks_mode_waitsteps_p50_p95_verify"])):
+                result["status"] = "missing_checks"
+
+
+
 def main():
     evidence = json.loads((PREVIOUS / "result.json").read_text())
     if evidence["revision"] != remote.REVISION or evidence.get("stage") != "ep8":
@@ -278,6 +313,9 @@ def main():
         raise ValueError("unexpected source")
     env = dict(os.environ, TILEXR_UDMA_ROOTINFO_PATH=str(remote.write_eid_rootinfo()),
                TILEXR_UDMA_SHARED_QP_SPEC="16:16")
+    if sys.argv[1:] == ["final_wait"]:
+        final_wait_matrix(repo, env)
+        return
     if sys.argv[1:] == ["concurrent"]:
         concurrent_matrix(repo, env)
         return

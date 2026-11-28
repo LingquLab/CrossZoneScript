@@ -4,6 +4,11 @@
  * SyncWindow / SyncLogicalChunk / SyncPhysicalChunk granularities.
  */
 #include <acl/acl.h>
+#ifdef TILEXR_FINAL_PROBE
+#include "runtime/kernel.h"
+#include <fstream>
+#include <iterator>
+#endif
 #include <tilexr/ep/final_reduce.h>
 
 #include <algorithm>
@@ -118,6 +123,41 @@ struct AclEvent {
     }
 };
 
+enum ProbeMode : uint32_t { FullNoWait = 3, FullWaitOnce, PhysicalNoWait };
+
+#ifdef TILEXR_FINAL_PROBE
+void LaunchProbe(const void *workspace, const uint64_t *masks, void *ready, void *output,
+                 uint32_t *status, const SendConfig &config, uint32_t blocks, aclrtStream stream)
+{
+    static std::vector<char> image;
+    static uint8_t signature;
+    static void *handle = nullptr;
+    constexpr char name[] = "tilexr_probe_final_reduce_bench";
+    if (!handle) {
+        const char *path = std::getenv("TILEXR_FINAL_PROBE_OBJECT");
+        Require(path != nullptr, "test object path");
+        std::ifstream input(path, std::ios::binary);
+        image.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        Require(!image.empty(), "test object contents");
+        rtDevBinary_t binary {};
+        binary.magic = 0x41415246U;
+        binary.data = image.data();
+        binary.length = image.size();
+        CheckTileXR(rtDevBinaryRegister(&binary, &handle), "binary register");
+        CheckTileXR(rtFunctionRegister(handle, &signature, name, name, 0), "function register");
+    }
+    FinalReduceKernelArgs args {reinterpret_cast<uint64_t>(workspace), reinterpret_cast<uint64_t>(masks),
+        reinterpret_cast<uint64_t>(ready), reinterpret_cast<uint64_t>(output), reinterpret_cast<uint64_t>(status),
+        config};
+    rtArgsEx_t launch {};
+    launch.args = &args;
+    launch.argsSize = sizeof(args);
+    rtTaskCfgInfo_t task {};
+    task.schemMode = 1;
+    CheckTileXR(rtKernelLaunchWithFlagV2(&signature, blocks, &launch, nullptr, stream, 0, &task), "launch");
+}
+#endif
+
 const char *SyncModeName(uint32_t mode)
 {
     switch (mode) {
@@ -127,6 +167,9 @@ const char *SyncModeName(uint32_t mode)
         return "logical_chunk";
     case SyncPhysicalChunk:
         return "physical_chunk";
+    case FullNoWait: return "full_no_wait";
+    case FullWaitOnce: return "full_wait_once";
+    case PhysicalNoWait: return "physical_no_wait";
     default:
         return "unknown";
     }
@@ -143,6 +186,11 @@ uint32_t ParseSyncModeToken(const std::string &token)
     if (token == "2" || token == "physical" || token == "physical_chunk" || token == "SyncPhysicalChunk") {
         return SyncPhysicalChunk;
     }
+#ifdef TILEXR_FINAL_PROBE
+    if (token == "3") return FullNoWait;
+    if (token == "4") return FullWaitOnce;
+    if (token == "5") return PhysicalNoWait;
+#endif
     throw std::invalid_argument("Unsupported sync mode: " + token);
 }
 
@@ -384,9 +432,10 @@ CaseResult RunCase(const BenchOptions &opt, const std::vector<uint64_t> &masks, 
     SendConfig config {};
     constexpr int64_t kMagic = 2026;
     Require(MakeSendConfig(opt.rank, opt.tokens, opt.hidden, opt.topk, 1, 0, kMagic, config, opt.world, 1, kOwners,
-                syncMode),
+                syncMode >= FullNoWait ? uint32_t(SyncPhysicalChunk) : syncMode),
         "MakeSendConfig failed");
     config.rotationPolicy = opt.rotationPolicy;
+    config.reserved = syncMode >= FullNoWait ? syncMode - FullNoWait + 1 : 0;
     Require(config.workspaceBytes == baseConfig.workspaceBytes && config.returnOffset == baseConfig.returnOffset &&
             config.completionOffset == baseConfig.completionOffset,
         "SendConfig workspace layout unexpectedly changed across syncMode");
@@ -417,14 +466,22 @@ CaseResult RunCase(const BenchOptions &opt, const std::vector<uint64_t> &masks, 
         }
     };
 
+    const auto launch = [&] {
+#ifdef TILEXR_FINAL_PROBE
+        LaunchProbe(workspaceDev.ptr, static_cast<const uint64_t *>(serverMaskDev.ptr), localReadyDev.ptr,
+                    outputDev.ptr, static_cast<uint32_t *>(statusDev.ptr), config, blocks, stream);
+#else
+        CheckTileXR(TileXREpHtFinalReduce(workspaceDev.ptr, static_cast<const uint64_t *>(serverMaskDev.ptr),
+                    localReadyDev.ptr, outputDev.ptr, static_cast<uint32_t *>(statusDev.ptr), &config, blocks,
+                    stream), "TileXREpHtFinalReduce");
+#endif
+    };
+
     bool verified = false;
     if (opt.verify) {
         CheckAcl(aclrtMemset(outputDev.ptr, outputDev.bytes, 0x5a, outputDev.bytes), "memset output");
         CheckAcl(aclrtMemset(statusDev.ptr, statusDev.bytes, 0xff, statusDev.bytes), "memset status");
-        CheckTileXR(TileXREpHtFinalReduce(workspaceDev.ptr, static_cast<const uint64_t *>(serverMaskDev.ptr),
-                        localReadyDev.ptr, outputDev.ptr, static_cast<uint32_t *>(statusDev.ptr), &config, blocks,
-                        stream),
-            "TileXREpHtFinalReduce verify");
+        launch();
         CheckAcl(aclrtSynchronizeStream(stream), "sync verify");
         checkStatus("verify");
 
@@ -445,10 +502,7 @@ CaseResult RunCase(const BenchOptions &opt, const std::vector<uint64_t> &masks, 
     }
 
     for (uint32_t i = 0; i < opt.warmup; ++i) {
-        CheckTileXR(TileXREpHtFinalReduce(workspaceDev.ptr, static_cast<const uint64_t *>(serverMaskDev.ptr),
-                        localReadyDev.ptr, outputDev.ptr, static_cast<uint32_t *>(statusDev.ptr), &config, blocks,
-                        stream),
-            "TileXREpHtFinalReduce warmup");
+        launch();
     }
     CheckAcl(aclrtSynchronizeStream(stream), "sync warmup");
 
@@ -459,10 +513,7 @@ CaseResult RunCase(const BenchOptions &opt, const std::vector<uint64_t> &masks, 
     samplesUs.reserve(opt.iters);
     for (uint32_t i = 0; i < opt.iters; ++i) {
         CheckAcl(aclrtRecordEvent(startEv.handle, stream), "record start");
-        CheckTileXR(TileXREpHtFinalReduce(workspaceDev.ptr, static_cast<const uint64_t *>(serverMaskDev.ptr),
-                        localReadyDev.ptr, outputDev.ptr, static_cast<uint32_t *>(statusDev.ptr), &config, blocks,
-                        stream),
-            "TileXREpHtFinalReduce timed");
+        launch();
         CheckAcl(aclrtRecordEvent(stopEv.handle, stream), "record stop");
         CheckAcl(aclrtSynchronizeEvent(stopEv.handle), "sync stop event");
         float elapsedMs = 0.0F;
@@ -490,7 +541,9 @@ CaseResult RunCase(const BenchOptions &opt, const std::vector<uint64_t> &masks, 
         }
     }
 
-    return CaseResult {blocks, syncMode, steps, waitPlanes, stats, bwGBs, verified};
+    const bool includesWait = syncMode != FullNoWait && syncMode != PhysicalNoWait;
+    const uint32_t waitSteps = includesWait ? (syncMode == FullWaitOnce ? 1U : steps) : 0U;
+    return CaseResult {blocks, syncMode, waitSteps, includesWait ? waitPlanes : 0U, stats, bwGBs, verified};
 }
 
 } // namespace
