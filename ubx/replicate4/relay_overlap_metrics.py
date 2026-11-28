@@ -1,4 +1,4 @@
-"""Summarize EP32 rank spans and last-round relay stages in the green workspace."""
+"""Summarize EP32 rank spans, payload QP traffic and last-round relay stages in the green workspace."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -20,8 +20,13 @@ receipt = json.loads((output / 'host-result.json').read_text())
 assert receipt['passed'] and receipt['revision'] == revision
 assert (receipt['warmup'], receipt['measured']) == (10, 50)
 result = {}
+blocks = 0
 for rank in range(first_rank, first_rank + 16):
-    rows = json.loads((output / f'rank{rank}/core-total-records.json').read_text())
+    directory = output / f'rank{rank}'
+    rows = json.loads((directory / 'core-total-records.json').read_text())
+    queues = json.loads((directory / 'rdma-queues.json').read_text())
+    assert len(queues) == 16 and all(q['error'] == 0 and q['producer'] == q['completed'] for q in queues)
+    blocks += sum(q['producer'] for q in queues)
     assert len(rows) == 60
     durations = []
     for number, row in enumerate(rows[10:], 10):
@@ -30,7 +35,8 @@ for rank in range(first_rank, first_rank + 16):
         durations.append(max(core['end'] for core in row['cores']) -
                          min(core['start'] for core in row['cores']))
     result[rank] = durations
-print(json.dumps(result))
+assert blocks % 120 == 0
+print(json.dumps(dict(spans=result, tokens_per_round=blocks//120)))
 """
 
 
@@ -41,8 +47,9 @@ def rank_spans(pool, revision, run_name):
         command = shlex.join(["python3", "-", str(root / run_name), revision, str(index * 16)])
         receipts.append(pool.submit(benchmark.ssh, host, command, payload=REPORT.encode(),
                                     timeout=60, stage="rank spans"))
-    return {int(rank): spans for receipt in receipts
-            for rank, spans in json.loads(receipt.result()).items()}
+    hosts = [json.loads(receipt.result()) for receipt in receipts]
+    return ({int(rank): spans for host in hosts for rank, spans in host["spans"].items()},
+            [host["tokens_per_round"] for host in hosts])
 
 
 def stages(directory, overlap):
@@ -75,9 +82,9 @@ def stages(directory, overlap):
     return data
 
 
-def summarize(pool, revision, destination, bs, run_name, baseline):
+def summarize(pool, revision, destination, bs, run_name, baseline, baseline_run=None):
     directory = destination / f"replicate4-rdma-two-groups-bs{bs}-{revision[:7]}-83-86"
-    all_spans = rank_spans(pool, revision, run_name)
+    all_spans, tokens = rank_spans(pool, revision, run_name)
     assert sorted(all_spans) == list(range(32))
     peak, rank, round_id = max((span, rank, index + 10) for rank, values in all_spans.items()
                                for index, span in enumerate(values))
@@ -90,7 +97,14 @@ def summarize(pool, revision, destination, bs, run_name, baseline):
         last_rank=dict(rank=last_rank, us=last / 1000),
         last_round_stages=stages(directory, overlap=True),
     )
-    baseline_directory = destination / f"replicate4-rdma-two-groups-bs{bs}-{baseline}-83-86"
+    report["payload_rdma_tokens_per_round_by_host"] = tokens
+    report["payload_rdma_bytes_per_round_by_host"] = [count * 3776 for count in tokens]
+    if baseline_run:
+        base_spans, base_tokens = rank_spans(pool, baseline, baseline_run)
+        report["baseline_payload_rdma_tokens_per_round_by_host"] = base_tokens
+        report["baseline_round_rank_max"] = benchmark.timings(
+            [max(spans) / 1000 for spans in zip(*base_spans.values())])
+    baseline_directory = destination / f"replicate4-rdma-two-groups-bs{bs}-{baseline[:7]}-83-86"
     if baseline_directory.is_dir():
         report["baseline_last_round_stages"] = stages(baseline_directory, overlap=False)
     (directory / "rank-timings.json").write_text(json.dumps(dict(
@@ -106,10 +120,12 @@ if __name__ == "__main__":
     args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
     revision, baseline = args["revision"], args["baseline"]
     assert len(revision) == 40 and all(c in "0123456789abcdef" for c in revision)
-    assert len(baseline) == 7 and all(c in "0123456789abcdef" for c in baseline)
+    baseline_runs = args.get("baseline_runs", {})
+    assert len(baseline) in (7, 40) and all(c in "0123456789abcdef" for c in baseline)
+    assert not baseline_runs or len(baseline) == 40
     destination = Path(args["destination"])
     assert destination.is_absolute()
     with ThreadPoolExecutor(2) as pool:
-        results = [summarize(pool, revision, destination, int(bs), run_name, baseline)
+        results = [summarize(pool, revision, destination, int(bs), run_name, baseline, baseline_runs.get(bs))
                    for bs, run_name in args["runs"].items()]
     print(json.dumps(results, separators=(",", ":")))
