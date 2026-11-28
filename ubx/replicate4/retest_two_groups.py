@@ -99,8 +99,9 @@ def controller(index, action):
     rounds = (HERE / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (HERE / "run_remote.py").read_text().replace('"90.90.93.188"', f'"{HOSTS[0]}"')
     payload = (rounds + "\n" + remote).encode()
+    timeouts = {"run": 740, "preflight": 215, "preflight-cleanup": 420}
     return json.loads(benchmark.ssh(HOSTS[index], command, payload=payload,
-                                    timeout=740 if action == "run" else 215, stage=action))
+                                    timeout=timeouts[action], stage=action))
 
 
 PORT_CHECK = """
@@ -130,22 +131,25 @@ def select_port(pool, ports):
     raise RuntimeError("No common free coordination port range")
 
 
-def wait_idle(pool, idle_wait):
+def wait_idle(pool, idle_wait, cleanup=False):
     deadline = time.monotonic() + idle_wait
+    action = "preflight-cleanup" if cleanup else "preflight"
     while True:
-        futures = [pool.submit(controller, index, "preflight") for index in range(2)]
+        futures = [pool.submit(controller, index, action) for index in range(2)]
         busy = []
+        receipts = []
         for future in futures:
             try:
                 receipt = future.result()
                 assert receipt["idle"] == receipt["healthy"] == 16
+                receipts.append(receipt)
             except RuntimeError as error:
                 if "NPU occupied after preflight" not in str(error):
                     raise
                 busy.append(str(error))
         if not busy:
-            return
-        if time.monotonic() >= deadline:
+            return receipts
+        if cleanup or time.monotonic() >= deadline:
             raise RuntimeError(" / ".join(busy))
         time.sleep(10)
 
@@ -221,10 +225,18 @@ def main(args):
         if args.get("mode") != "collect":
             list(pool.map(verify_runtime_receipt, HOSTS))
             PORT = select_port(pool, args.get("ports", [PORT]))
-            wait_idle(pool, int(args.get("idle_wait", 240)))
+            preflight = wait_idle(pool, int(args.get("idle_wait", 240)), args.get("cleanup", False))
             results = list(pool.map(lambda index: controller(index, "run"), range(2)))
             assert all(result["passed"] and result["route_qps_verified"] == 64 for result in results)
-        return collect(pool, Path(args["destination"]), args.get("output_layout"), bs)
+        summary = collect(pool, Path(args["destination"]), args.get("output_layout"), bs)
+        if args.get("mode") != "collect" and args.get("cleanup", False):
+            summary["cleanup"] = [
+                dict(host=host, term_sent=receipt["term_sent"], kill_sent=receipt["kill_sent"])
+                for host, receipt in zip(HOSTS, preflight)
+            ]
+            (Path(summary["local_results"]) / "summary.json").write_text(
+                json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        return summary
 
 
 if __name__ == "__main__":
