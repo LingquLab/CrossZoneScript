@@ -7,6 +7,7 @@ umask 077
 revision=$1
 digest=$2
 idle_timeout=$3
+scale_after_smoke=$4
 root="$HOME/.cache/tilexr-ht-be110cc8"
 archive="$root/tilexr-$revision.tar.gz"
 repo="$root/src-$revision"
@@ -112,15 +113,9 @@ wait_idle() {
     return 1
 }
 
-export TILEXR_ENABLE_UDMA=1
-unset ASCEND_RT_VISIBLE_DEVICES
-failed=0
-for mode in reduce send; do
-    step="idle-$mode"
-    log="$root/npu-0.log"
-    if [[ "$mode" == send ]]; then
-        log="$root/rootinfo-prepare.log"
-        if python3 - "$root/udma-rootinfo.json" >"$log" 2>&1 <<'PYROOT'
+rootinfo_ready=1
+log="$root/rootinfo-prepare.log"
+if python3 - "$root/udma-rootinfo.json" >"$log" 2>&1 <<'PYROOT'
 from collections import Counter
 import ipaddress
 import json
@@ -174,12 +169,25 @@ target = Path(sys.argv[1])
 target.write_text(json.dumps(result))
 print(f"diagnostic=udma_rootinfo_local_copy_ipv4_removed_{len(dropped)}")
 PYROOT
-        then
-            cat "$log"
-            export TILEXR_UDMA_ROOTINFO_PATH="$root/udma-rootinfo.json"
-        else
-            echo diagnostic=udma_rootinfo_local_copy_validation_failed
-            exit 1
+then
+    cat "$log"
+    export TILEXR_UDMA_ROOTINFO_PATH="$root/udma-rootinfo.json"
+else
+    echo diagnostic=udma_rootinfo_local_copy_validation_failed
+    rootinfo_ready=0
+fi
+
+export TILEXR_ENABLE_UDMA=1
+unset ASCEND_RT_VISIBLE_DEVICES
+failed=0
+for mode in reduce send; do
+    step="idle-$mode"
+    log="$root/npu-0.log"
+    if [[ "$mode" == send ]]; then
+        if (( !rootinfo_ready )); then
+            echo 'mode=send blocked=rootinfo_local_copy_validation'
+            failed=1
+            continue
         fi
         port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
         export TILEXR_COMM_ID="127.0.0.1:$port"
@@ -207,6 +215,37 @@ PYROOT
         fi
     done
     printf 'mode=%s correctness_pass_ranks=%s/8\n' "$mode" "$passed"
-    if (( passed != 8 )); then failed=1; fi
+    if (( passed != 8 )); then
+        failed=1
+    elif [[ "$scale_after_smoke" == 1 ]]; then
+        campaign="scale-$mode-${revision:0:12}"
+        output="$root/$campaign"
+        log="$root/$campaign.log"
+        script=bench_send.py
+        cores=1
+        if [[ "$mode" == reduce ]]; then
+            script=bench_gateway_reduce.py
+            cores=8
+        fi
+        msprof=$(command -v msprof)
+        if python3 -u "tests/moonep_combine_ht/$script" --binary "$bin" --output "$output" \
+            --dispatch-ep 64 --combine-ep 8 --server-count 1 --chunks 256 --cores "$cores" \
+            --msprof "$msprof" --domain 0 --idle-timeout "$idle_timeout" >"$log" 2>&1; then
+            printf 'mode=%s scale=pass campaign=%s\n' "$mode" "$campaign"
+        else
+            printf 'mode=%s scale=fail campaign=%s\n' "$mode" "$campaign"
+            if grep -q 'expected .*tilexr_moonep_combine_ht_kernel tasks' "$log"; then
+                echo diagnostic=msprof_sample_count_mismatch
+            fi
+            if grep -q 'devices still busy' "$log"; then echo diagnostic=scale_idle_wait_expired; fi
+            if grep -q 'failed ranks' "$log"; then
+                grep -oE 'stage (send|reduce), chunk [0-9]+, cores [0-9]+, failed ranks \[[0-9, ]+\]' "$log" | tail -1
+                find "$output" -name stdout.log -print0 |
+                    xargs -0 -r grep -hE '^(aclInit|device|stream|malloc|communicator|registration|prepare|launch|complete): -?[0-9]+$|^(send status|empty reducer progress)$' |
+                    sort -u | head -16 || true
+            fi
+            failed=1
+        fi
+    fi
 done
 exit "$failed"
