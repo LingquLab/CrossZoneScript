@@ -42,13 +42,20 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
     entry = "inspect.py" if options.get("inspect") else "remote.py"
     if options.get("rootinfo"):
         entry = "rootinfo.py"
+    if options.get("matrix_status"):
+        entry = "matrix_status.py"
     if options.get("matrix"):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            for name in ("matrix.py", "remote.py", "qp_probe.cpp", "final_bench.cpp"):
+            for name in ("matrix.py", "remote.py", "qp_probe.cpp", "final_bench.cpp",
+                         "ep8_modules.cpp", "native_send_probe.cpp"):
                 archive.add(here / name, arcname=name)
         remote = ('umask 077; d=$(mktemp -d /tmp/tilexr-ep8-matrix.XXXXXXXX) && '
                   'tar -xzf - -C "$d" && python3 "$d/matrix.py"')
+        if options.get("modules"):
+            remote += " modules"
+        elif options.get("profile"):
+            remote += " profile"
         proc = subprocess.run(args[:-2] + [remote], input=buffer.getvalue(), capture_output=True, timeout=1210)
     elif options.get("stage_source"):
         from source_bundle import prepare

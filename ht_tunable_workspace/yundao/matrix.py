@@ -5,7 +5,9 @@ import os
 from pathlib import Path
 import re
 import socket
+import shlex
 import subprocess
+import sys
 import time
 
 import remote
@@ -32,7 +34,7 @@ def idle_devices():
     return remote.device_status()["idle_devices"]
 
 
-def run_group(name, args, ranks, env, timeout):
+def run_group(name, args, ranks, env, timeout, barriers=False):
     active = idle_devices()
     if not all(rank in active for rank in ranks):
         return None, {"status": "devices_busy", "idle": active}
@@ -48,10 +50,21 @@ def run_group(name, args, ranks, env, timeout):
         for rank in ranks:
             path = folder / f"rank-{rank}.log"
             with path.open("wb") as log:
-                job = subprocess.Popen(SHELL + args(rank), env=env, stdout=log, stderr=subprocess.STDOUT)
+                job = subprocess.Popen(SHELL + args(rank), env=env, stdout=log, stderr=subprocess.STDOUT,
+                                       stdin=subprocess.PIPE if barriers else subprocess.DEVNULL)
             jobs.append((job, path))
         deadline = time.monotonic() + timeout
+        fence = 0
         while any(job.poll() is None for job, _ in jobs):
+            if barriers:
+                if any(job.poll() not in (None, 0) for job, _ in jobs):
+                    break
+                marker = ("LAUNCH_READY" if fence % 2 == 0 else "ROUND_READY") + f" {fence // 2}\n"
+                if fence < 8 and all(marker in p.read_text(errors="replace") for _, p in jobs):
+                    for job, _ in jobs:
+                        job.stdin.write(b"go\n")
+                        job.stdin.flush()
+                    fence += 1
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
@@ -74,12 +87,12 @@ def run_group(name, args, ranks, env, timeout):
     return [p.read_text(errors="replace") for _, p in jobs], result
 
 
-def compile_fixture(name, source, repo, build, lib_dir, library):
+def compile_fixture(name, source, repo, build, lib_dir, library, extra=()):
     path = ROOT / name
     ok = remote.command(name, SHELL + ["c++", "-std=c++17", "-O2", str(HERE / source),
             "-I" + str(repo / "include"), "-I" + str(SDK / "include"), "-L" + str(SDK / "lib64"),
             "-L" + str(lib_dir), "-Wl,-rpath," + str(lib_dir), "-Wl,-rpath," + str(SDK / "lib64"),
-            "-Wl,-rpath-link," + str(build / "src/comm"), "-l" + library, "-lascendcl", "-o", str(path)], 80)
+            "-Wl,-rpath-link," + str(build / "src/comm"), "-l" + library, "-lascendcl", *extra, "-o", str(path)], 80)
     if not ok:
         SUMMARY.setdefault("build_errors", {})[name] = remote.result.get("first_errors", [])
     return path if ok else None
@@ -101,17 +114,20 @@ def qp_matrix(probe, env):
     SUMMARY["qp"] = rows
 
 
-def gather_matrix(build, env):
+def gather_matrix(build, env, profiling=False):
     test = str(build / "src/moonep/combine_ht/tilexr_combine_ht_test")
     rows = {}
-    for world in (8, 16, 32, 64):
+    for world in ((8,) if profiling else (8, 16, 32, 64)):
         for reducers in (12, 16, 24, 40):
             name = f"gather-w{world}-r{reducers}"
             def args(rank):
-                return [test, "--mode", "fused", "--world", str(world), "--rank", str(rank),
+                command = [test, "--mode", "fused", "--world", str(world), "--rank", str(rank),
                         "--device", str(rank), "--local-comm", "1", "--tokens", "32", "--hidden", "128",
                         "--topk", "4", "--chunk", "32", "--splits", "4", "--reduce-begin", "8",
                         "--reducers", str(reducers), "--iterations", "4", "--domain", "0"]
+                if profiling:
+                    command += ["--profile", str(ROOT / name / "gather")]
+                return command
             logs, result = run_group(name, args, range(8), env, 35)
             rows[f"{world}/{reducers}"] = result
             if logs:
@@ -121,9 +137,13 @@ def gather_matrix(build, env):
                 steady = [x for rank in samples if len(rank) == 4 for x in rank[1:]]
                 if steady:
                     result["steady_min_max_us"] = [min(steady), max(steady)]
-                if result["status"] == "pass" and result["checked_rounds"] != 32:
+                if profiling:
+                    result["record_files"] = sum(path.stat().st_size > 0 for path in
+                                                 (ROOT / name).glob("gather.*.records"))
+                if result["status"] == "pass" and (result["checked_rounds"] != 32 or
+                                                 profiling and result["record_files"] != 32):
                     result["status"] = "missing_checks"
-    SUMMARY["gather"] = rows
+    SUMMARY["gather_profile" if profiling else "gather"] = rows
 
 
 def final_matrix(bench, env):
@@ -145,6 +165,70 @@ def final_matrix(bench, env):
     SUMMARY["final"] = rows
 
 
+def compile_send_kernel(repo):
+    rule = BASE_BUILD / "src/ep/combine_ht/CMakeFiles/tilexr_ep_ht_inter_server_send_kernel.dir/build.make"
+    line = next(line.split(" && ", 1)[1] for line in rule.read_text().splitlines()
+                if "bisheng" in line and " -xcce " in line)
+    args = shlex.split(line)
+    output = ROOT / "native_send_probe.o"
+    args[args.index("-o") + 1] = str(output)
+    args[args.index(str(repo / "src/ep/combine_ht/inter_server_send_kernel.cpp"))] = str(HERE / "native_send_probe.cpp")
+    args.extend(["-I" + str(repo / "src/ep/combine_ht")])
+    if not remote.command("native_send_kernel", SHELL + args, 180, cwd=ROOT):
+        SUMMARY.setdefault("build_errors", {})["native_send_kernel"] = remote.result.get("first_errors", [])
+        return None
+    return output
+
+
+def module_case(executable, env, mode, tokens, sync, cores, spec, binary):
+    case = f"{mode}-t{tokens}-s{sync}-c{cores}-q{spec}"
+    logs, result = run_group(case, lambda rank: [str(executable), mode, str(rank), str(tokens), str(sync),
+                            str(cores), str(binary)], range(8),
+                            dict(env, TILEXR_UDMA_SHARED_QP_SPEC=spec), 65, barriers=True)
+    if logs:
+        events = [[m.split() for m in re.findall(r"^MODULE_RESULT (.*)$", log, re.M)] for log in logs]
+        result["checked_rounds"] = sum(map(len, events))
+        if result["checked_rounds"] == 32:
+            result["steps"] = int(events[0][0][1])
+            result["local_ready_stride"] = int(events[0][0][2])
+            steady = [float(event[3]) for rank in events for event in rank[1:]]
+            result["steady_min_max_us"] = [min(steady), max(steady)]
+        elif result["status"] == "pass":
+            result["status"] = "missing_checks"
+    return result
+
+
+def native_modules(repo, env):
+    lib_dir = BASE_BUILD / "src/ep/combine_ht"
+    executable = compile_fixture("ep8_modules", "ep8_modules.cpp", repo, BASE_BUILD,
+                                 lib_dir, "tilexr-ep-ht-local-return",
+                                 ("-I" + str(repo / "src/ep/combine_ht"), "-I" + str(SDK / "pkg_inc"),
+                                  "-I" + str(SDK / "pkg_inc/runtime"), "-L" + str(BASE_BUILD / "src/comm"),
+                                  "-Wl,-rpath," + str(BASE_BUILD / "src/comm"), "-ltile-comm", "-lruntime"))
+    if not executable:
+        return
+    send_kernel = compile_send_kernel(repo)
+    send_results = SUMMARY["native_send"] = {}
+    if send_kernel:
+        for cores in (1, 2, 4, 8):
+            for count in (4, 8, 16):
+                if count < cores:
+                    continue
+                spec = f"{count}:{count}"
+                send_results[f"{cores}/{spec}"] = module_case(executable, env, "send", 1024, 2,
+                                                              cores, spec, send_kernel)
+                if send_results[f"{cores}/{spec}"]["status"] == "timeout":
+                    break
+    local_results = SUMMARY["local_return"] = {}
+    local_kernel = lib_dir / "tilexr_ep_ht_local_return_kernel.o"
+    for mode in ("fullmesh", "direct"):
+        for tokens in (4096, 16384):
+            for sync in range(3):
+                local_results[f"{mode}/{tokens}/{sync}"] = module_case(
+                    executable, env, mode, tokens, sync, 8, "8:8+direct", local_kernel)
+
+
+
 def main():
     evidence = json.loads((PREVIOUS / "result.json").read_text())
     if evidence["revision"] != remote.REVISION or evidence.get("stage") != "ep8":
@@ -155,6 +239,21 @@ def main():
         raise ValueError("unexpected source")
     env = dict(os.environ, TILEXR_UDMA_ROOTINFO_PATH=str(remote.write_eid_rootinfo()),
                TILEXR_UDMA_SHARED_QP_SPEC="16:16")
+    if sys.argv[1:] == ["profile"]:
+        build = ROOT / "profile-build"
+        configure = SHELL + ["cmake", "-S", str(repo), "-B", str(build),
+            "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON", "-DTILEXR_BUILD_COMBINE_HT=ON",
+            "-DTILEXR_BUILD_UNITEST=OFF", "-DTILEXR_ENABLE_PROFILING=ON",
+            "-DASCEND_DRIVER_PATH=" + str(PREVIOUS / "driver-link")]
+        if remote.command("profile_configure", configure, 45) and remote.command("profile_build",
+                SHELL + ["cmake", "--build", str(build), "--target", "tilexr_combine_ht_test", "-j8"], 300):
+            gather_matrix(build, env, True)
+        else:
+            SUMMARY["profile_build_error"] = [remote.result.get("stage"), remote.result.get("first_errors")]
+        return
+    if sys.argv[1:] == ["modules"]:
+        native_modules(repo, env)
+        return
     probe = compile_fixture("qp_probe", "qp_probe.cpp", repo, BASE_BUILD, BASE_BUILD / "src/comm", "tile-comm")
     bench = compile_fixture("final_bench", "final_bench.cpp", repo, BASE_BUILD,
                             BASE_BUILD / "src/ep/combine_ht", "tilexr-ep-ht-final-reduce")
@@ -171,7 +270,7 @@ def main():
 
 try:
     main()
-except (ValueError, OSError, subprocess.SubprocessError) as exc:
-    SUMMARY["failure"] = type(exc).__name__
+except (ValueError, OSError, subprocess.SubprocessError, StopIteration) as exc:
+    SUMMARY["failure"] = [type(exc).__name__, str(exc)[:150]]
 (ROOT / "matrix.json").write_text(json.dumps(SUMMARY, indent=2) + "\n")
 print("TILEXR_RESULT " + json.dumps(SUMMARY, ensure_ascii=True, separators=(",", ":")))
