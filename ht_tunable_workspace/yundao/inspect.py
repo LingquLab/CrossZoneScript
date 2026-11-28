@@ -26,3 +26,26 @@ result = dict(stage="inspect_clone", clone_signatures=[p for p in kinds if p in 
               rootinfo=Path("/etc/hccl_rootinfo.json").is_file(),
               clone_last=re.sub(r"(?i)(https?://)[^/\s]*@", r"\1[redacted]@", msg.splitlines()[-1])[:220] if msg else "")
 print("TILEXR_RESULT " + json.dumps(result, ensure_ascii=True, separators=(",", ":")))
+
+build_case = home / "tilexr-validation" / "ht-0b9c3322-ep8-1795841798"
+log = (build_case / "build.log").read_text(errors="replace")
+failures = [line.strip()[:260] for line in log.splitlines()
+            if re.search(r"fatal error:| error:|undefined reference|cannot find|error\(s\) detected|not found", line, re.I)]
+r = subprocess.run(["npu-smi", "info", "-t", "proc-mem"], capture_output=True, text=True, timeout=15)
+smi = subprocess.run(["npu-smi", "info"], capture_output=True, text=True, timeout=15)
+process_headers = []
+section = False
+process_lines = []
+for line in smi.stdout.splitlines():
+    if "Process id" in line and "Process memory" in line:
+        section = True
+        process_headers.append(line.strip()[:130])
+    elif section and ("found" in line.lower() or "|" in line):
+        if "No running processes" in line:
+            process_lines.append(line.strip()[:90])
+        elif re.search(r"\|\s*\d+\s+", line):
+            process_lines.append(re.sub(r"[A-Za-z_/][-A-Za-z0-9_./]*", "name", line.strip())[:85])
+result.update(build_first_errors=failures[:8], proc_mem_exit=r.returncode,
+              proc_mem_summary=r.stdout.splitlines()[:3], inventory_process_headers=process_headers,
+              inventory_process_lines=process_lines[:12])
+print("TILEXR_RESULT " + json.dumps(result, ensure_ascii=True, separators=(",", ":")))
