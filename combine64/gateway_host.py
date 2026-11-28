@@ -160,7 +160,13 @@ def main(request):
         active = subprocess.check_output(['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION,
                                           '--format', '{{.Names}}'], timeout=20).decode().splitlines()
         rows = [logs(case, case.name) for case in sorted((ROOT / 'cases').glob('cores*-chunk*-a*'))]
-        print(json.dumps(dict(active=active, rows=[status_summary(row) for row in rows]), separators=(',', ':')))
+        state = dict(active=active, rows=[status_summary(row) for row in rows])
+        if request.get('show_legacy_coordinator'):
+            # Match the exact outer command of the preceding 15-point matrix dispatch.
+            processes = subprocess.check_output(['ps', '-eo', 'args='], timeout=15).decode().splitlines()
+            state['legacy_coordinator_running'] = any(command.strip() == 'timeout --kill-after=25 34280 python3 -'
+                                                       for command in processes)
+        print(json.dumps(state, separators=(',', ':')))
         return 0
     if action == 'finish':
         active = subprocess.check_output(['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION,
