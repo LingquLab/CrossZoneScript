@@ -27,7 +27,8 @@ def ssh_script(alias, name, *args, timeout=120):
     ssh = shutil.which('ssh')
     assert ssh, 'SSH client missing'
     command = shlex.join(['python3', '-', *map(str, args)])
-    result = run([ssh, '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', alias, command],
+    result = run([ssh, '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
+                  '-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3',alias, command],
                  alias + '-' + pathlib.Path(name).stem, timeout=timeout,
                  data=(HERE / name).read_bytes())
     return json.loads(result)
