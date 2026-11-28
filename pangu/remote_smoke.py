@@ -36,7 +36,7 @@ check = subprocess.run(['bash','-n',str(wrapper)],capture_output=True,text=True,
 assert check.returncode == 0, 'Generated wrapper failed bash syntax validation'
 env = os.environ.copy()
 env.update({'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_DATASETS_OFFLINE':'1',
-            'WANDB_MODE':'offline','TOKENIZERS_PARALLELISM':'false'})
+            'WANDB_MODE':'offline','TOKENIZERS_PARALLELISM':'false','BASE_DATA_PATH':str(data)})
 env['PYTHONPATH'] = str(repo) + os.pathsep + env.get('PYTHONPATH','')
 supervisor_log = run_dir / 'supervisor.log'
 process = None
