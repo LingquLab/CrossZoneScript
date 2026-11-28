@@ -68,11 +68,12 @@ def report(rows, evidence):
         '64P 随机路由采用每 rank BS 128、topk 6、hidden 128、256 experts、FP32，固定随机种子 20261124。',
         '每组 8 个 rank 的前四个 rank 的 Port 0 绑定 Die 1，后四个绑定 Die 0。',
         '提前写好专家输出、gather 数据和 ready 标记，计时从单独启动 Gateway 规约开始。',
-        '算子耗时取所有活动 rank 和 AIV 的最大 Begin–End 跨度。墙钟时间按 SST 进程启动到退出计算。',
+        '算子耗时取所有活动 rank 和 AIV 的最大 Begin–End 跨度。周期按 1,650 cycle/µs 换算。',
+        'SST 墙钟从 SST 进程启动计到退出，用例墙钟还包括输入准备、数值校验和 trace 导出。',
         '',
         '## 64P 随机路由',
         '',
-        '| 规约核数 | Chunk | SST 模拟（µs） | 算子（µs） | SST 平台墙钟（s） | 用例墙钟（s） |',
+        '| 规约核数 | Chunk | SST 模拟（µs） | 算子（µs） | SST 墙钟（s） | 用例墙钟（s） |',
         '| ---: | ---: | ---: | ---: | ---: | ---: |',
     ]
     for row in sorted(matrix, key=lambda current: (current['cores'], current['chunk_tokens'])):
@@ -85,7 +86,7 @@ def report(rows, evidence):
         '只有 rank 0 的一个 AIV 执行规约。每个 token 的六份贡献都在本机，其中两份在 Gateway rank，四份来自同机其他 rank。',
         '每个配置跑 4 个完整 chunk，按 StageReady 至 WorkEnd 的跨度求平均。',
         '',
-        '| Chunk | 样本（µs） | 平均（µs） | SST 模拟（µs） | 算子（µs） | SST 平台墙钟（s） | 用例墙钟（s） |',
+        '| Chunk | 样本（µs） | 平均（µs） | SST 模拟（µs） | 算子（µs） | SST 墙钟（s） | 用例墙钟（s） |',
         '| ---: | --- | ---: | ---: | ---: | ---: | ---: |',
     ]
     for row in sorted(micro, key=lambda current: current['chunk_tokens']):
@@ -93,6 +94,15 @@ def report(rows, evidence):
         result.append(f"| {row['chunk_tokens']} | {samples} | {row['mean_chunk_us']:.3f} | "
                       f"{row['platform_simulated_us']:.3f} | {row['profiling_operator_us']:.3f} | "
                       f"{row['sst_wall_seconds']:.3f} | {row['runner_wall_seconds']:.3f} |")
+    if all(row.get('profiling_detail') == 'stages' for row in micro):
+        result += ['', '单核结果统一使用阶段级 profiling。首轮逐 token 打点的 chunk 128 和 512 达到墙钟超时，未生成输出 dump。']
+    result += [
+        '',
+        '## 运行记录',
+        '',
+        '首次启动在进入 SST 前因容器上下文管理器缺少装饰器而退出，修正编排后通过首个 64P 用例。',
+        '矩阵执行中 SSH 中断。复查 18 的进程与已落盘结果后，只续跑缺少通过记录的组合。',
+    ]
     result += ['', '每个用例目录中的 `profiling/gateway_perfetto.json` 可在 Perfetto 中打开。',
                '`results.json` 保存逐项耗时、校验结果和 trace SHA-256。', '']
     for name, content in (
