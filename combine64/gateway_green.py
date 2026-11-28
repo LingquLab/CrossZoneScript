@@ -40,13 +40,22 @@ def main():
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action = args['action']
-    assert action == 'build'
+    assert action in ('build', 'run', 'status', 'finish')
     log = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION / f'{action}-{time.time_ns()}'
     log.mkdir(parents=True)
     with connect('18', 'password') as client:
-        source = source_request(CANDIDATE, REVISION, log)
-        source['host'] = 'host-94-18'
-        code, result = execute(client, 'bootstrap_host.py', source, 510, log)
+        if action == 'build':
+            source = source_request(CANDIDATE, REVISION, log)
+            source['host'] = 'host-94-18'
+            code, result = execute(client, 'bootstrap_host.py', source, 510, log)
+        else:
+            seconds = 60
+            if action == 'run':
+                args['files'] = {name: (HERE / name).read_text(encoding='utf-8') for name in (
+                    'gateway_fixture.py', 'gateway_args.cpp', 'gateway_case.py', 'gateway_profile.py',
+                    'addressed_exports.py', 'clock_evidence.json')}
+                seconds = len(args['points']) * (args.get('timeout', 1800) + 480) + 80
+            code, result = execute(client, 'gateway_host.py', args, seconds, log)
     print(json.dumps(result, separators=(',', ':')))
     return code
 
