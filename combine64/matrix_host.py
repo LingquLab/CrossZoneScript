@@ -205,9 +205,10 @@ def run(root, cid, request):
     points = [tuple(point) for point in request['points']]
     assert points and len(set(points)) == len(points) and all(point in POINTS for point in points)
     variant = request.get('variant', 'baseline')
-    assert variant in ('baseline', 'inline-post')
-    if variant == 'inline-post':
-        assert json_file(root / 'profile-inline-build/build-summary.json')['all_compiled']
+    assert variant in ('baseline', 'inline-post', 'fixed-events')
+    variant_builds = {'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build'}
+    if variant in variant_builds:
+        assert json_file(root / variant_builds[variant] / 'build-summary.json')['all_compiled']
     timeout = request['timeout']
     assert type(timeout) is int and 120 <= timeout <= 3600
     attempt = request.get('attempt', 1)
@@ -222,7 +223,11 @@ def run(root, cid, request):
     script = str(Path('/work') / tools.relative_to(root) / 'sim_case.py')
     if request.get('parallel'):
         groups = {core: [point for point in points if point[0] == core] for core in sorted({p[0] for p in points})}
-        assert set(groups) <= {2, 4, 8} and len(groups) <= 3
+        assert set(groups) <= ({1, 2, 4} if variant == 'fixed-events' else {2, 4, 8}) and len(groups) <= 3
+        if variant == 'fixed-events':
+            assert all(not any(case_dir.name.startswith(f'cores{core}-chunk{chunk}-a') and
+                               case_dir.name in request.get('active_cases', [])
+                               for case_dir in (root / 'cases').iterdir()) for core, chunk in points)
         with open('/proc/meminfo') as memory:
             available_kib = next(int(line.split()[1]) for line in memory if line.startswith('MemAvailable:'))
         assert len(os.sched_getaffinity(0)) >= 8 * (len(groups) + 1)
@@ -231,9 +236,10 @@ def run(root, cid, request):
         assert available_kib >= (memory_gib * len(groups) + 160) * 1024**2
 
         def run_group(core, group):
-            with worker_container(root, core, memory_gib) as worker:
+            name = f'{core}-fixed' if variant == 'fixed-events' else core
+            with worker_container(root, name, memory_gib) as worker:
                 return run_points(root, worker, script, platform_hashes, group, timeout, attempt,
-                                  f'core{core}.lock', f'progress-core{core}.json', explicit_pipe_points, variant)
+                                  f'core{name}.lock', f'progress-core{name}.json', explicit_pipe_points, variant)
 
         with ThreadPoolExecutor(max_workers=len(groups)) as executor:
             tasks = [executor.submit(run_group, core, group) for core, group in groups.items()]
@@ -283,10 +289,12 @@ def main(request):
         assert task_container(root, REVISION) == cid
         print(json.dumps({'host':host, 'container_restarted': True, 'old_exit': details['State']['ExitCode']}))
         return 0
-    if request['action'] == 'build-inline-post':
+    if request['action'] in ('build-inline-post', 'build-fixed-events'):
+        variant = request['action'][len('build-'):]
+        build_dir = 'profile-inline-build' if variant == 'inline-post' else 'profile-fixed-events-build'
         # Use the same production source and platform, with a separate build directory.
         with worker_container(root, 'build', 64) as cid:
-            tools = root / 'inline-post-tools'
+            tools = root / (variant + '-tools')
             tools.mkdir()
             for filename, content in request['build_files'].items():
                 assert filename in ('build_profile.py', 'profile_capture.h')
@@ -294,11 +302,11 @@ def main(request):
             command = ('set -e; source /opt/sim/cann-env.sh; '
                        'export PATH=/opt/sim/Ascend/cann-9.1.0/tools/bisheng_compiler/bin:'
                        '/opt/sim/Ascend/cann-9.1.0/aarch64-linux/ccec_compiler/bin:$PATH; '
-                       'exec python3 /work/inline-post-tools/build_profile.py inline-post')
-            with (root / 'profile-inline-build.log').open('xb') as log:
+                       f'exec python3 /work/{variant}-tools/build_profile.py {variant}')
+            with (root / (build_dir + '.log')).open('xb') as log:
                 code = subprocess.run(['docker', 'exec', cid, 'bash', '-c', command],
                                       stdout=log, stderr=subprocess.STDOUT, timeout=340).returncode
-        result = json_file(root / 'profile-inline-build/build-summary.json')
+        result = json_file(root / build_dir / 'build-summary.json')
         print(json.dumps(result, separators=(',', ':')))
         return code
     if request['action'] == 'diagnose-log':

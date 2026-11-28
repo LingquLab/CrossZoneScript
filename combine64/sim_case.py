@@ -172,7 +172,7 @@ def main(config):
     explicit_pipe = config.get('explicit_pipe', False)
     variant = config.get('variant', 'entry-pipe' if explicit_pipe else 'baseline')
     build_dir = {'baseline': 'profile-build', 'entry-pipe': 'profile-pipe-build',
-                 'inline-post': 'profile-inline-build'}[variant]
+                 'inline-post': 'profile-inline-build', 'fixed-events': 'profile-fixed-events-build'}[variant]
     build = read_json(ROOT / build_dir / 'build-summary.json')
     assert build.get('variant', variant) == variant
     assert build['all_compiled'] and build['sim_send'] and build['profiling']

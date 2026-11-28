@@ -42,7 +42,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     host, auth, action = args['host'], args['auth'], args['action']
     assert host in ('26', '18') and auth in ('key', 'password')
-    assert action in ('build-and-run', 'run', 'status', 'diagnose-kill', 'diagnose-log', 'build-entry-pipe', 'build-inline-post', 'recover-container', 'resize', 'finish')
+    assert action in ('build-and-run', 'run', 'status', 'diagnose-kill', 'diagnose-log', 'build-entry-pipe', 'build-inline-post', 'build-fixed-events', 'recover-container', 'resize', 'finish')
     label = f'{host}-{action}-{time.time_ns()}'
     log = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION / label
     log.mkdir(parents=True)
@@ -61,14 +61,14 @@ def main():
                 return code
             args['action'] = 'run'
         seconds = 80
-        if args['action'] in ('build-entry-pipe', 'build-inline-post'):
+        if args['action'] in ('build-entry-pipe', 'build-inline-post', 'build-fixed-events'):
             args['build_files'] = {name: (HERE / name).read_text(encoding='utf-8')
                                    for name in ('build_profile.py', 'profile_capture.h')}
             seconds = 460
         if args['action'] == 'run':
             args['files'] = {name: (HERE / name).read_text(encoding='utf-8') for name in FILES}
             points = args['points']
-            depth = (max(sum(point[0] == core for point in points) for core in (2, 4, 8))
+            depth = (max(sum(point[0] == core for point in points) for core in (1, 2, 4, 8))
                      if args.get('parallel') else len(points))
             seconds += depth * (args['timeout'] + 1050) + 100
         code, result = execute(client, 'matrix_host.py', args, seconds, log)
