@@ -16,6 +16,11 @@ for path in sorted(root.glob("ht-0b9c3322-ep8-*"))[-6:]:
             result = json.loads(marker.read_text())
             case["build_errors"] = result.get("build_errors")
             case["failure"] = result.get("failure")
+            if "concurrent" in result:
+                case["concurrent_failures"] = {
+                    name: [item["rank_pass"], item.get("first_failure")]
+                    for name, item in result["concurrent"].items() if item["status"] == "failed"
+                }
             case["status_counts"] = {name: {s: sum(row.get("status") == s for row in rows.values())
                                              for s in ("pass", "failed", "timeout", "devices_busy")}
                                      for name, rows in result.items()
