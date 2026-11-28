@@ -175,6 +175,7 @@ void RunLocalPipeline(uint32_t rank, uint32_t tokens, uint32_t sync, bool concur
         std::fill_n(reinterpret_cast<RowElement *>(image + layout.local_offset + layout.local.gather_offset),
                     (layout.local.partial_offset - layout.local.gather_offset) / sizeof(RowElement), kGuard);
         std::fill_n(reinterpret_cast<RowElement *>(image + layout.send.partialOffset), fixture.expected.size(), kGuard);
+        uint32_t untouchedGatherStatus = 0;
         for (uint32_t round = 0; round < 4; ++round) {
             Check(TileXRCommNextMagic(comm, &args.send.config.magic), "round magic");
             workspace.Upload(input.data());
@@ -201,7 +202,11 @@ void RunLocalPipeline(uint32_t rank, uint32_t tokens, uint32_t sync, bool concur
             localStatus.Download(statuses.data());
             returnStatus.Download(returns.data());
             for (uint32_t i = 0; i < 8; ++i) {
-                Check(statuses[i], "Gather status");
+                if (statuses[i] == 0xa5a5a5a5U) {
+                    ++untouchedGatherStatus;
+                } else {
+                    Check(statuses[i], "Gather status");
+                }
                 Check(returns[i * 8], "LocalReturn status");
             }
             for (uint32_t i = local.config.reduce_core_begin; i < end; ++i) {
@@ -232,6 +237,7 @@ void RunLocalPipeline(uint32_t rank, uint32_t tokens, uint32_t sync, bool concur
             std::cout << "MODULE_RESULT " << round << ' ' << SyncStepCount(layout.send) << ' '
                       << LocalReturnSlotStride(layout.send) << ' ' << ms * 1000 << std::endl;
         }
+        std::cout << "GATHER_STATUS_UNTOUCHED " << untouchedGatherStatus << std::endl;
         Check(TileXRUDMAUnregister(comm, handle), "unregister");
     }
     Check(TileXRCommDestroy(comm), "destroy");

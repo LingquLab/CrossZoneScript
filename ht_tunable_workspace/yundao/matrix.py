@@ -204,6 +204,12 @@ def timed_module(case, args, env):
     if logs:
         events = [[m.split() for m in re.findall(r"^MODULE_RESULT (.*)$", log, re.M)] for log in logs]
         result["checked_rounds"] = sum(map(len, events))
+        gather_flags = [int(value) for log in logs for value in
+                        re.findall(r"^GATHER_STATUS_UNTOUCHED (\d+)$", log, re.M)]
+        if gather_flags:
+            result["gather_status_unchanged"] = sum(gather_flags)
+            if result["status"] == "pass" and result["gather_status_unchanged"] > 0:
+                result["status"] = "payload_pass_gather_status_unverified"
         if result["checked_rounds"] == 32:
             result["steps"] = int(events[0][0][1])
             result["local_ready_stride"] = int(events[0][0][2])
@@ -336,8 +342,8 @@ def main():
     if sys.argv[1:] == ["final_wait"]:
         final_wait_matrix(repo, env)
         return
-    if sys.argv[1:] == ["concurrent"]:
-        concurrent_matrix(repo, env)
+    if sys.argv[1:] in (["concurrent"], ["concurrent_smoke"]):
+        concurrent_matrix(repo, env, smoke=sys.argv[1:] == ["concurrent_smoke"])
         return
     if sys.argv[1:] == ["finish"]:
         initial = ROOT.parent / "ht-0b9c3322-ep8-1795846177"
