@@ -20,25 +20,70 @@ for encoding in ("utf-8-sig", "gb18030", "utf-16"):
         continue
 if not lines:
     raise SystemExit("Cannot read public_fp8 login notes")
-command, = [line for line in lines if re.search(r"\bssh\b", line)
-            and re.search(r"(?:^|\s)-p\s+30527(?:\s|$)", line)]
-target = re.search(r"[\w.-]+@[\w.-]+", command).group()
-identity = re.search(r"""(?:^|\s)-i\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))""", command)
-value = next(s for s in identity.groups() if s)
-path = Path(value.replace("\\", "/")).expanduser()
-choices = [path, folder / path, folder.parent / path, folder.parent.parent / path]
-if value[:3].lower() == "/d/":
-    choices.append(Path("D:/" + value[3:]))
-key = next(p for p in choices if p.is_file())
+options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
 ssh = shutil.which("ssh")
-with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
-    known_hosts = (Path(temp) / "known_hosts").as_posix()
-    args = [ssh, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+
+
+def profiles():
+    for index, line in enumerate(lines):
+        port = re.search(r"(?:^|\s)-p\s+(\d+)(?:\s|$)", line)
+        if not port or not re.search(r"\bssh\b", line):
+            continue
+        if port[1] == "30527" or (index and "public_fp8" in lines[index - 1]):
+            yield port[1], line
+
+
+def connection(profile, temp):
+    port, command = profile
+    target = re.search(r"[\w.-]+@[\w.-]+", command).group()
+    identity = re.search(r"""(?:^|\s)-i\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))""", command)
+    value = next(s for s in identity.groups() if s)
+    path = Path(value.replace("\\", "/")).expanduser()
+    choices = [path, folder / path, folder.parent / path, folder.parent.parent / path]
+    if value[:3].lower() == "/d/":
+        choices.append(Path("D:/" + value[3:]))
+    key = next(p for p in choices if p.is_file())
+    known_hosts = (Path(temp) / ("known_hosts-" + port)).as_posix()
+    return [ssh, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "UserKnownHostsFile=" + known_hosts, "-o", "GlobalKnownHostsFile=none",
             "-o", "UpdateHostKeys=no", "-o", "IdentitiesOnly=yes", "-i", str(key),
-            "-p", "30527", target, "python3", "-"]
-    options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
+            "-p", port, target, "python3", "-"]
+
+
+def available_alternative(temp):
+    outcomes = []
+    for profile in profiles():
+        if profile[0] == "30527":
+            continue
+        try:
+            args = connection(profile, temp)
+            proc = subprocess.run(args[:-2] + [
+                "test -f /usr/local/Ascend/cann-9.2.2/set_env.sh && npu-smi info"
+            ], capture_output=True, timeout=25)
+        except StopIteration:
+            outcomes.append("identity_missing")
+            continue
+        except subprocess.TimeoutExpired:
+            outcomes.append("probe_timeout")
+            continue
+        if proc.returncode:
+            outcomes.append("ssh_or_sdk_unavailable")
+            continue
+        status = proc.stdout.decode(errors="replace")
+        idle = sorted({int(value) for value in re.findall(r"No running processes found in NPU\s+(\d+)", status)})
+        if status.count("Ascend950DT") >= 8 and idle == list(range(8)):
+            return args
+        outcomes.append("eight_950dt_devices_unavailable")
+    print(json.dumps(dict(stage="alternate_host", outcomes=outcomes), ensure_ascii=True))
+    raise SystemExit(0)
+
+
+with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
+    if options.get("alternate_host"):
+        args = available_alternative(temp)
+    else:
+        args = connection(next(profile for profile in profiles() if profile[0] == "30527"), temp)
     entry = "inspect.py" if options.get("inspect") else "remote.py"
     if options.get("rootinfo"):
         entry = "rootinfo.py"
