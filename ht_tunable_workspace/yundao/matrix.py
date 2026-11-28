@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import socket
+import statistics
 import shlex
 import subprocess
 import sys
@@ -215,6 +216,10 @@ def timed_module(case, args, env):
             result["local_ready_stride"] = int(events[0][0][2])
             steady = [float(event[3]) for rank in events for event in rank[1:]]
             result["steady_min_max_us"] = [min(steady), max(steady)]
+            result["steady_median_us"] = statistics.median(steady)
+            result["round_slowest_rank_us"] = [
+                max(float(rank[i][3]) for rank in events) for i in range(1, 4)
+            ]
         elif result["status"] == "pass":
             result["status"] = "missing_checks"
     return result
@@ -226,7 +231,7 @@ def module_case(executable, env, mode, tokens, sync, cores, spec, binary):
                         str(cores), str(binary)], dict(env, TILEXR_UDMA_SHARED_QP_SPEC=spec))
 
 
-def concurrent_matrix(repo, env, smoke=False):
+def concurrent_matrix(repo, env, smoke=False, remaining=False):
     lib_dir = BASE_BUILD / "src/moonep/combine_ht"
     ep_dir = BASE_BUILD / "src/ep/combine_ht"
     comm_dir = BASE_BUILD / "src/comm"
@@ -250,6 +255,8 @@ def concurrent_matrix(repo, env, smoke=False):
     local_obj = ep_dir / "tilexr_ep_ht_local_return_kernel.o"
     for tokens in ((32,) if smoke else (32, 1024)):
         for sync in ((0,) if smoke else range(3)):
+            if remaining and tokens == 32 and sync == 0:
+                continue
             for mode in ("concurrent", "serial"):
                 name = f"{mode}-t{tokens}-s{sync}"
                 rows[name] = timed_module(name, lambda rank: [str(executable), str(rank), str(tokens),
@@ -342,8 +349,9 @@ def main():
     if sys.argv[1:] == ["final_wait"]:
         final_wait_matrix(repo, env)
         return
-    if sys.argv[1:] in (["concurrent"], ["concurrent_smoke"]):
-        concurrent_matrix(repo, env, smoke=sys.argv[1:] == ["concurrent_smoke"])
+    if sys.argv[1:] in (["concurrent"], ["concurrent_smoke"], ["concurrent_remaining"]):
+        concurrent_matrix(repo, env, smoke=sys.argv[1:] == ["concurrent_smoke"],
+                          remaining=sys.argv[1:] == ["concurrent_remaining"])
         return
     if sys.argv[1:] == ["finish"]:
         initial = ROOT.parent / "ht-0b9c3322-ep8-1795846177"

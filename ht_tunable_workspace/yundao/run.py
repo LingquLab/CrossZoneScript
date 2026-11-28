@@ -70,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             remote += " finish"
         elif options.get("remaining"):
             remote += " remaining"
+        elif options.get("concurrent_remaining"):
+            remote += " concurrent_remaining"
         elif options.get("concurrent_smoke"):
             remote += " concurrent_smoke"
         elif options.get("concurrent"):
