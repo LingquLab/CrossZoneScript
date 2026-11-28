@@ -1,0 +1,107 @@
+{
+  "run": {
+    "task_id": "ht-scheme-a-send-c1",
+    "event_id": "green-3059da954d824047b60d5bdc66c3cce7",
+    "iteration": 1,
+    "result": {
+      "case": "ht-scheme-a-0b9c3322-bs32-c1-8-8-ServerStaggered",
+      "status": "failed",
+      "returncode": 0,
+      "guards": {
+        "status": "guards_verified",
+        "count": 256
+      },
+      "kernel_sha256": "2a0cf13bb2811b4317be0abe79576c35d3f49dd6ac12d3e4b250a782b95497c3",
+      "cqe": 15132,
+      "sim_us": 2550.25,
+      "errors": [],
+      "first_mismatch": "rank12 status 0 ffffffffa5a5a5a5 != 00000000a5a5a5a5",
+      "runner_exit_code": 1,
+      "route_sha256": "ff53d74370444e7afff787c9389045521c72331a85169a81c45ee887a22cd2e1",
+      "payload_by_lane": [
+        7314,
+        650
+      ],
+      "plans_sha256": "aff86f2b85febce30934ca90645fdaf2d2e043309b50ce3c5b6e5b4f4f7304a6",
+      "tokens": 32,
+      "hidden": 128,
+      "chunks": 4,
+      "entry": "tilexr_ep_ht_inter_server_send_kernel",
+      "runtime_root": "/work/inter-server-native/ht-scheme-a-0b9c3322-bs32-c1-8-8-ServerStaggered",
+      "phase": 3,
+      "blocks": 1,
+      "seed": 20261124,
+      "six": 8,
+      "two": 8,
+      "policy": "ServerStaggered",
+      "source_commit": "0b9c3322088140c9eacb768b25edb21bda5f1161",
+      "profiling": false,
+      "runner_wall_seconds": 1054.517,
+      "sst_wall_seconds": 1035.911
+    },
+    "script_commit": "96e19b4d81200c1e845d1b2ccc1714f6746fd6ad"
+  },
+  "cq": {
+    "task_id": "ht-scheme-a-send-c1-cq",
+    "event_id": "green-9ec0bf71be214e6a84efe5553cac4603",
+    "iteration": 1,
+    "result": {
+      "totals": {
+        "truncated_hosts": 0,
+        "hosts": 64,
+        "unexpected_slots": 0
+      },
+      "stages": {
+        "gather": {},
+        "local_return": {},
+        "cross_return": {
+          "expected": 15132,
+          "observed": 15132,
+          "qps": 7168,
+          "qps_missing": 0
+        }
+      },
+      "first_missing": []
+    }
+  },
+  "exports": {
+    "task_id": "ht-scheme-a-send-c1-audit",
+    "event_id": "green-f9c20cab870b429e809e677f9e79f3a3",
+    "iteration": 1,
+    "result": {
+      "bytes_checked": {
+        "returned": 8388608,
+        "completed": 16777216,
+        "output": 32768,
+        "status": 2048
+      },
+      "mismatched_ranks": {
+        "returned": [],
+        "completed": [],
+        "output": [],
+        "status": [
+          12
+        ]
+      },
+      "status_dies": {
+        "0,4294967295": 63,
+        "4294967295,4294967295": 1
+      },
+      "samples": {
+        "12": {
+          "dies": [
+            4294967295,
+            4294967295
+          ],
+          "trace_exists": true
+        }
+      },
+      "exports_sha256": {
+        "returned": "1d1e3173073f5b0849bb5aa8ebb46335506f5140c603e7c8aaab82f2fbda3380",
+        "completed": "8e797b2aa7ec150b972334e930dfebdf8374bdaa6ae3267ea446a0df1c12cf01",
+        "output": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+        "status": "cb6834b7ac46721a8d7c30a760f8365d3f3b1a54ea7b32f791551d8715be16e2"
+      }
+    }
+  }
+}
