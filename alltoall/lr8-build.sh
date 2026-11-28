@@ -29,6 +29,11 @@ case ${2:-lr8} in
         target="tilexr_alltoall_${2}_kernel"
         elf_log="${2}-elf.log"
         ;;
+    urma_full_syncall|urma_full_clock|urma_full_nosync|urma_full_clos_8plus8|urma_jetty_peers_prefill|urma_jetty_peers_progress)
+        option=TILEXR_ALLTOALL_CLOS_4PLUS8_SST_SPLIT_SQ_FETCH
+        target="tilexr_alltoall_${2}_kernel"
+        elf_log="${2}-elf.log"
+        ;;
     *) exit 2 ;;
 esac
 mkdir receipts

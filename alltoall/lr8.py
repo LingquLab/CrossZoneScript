@@ -71,7 +71,8 @@ def make_payload(repo=REPO, revision=REVISION, lock=LOCK):
 
 
 def qualify(work, side, name, container_id, hostname, fingerprints, ranks, *, repo=REPO,
-            revision=REVISION, kernel="urma_lr8", elements=129, diagnostics=None):
+            revision=REVISION, kernel="urma_lr8", elements=129, diagnostics=None,
+            simulation_timeout=600):
     stage = work / f"{ranks}p"
     stage.mkdir()
     inventory = repo / "tools/tssh/clusters.json"
@@ -107,7 +108,7 @@ def qualify(work, side, name, container_id, hostname, fingerprints, ranks, *, re
         "build_report": str(stage / "verify-report"), "abi_report": str(stage / "abi-report"),
         "request_file": str(request_path), "inventory": str(inventory),
         "suite_output": f"/work/{ranks}p-suite", "rank_size": ranks, "threads": 32,
-        "simulation_timeout": 600, "timeout": 900,
+        "simulation_timeout": simulation_timeout, "timeout": simulation_timeout + 300,
         "diagnostics": diagnostics,
     }
     config_path = stage / "sst.json"
@@ -122,8 +123,9 @@ def run_case(stage, config, ranks, *, repo=REPO, case=None):
             "--mode", "single", "--target", "sst", "--sim-config", str(config),
             "--no-profiling", "--output-dir", str(stage / "unitest")]
     code = 0
+    transport_timeout = json.loads(config.read_text(encoding="utf-8"))["timeout"]
     try:
-        run(argv, controller, stage / "controller.log", 1100)
+        run(argv, controller, stage / "controller.log", transport_timeout + 200)
     except RunFailed as error:
         code = error.args[1]
     report_path = stage / "unitest" / "result.json"
