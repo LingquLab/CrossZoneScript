@@ -31,8 +31,11 @@ for anchor in anchors:
 replace_once(r'--data-url(?:=|\s+)\S+', '--data-url=' + shlex.quote(str(data)))
 replace_once(r'--tokenizer-model(?:=|\s+)\S+', '--tokenizer-model=' + shlex.quote(str(pathlib.Path.home() / 'work')))
 replace_once(r'--train-samples\s+40\b', '--train-samples 8')
+text, removed_count = re.subn(r'(--remove-arguments\s+)(\S+)',
+    lambda m:m.group(1) + m.group(2) + ',inject-uce-error-plan,enable-high-availability,enable-hbmfault-repair,stress-detect',text,count=1)
+assert removed_count == 1, 'Expected removable-argument list was not found'
 replace_once(r'2>&1\s*\|\s*tee\s+log_farescale_gqa.txt',
-             '--mock-data --tokenizer-type NullTokenizer --vocab-size 150016 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
+             '--mock-data --tokenizer-type NullTokenizer --vocab-size 150016 --num-distributed-optimizer-instances 1 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
              + ' 2>&1 | tee ' + shlex.quote(str(run_dir / 'console.log')))
 wrapper = run_dir / 'run_farescale_gqa_offline.sh'
 wrapper.write_text('set -eo pipefail\n' + text)
@@ -67,12 +70,15 @@ with supervisor_log.open('wb') as out:
 
 console = supervisor_log.read_text(errors='replace')
 lines = console.splitlines()
+# Keep full logs locally while omitting repeated expanded torchrun command dumps from transport.
+lines = [line if len(line) <= 1500 else line[:800] + ' ... [full line retained locally]' for line in lines]
 loss_lines = [line for line in lines if re.search(r'(?:lm loss|language.model.loss|train.loss|training.loss|loss\s*[:=])',line,re.I)]
 iteration_lines = [line for line in lines if re.search(r'iteration\s+\d+|global.step\s*[:=]\s*\d+|step\s+\d+\s*/',line,re.I)]
 errors = [line for line in lines if re.search(r'Traceback|Error:|ModuleNotFoundError|AssertionError|RuntimeError|unrecognized arguments|FAILED|killed',line)]
 summary = {'test':'scripts/example/llm/farescale_gqa.sh','source_commit':json.loads((repo / '.cross-zone-deployment.json').read_text())['commit'],
            'run_directory':str(run_dir),'wrapper':str(wrapper),'exit_code':code,'timed_out':timed_out,'termination_confirmed':termination_confirmed,
-           'overrides':{'offline':True,'mock_data':True,'tokenizer_type':'NullTokenizer','vocab_size':150016,'train_samples':8,'global_batch_size':4},
+           'overrides':{'offline':True,'mock_data':True,'tokenizer_type':'NullTokenizer','vocab_size':150016,'train_samples':8,'global_batch_size':4,
+                        'num_distributed_optimizer_instances':1,'removed_ci_features':['inject-uce-error-plan','enable-high-availability','enable-hbmfault-repair','stress-detect']},
            'preserved':{'devices':list(range(8)),'sequence_length':32768,'layers':6,'tensor_parallel':2,'context_parallel':2,'pipeline_parallel':2},
            'loss_lines':loss_lines[-6:],'iteration_lines':iteration_lines[-6:],'error_lines':errors[-10:],'console_tail':lines[-65:]}
 (run_dir / 'result.json').write_text(json.dumps(summary,indent=2))
