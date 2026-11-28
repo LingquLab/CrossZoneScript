@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--args-file', type=Path, required=True)
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     action = args['action']
-    assert action in ('build', 'run', 'status', 'finish', 'saved-run')
+    assert action in ('build', 'run', 'status', 'finish', 'saved-run', 'diagnose-micro')
     logs = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION
     if action == 'saved-run':
         relevant = sorted(logs.glob('run-*'))

@@ -168,6 +168,24 @@ def main(request):
                                                        for command in processes)
         print(json.dumps(state, separators=(',', ':')))
         return 0
+    if action == 'diagnose-micro':
+        evidence = {}
+        for chunk in (64, 128, 512):
+            case = ROOT / 'cases' / f'cores1-chunk{chunk}-a1'
+            logfile = case / 'sim.log'
+            with logfile.open('rb') as stream:
+                size = stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, size - 4096))
+                tail = stream.read().decode(errors='replace').splitlines()
+            evidence[chunk] = dict(log_bytes=size, tail=[line[:180] for line in tail[-9:]],
+                                   output_dump_count=len(list((case / 'bin').glob('*.bin'))))
+        patterns = r'num_chips|num_ranks|range\(|world_size|stop.at|cycle_limit|[Ss]etProgramOption'
+        for name in ('test_UBusSim.py', 'v310_config/davidV100_simulator_config.yml'):
+            lines = (ROOT / 'platform' / name).read_text().splitlines()
+            evidence[name] = [f'{index}: {line.strip()[:200]}' for index, line in enumerate(lines, 1)
+                              if re.search(patterns, line, re.I)][:20]
+        print(json.dumps(evidence))
+        return 0
     if action == 'finish':
         active = subprocess.check_output(['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION,
                                           '--format', '{{.ID}}'], timeout=20).decode().splitlines()
