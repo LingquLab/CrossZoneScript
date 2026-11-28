@@ -48,7 +48,10 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
                   'tar -xzf - -C "$d" && python3 "$d/remote.py" "$d"')
         proc = subprocess.run(args[:-2] + [remote], input=packed, capture_output=True, timeout=820)
     else:
-        proc = subprocess.run(args, input=(here / entry).read_bytes(), capture_output=True, timeout=820)
+        source = (here / entry).read_bytes()
+        if options.get("resume_build"):
+            source = b'RESUME_BUILD = True\n' + source
+        proc = subprocess.run(args, input=source, capture_output=True, timeout=820)
 output = proc.stdout.decode(errors="replace").splitlines()
 lines = [s.removeprefix("TILEXR_RESULT ") for s in output if s.startswith("TILEXR_RESULT ")]
 if lines:

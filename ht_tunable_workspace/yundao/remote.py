@@ -27,6 +27,8 @@ def command(stage, args, seconds, cwd=None, env=None):
         if process.returncode:
             result["exit_code"] = process.returncode
             tail = log.read_text(errors="replace")[-5000:].lower()
+            result["first_errors"] = [line.strip()[:180] for line in log.read_text(errors="replace").splitlines()
+                                      if re.search(r"error:|cannot find|undefined reference|permission denied", line, re.I)][:3]
             result["failure_kind"] = next((name for name in (
                 "could not read username", "authentication failed", "repository not found", "could not resolve",
                 "connection timed out", "cannot find -lascend_hal", "cmake error", "error:", "failed") if name in tail), None)
@@ -46,7 +48,7 @@ def device_status():
     for line in field.splitlines():
         if "Process id" in line and "Process memory" in line:
             section = True
-        if section and re.match(r"^\s*\|\s*\d+\s+\d+\s+\|\s*\d+\s+\|", line, re.I):
+        if section and re.match(r"^\s*\|\s*\d+(?:\s+\d+)?\s*\|\s*\d+\s*\|", line):
             processes += 1
     return {"exit_code": r.returncode, "idle_devices": idle, "process_rows": processes}
 
@@ -54,13 +56,19 @@ def device_status():
 def main():
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false")
     result["device_preflight"] = device_status()
-    if len(sys.argv) == 2:
+    global repo
+    resume = globals().get("RESUME_BUILD", False)
+    if resume:
+        previous = Path.home() / "tilexr-validation/ht-0b9c3322-ep8-1795841798"
+        cache = (previous / "build/CMakeCache.txt").read_text()
+        repo = Path(re.search(r"^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$", cache, re.M).group(1))
+        assert (repo.parent / "revision.txt").read_text().strip() == REVISION
+    elif len(sys.argv) == 2:
         source = Path(sys.argv[1]).resolve()
         result["stage"] = "source_bundle"
         assert (source / "revision.txt").read_text().strip() == REVISION
         assert (source / "source/3rdparty/spdlog/include/spdlog/spdlog.h").is_file()
         assert (source / "source/3rdparty/picojson/picojson.h").is_file()
-        global repo
         repo = source / "source"
     else:
         if not command("clone", ["git", "clone", "--depth", "1", "--branch", BRANCH,
@@ -80,6 +88,19 @@ def main():
     configure = ["cmake", "-S", str(repo), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                  "-DTILEXR_BUILD_COMBINE_HT=ON", "-DTILEXR_BUILD_UNITEST=OFF", "-DBUILD_TESTING=ON",
                  "-DTILEXR_COMBINE_HT_SIM_SEND=OFF", "-DTILEXR_COMBINE_HT_SST_FP32=OFF"]
+    if resume:
+        # The A5 SDK supplies the compiler headers. Keep the actual driver library
+        # for linking and running, while avoiding an inaccessible include path.
+        driver_root = root / "driver-link"
+        (driver_root / "lib64").mkdir(parents=True)
+        driver_lib = Path("/usr/local/Ascend/driver/lib64/driver")
+        library = driver_lib / "libascend_hal.so"
+        result["driver_hal_readable"] = os.access(library, os.R_OK)
+        (driver_root / "lib64/driver").symlink_to(driver_lib, target_is_directory=True)
+        configure.append("-DASCEND_DRIVER_PATH=" + str(driver_root))
+        if not result["driver_hal_readable"]:
+            result.update(stage="driver_library", failure_kind="real_hal_unreadable")
+            return
     if not command("configure", shell + configure, 45):
         return
     if not command("build", shell + ["cmake", "--build", str(build), "--target", "tilexr_combine_ht_test", "-j8"], 300):
