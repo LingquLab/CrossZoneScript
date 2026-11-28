@@ -9,15 +9,15 @@ repo = pathlib.Path(sys.argv[1])
 paths = [p for root in ['tools','tests','PanGu/data_pipeline'] for p in (repo/root).rglob('*.py')
          if re.search(r'mock|fake|dummy|preprocess|offline|dataset|binary|serialize',p.name,re.I)]
 metadata = []
-for path in paths[:100]:
+for path in paths[:40]:
     text = path.read_text(encoding='utf-8',errors='replace')
     try: tree = ast.parse(text)
     except SyntaxError: continue
     definitions = []
     for n in tree.body:
         if isinstance(n,(ast.FunctionDef,ast.ClassDef)):
-            definitions.append({'name':n.name,'doc':(ast.get_docstring(n) or '')[:260]})
-    metadata.append({'file':path.relative_to(repo).as_posix(),'definitions':definitions[:12],
+            definitions.append({'name':n.name,'doc':(ast.get_docstring(n) or '')[:120]})
+    metadata.append({'file':path.relative_to(repo).as_posix(),'definitions':definitions[:5],
                      'supports_mock_data':bool(re.search(r'args\.mock_data|[\"\']mock_data[\"\']',text)),
                      'serialization_tools':sorted(set(re.findall(r'\b(torch\.save|torch\.load|pickle\.dump|pickle\.load|np\.save|np\.load|IndexedDatasetBuilder|BinWriter|OfflineDataset)\b',text)))})
 
@@ -40,5 +40,6 @@ if asset.is_dir():
             item['children'] = [{'name':p.name,'directory':p.is_dir(),'bytes':p.stat().st_size if p.is_file() else None} for p in sorted(path.iterdir())[:8]]
         asset_metadata.append(item)
 
-print(json.dumps({'dataset_related_files':metadata,'provider_calls':provider_details[:30],
+print(json.dumps({'dataset_related_paths':[p.relative_to(repo).as_posix() for p in paths][:120],
+                 'dataset_related_files':metadata,'provider_calls':provider_details[:30],
                  'existing_offline_asset_directory':str(asset),'existing_offline_asset_metadata':asset_metadata}))
