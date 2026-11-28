@@ -116,6 +116,14 @@ def logs(case, label):
     return row
 
 
+def status_summary(row):
+    fields = ('case', 'status', 'cores', 'chunk_tokens', 'started_unix', 'sst_wall_seconds',
+              'runner_wall_seconds', 'platform_simulated_us', 'profiling_operator_us',
+              'profiling_lanes', 'profiling_dropped_records', 'checked_ranks', 'guards',
+              'chunk_sample_us', 'mean_chunk_us', 'trace_sha256', 'error', 'sst_error', 'runner_error')
+    return {key: row[key] for key in fields if key in row}
+
+
 def run_case(point, tools, platform, attempt, timeout):
     cores, chunk = point
     micro = cores == 1
@@ -152,7 +160,7 @@ def main(request):
         active = subprocess.check_output(['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION,
                                           '--format', '{{.Names}}'], timeout=20).decode().splitlines()
         rows = [logs(case, case.name) for case in sorted((ROOT / 'cases').glob('cores*-chunk*-a*'))]
-        print(json.dumps(dict(active=active, rows=rows), separators=(',', ':')))
+        print(json.dumps(dict(active=active, rows=[status_summary(row) for row in rows]), separators=(',', ':')))
         return 0
     if action == 'finish':
         active = subprocess.check_output(['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION,
