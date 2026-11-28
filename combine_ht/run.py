@@ -80,12 +80,13 @@ def main():
     p.add_argument("--revision", default="2b00ab8decae75b3a93a9a8471762e107205189a")
     p.add_argument("--ref", default="refs/heads/codex/combine-ht-multi-jetty")
     p.add_argument("--reuse-build", action="store_true")
+    p.add_argument("--idle-timeout", type=int, default=2700)
     p.add_argument("--args-file", type=Path)
     args = p.parse_args()
     if args.args_file is not None:
         for key, value in json.loads(args.args_file.read_text(encoding="utf-8")).items():
-            expected = bool if key == "reuse_build" else str
-            if key not in ("host", "revision", "ref", "reuse_build") or not isinstance(value, expected):
+            expected = {"reuse_build": bool, "idle_timeout": int}.get(key, str)
+            if key not in ("host", "revision", "ref", "reuse_build", "idle_timeout") or not isinstance(value, expected):
                 p.error(f"invalid script argument {key!r}")
             setattr(args, key, value)
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
@@ -107,8 +108,8 @@ def main():
                 upload = f'umask 077 && mkdir -p {root} && cat > {remote_archive}.part && mv {remote_archive}.part {remote_archive}'
                 checked("upload", ssh + [upload], stdin=data, timeout=180)
     shell = Path(__file__).with_name("smoke.sh").read_bytes().replace(b"\r\n", b"\n")
-    command = "bash -s -- " + shlex.join((args.revision, digest))
-    result = capture(ssh + [command], input=shell, timeout=1700)
+    command = "bash -s -- " + shlex.join((args.revision, digest, str(args.idle_timeout)))
+    result = capture(ssh + [command], input=shell, timeout=2 * args.idle_timeout + 850)
     ssh_errors = ("connection reset", "broken pipe", "connection closed", "timed out", "connection refused")
     print(json.dumps({"stage": "remote_attempt", "exit": result.returncode,
                       "stderr_bytes": len(result.stderr), "ssh_errors": [

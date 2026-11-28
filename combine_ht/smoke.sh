@@ -6,6 +6,7 @@ umask 077
 
 revision=$1
 digest=$2
+idle_timeout=$3
 root="$HOME/.cache/tilexr-ht-be110cc8"
 archive="$root/tilexr-$revision.tar.gz"
 repo="$root/src-$revision"
@@ -83,25 +84,29 @@ awk '/^MemTotal:/ {print "diagnostic=host_memory_kib_" $2}' /proc/meminfo
 if command -v msprof >/dev/null; then echo diagnostic=msprof_present; fi
 
 wait_idle() {
-    local deadline=$((SECONDS + 450)) next_status=$SECONDS dev idle
-    local -a probes
+    local deadline=$((SECONDS + idle_timeout)) next_status=$SECONDS dev state
+    local -a probes states
     while (( SECONDS < deadline )); do
         for dev in {0..7}; do
-            timeout 5 npu-smi info -t proc-mem -i "$dev" >"$root/npu-$dev.log" 2>&1 &
+            timeout 10 npu-smi info -t proc-mem -i "$dev" >"$root/npu-$dev.log" 2>&1 &
             probes[dev]=$!
         done
-        idle=1
         for dev in {0..7}; do
-            if ! wait "${probes[dev]}" || ! grep -Eq "NPU ID[[:space:]]*:[[:space:]]*$dev([[:space:]]|$)" "$root/npu-$dev.log" ||
-                grep -q 'Process id[[:space:]]*:' "$root/npu-$dev.log"; then
-                idle=0
+            state=idle
+            if ! wait "${probes[dev]}"; then
+                state=probe_failed
+            elif grep -qiE 'process id[[:space:]]*:' "$root/npu-$dev.log"; then
+                state=busy
+            elif ! grep -qiE "NPU ID[[:space:]]*:[[:space:]]*$dev([[:space:]]|$)" "$root/npu-$dev.log"; then
+                state=unrecognized
             fi
+            states[dev]=$state
         done
-        if (( idle )); then return 0; fi
         if (( SECONDS >= next_status )); then
-            printf 'diagnostic=waiting_for_8_idle_devices_mode_%s\n' "$mode"
-            next_status=$((SECONDS + 30))
+            printf 'diagnostic=npu_occupancy_mode_%s_devices_0_to_7_%s\n' "$mode" "${states[*]}"
+            next_status=$((SECONDS + 90))
         fi
+        if [[ "${states[*]}" == 'idle idle idle idle idle idle idle idle' ]]; then return 0; fi
         sleep 2
     done
     return 1
@@ -113,13 +118,13 @@ failed=0
 for mode in reduce send; do
     step="idle-$mode"
     log="$root/npu-0.log"
-    wait_idle
-    printf 'devices_idle=8 mode=%s\n' "$mode"
-    step="$mode"
     if [[ "$mode" == send ]]; then
         port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
         export TILEXR_COMM_ID="127.0.0.1:$port"
     fi
+    wait_idle
+    printf 'devices_idle=8 mode=%s\n' "$mode"
+    step="$mode"
     pids=()
     for dev in {0..7}; do
         timeout --kill-after=5 150 "$bin" --mode "$mode" --world 64 --rank "$dev" --device "$dev" \
