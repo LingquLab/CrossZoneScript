@@ -1,0 +1,186 @@
+"""Build and run the pinned LR8 split-write comparison on the approved SST host."""
+
+import argparse
+import io
+import json
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+from memory import IMAGE
+
+
+REVISION = "163fa57f8f8363d774096b57a5c17aa36d11cb93"
+REPO = Path("D:/workspace/TileXR-worktrees/alltoall-sst-08f501a0-lr8-split-compare")
+LOCK = Path("D:/workspace/TileXR-build-results/alltoall-sst-green-lr8-8n87jpmq/source-lock")
+RESULTS = Path("D:/workspace/TileXR-build-results")
+SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "green-sst-30"]
+CANN = "/opt/sim/Ascend/cann-9.1.0"
+ENV = "/opt/sim/cann-env.sh"
+UBUS = "/opt/sim/plugins/libUBusSimulator.so"
+INVENTORY = REPO / "tools/tssh/clusters.json"
+
+
+class RunFailed(RuntimeError):
+    """A named validation phase failed with details retained in its log."""
+
+
+def run(argv, cwd, log, timeout, data=None):
+    result = subprocess.run(argv, cwd=cwd, input=data, capture_output=True, timeout=timeout)
+    log.write_bytes(result.stdout + result.stderr)
+    if result.returncode:
+        raise RunFailed(log.stem, result.returncode)
+    return result.stdout.decode("utf-8", "replace").strip()
+
+
+def git_output(args, cwd=REPO):
+    return subprocess.check_output(["git", *args], cwd=cwd, timeout=45)
+
+
+def make_payload():
+    assert git_output(["rev-parse", "HEAD"]).decode().strip() == REVISION
+    assert not git_output(["status", "--porcelain"]).strip()
+    source_lock = json.loads((LOCK / "SOURCE_LOCK.json").read_text(encoding="utf-8"))
+    assert source_lock["runtime_commit"] == REVISION
+    backups = [(REPO, REVISION, "source/")]
+    for submodule in ("spdlog", "picojson"):
+        path = "3rdparty/" + submodule
+        ref = git_output(["rev-parse", "HEAD:" + path]).decode().strip()
+        assert git_output(["rev-parse", "HEAD"], REPO / path).decode().strip() == ref
+        backups.append((REPO / path, ref, "source/" + path + "/"))
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+        for repo, commit, prefix in backups:
+            raw = git_output(["archive", "--prefix=" + prefix, commit], repo)
+            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as source:
+                for member in source:
+                    archive.addfile(member, source.extractfile(member) if member.isfile() else None)
+        archive.add(LOCK, arcname="source-lock")
+    return output.getvalue()
+
+
+def qualify(work, side, name, container_id, hostname, fingerprints, ranks):
+    stage = work / f"{ranks}p"
+    stage.mkdir()
+    common = {
+        "inventory": str(INVENTORY), "cluster": "c01-b03", "host": "C01-B03-5",
+        "hostname": hostname, "container": name, "container_id": container_id,
+        "image_id": IMAGE, "sources": "/work/source-lock", "output": f"/work/{ranks}p-qualified",
+        "runtime_commit": REVISION, "source_lock_sha256": fingerprints[0],
+        "cann_root": CANN, "driver_root": "/usr/local/Ascend/driver", "cann_env": ENV,
+        "cann_env_sha256": fingerprints[1], "ubus_library": UBUS, "ubus_sha256": fingerprints[2],
+        "sim_variant": side, "kernel_name": "urma_lr8", "stage_profiling": "0",
+        "rank_size": str(ranks), "elements_per_peer": "129",
+    }
+    environment = f"/work/{ranks}p-environment"
+    cli = [sys.executable, "-B", "scripts/run_alltoall_sim_kernel.py"]
+    for phase, extras in (
+        ("verify", ["--cmake-build-dir", "/work/build", "--cmake-build-log", "/work/receipts/build.log"]),
+        ("abi", []),
+        ("inspect", ["--library-dir", "/opt/sim/plugins", "--inspection-output", environment]),
+    ):
+        options = [piece for key, value in common.items() for piece in ("--" + key.replace("_", "-"), value)]
+        argv = [*cli, phase, *options, *extras, "--local-output", str(stage / (phase + "-report"))]
+        run(argv, REPO, stage / (phase + ".log"), 180)
+
+    request = json.loads((stage / "verify-report/request.json").read_text(encoding="utf-8"))
+    request["environment_report"] = environment
+    request_path = stage / "current-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    config = {
+        "schema": "tilexr.unitest.sst.v1", "tool_checkout": str(REPO), "tool_commit": REVISION,
+        "build_report": str(stage / "verify-report"), "abi_report": str(stage / "abi-report"),
+        "request_file": str(request_path), "inventory": str(INVENTORY),
+        "suite_output": f"/work/{ranks}p-suite", "rank_size": ranks, "threads": 32,
+        "simulation_timeout": 600, "timeout": 900, "diagnostics": {"queue_state_dumps": True},
+    }
+    config_path = stage / "sst.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    return stage, config_path
+
+
+def run_case(stage, config, ranks):
+    controller = REPO / "tools/unitest"
+    argv = [sys.executable, "-B", "-m", "controller", "--case", f"cases/alltoall_lr8_{ranks}p_516b_sst.json",
+            "--mode", "single", "--target", "sst", "--sim-config", str(config),
+            "--no-profiling", "--output-dir", str(stage / "unitest")]
+    code = 0
+    try:
+        run(argv, controller, stage / "controller.log", 1100)
+    except RunFailed as error:
+        code = error.args[1]
+    report_path = stage / "unitest" / "result.json"
+    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
+    return {"rank_count": ranks, "controller_exit": code, "controller_status": report.get("status"),
+            "phases": {key: state.get("status") for key, state in report.get("phases", {}).items()}}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--args-file", type=Path, required=True)
+    side = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))["side"]
+    assert side in ("sim-split0", "sim-split1")
+    work = Path(tempfile.mkdtemp(prefix=f"alltoall-sst-lr8-{side}-", dir=RESULTS))
+    state = {"variant": side, "logs": str(work), "revision": REVISION, "cases": []}
+
+    def remote(args, label, timeout=45, data=None):
+        state["stage"] = label
+        return run([*SSH, shlex.join(args)], work, work / (label + ".log"), timeout, data)
+
+    container_id = None
+    try:
+        state["stage"] = "verify-worktree-and-package"
+        payload = make_payload()
+        bind = remote(["mktemp", "-d", f"/opt/tilexr-sst-08f501a0-lr8-{side}.XXXXXXXX"], "create-bind")
+        assert re.fullmatch(r"/opt/tilexr-sst-08f501a0-lr8-" + side + r"\.[A-Za-z0-9]{8}", bind)
+        state["bind"] = bind
+        remote(["tar", "-xzf", "-", "-C", bind], "upload-sources", 180, payload)
+        name = Path(bind).name
+        container_id = remote(["docker", "run", "-dt", "--name", name, "--runtime=ascend", "--network", "none",
+                               "--ipc=shareable", "--shm-size=64m", "--ulimit", "nofile=524288:524288",
+                               "--mount", f"type=bind,src={bind},dst=/work", IMAGE, "bash", "-l"], "start-container")
+        observed = remote(["docker", "inspect", "--format", "{{.Id}} {{.Image}}", name], "image-identity")
+        assert observed == f"{container_id} {IMAGE}"
+        state["image_id"] = IMAGE
+        state["container_id"] = container_id
+        builder = Path(__file__).with_name("lr8-build.sh").read_bytes()
+        remote(["docker", "exec", "-i", container_id, "bash", "-s", "--", side[-1]], "build-c310", 400, builder)
+        fingerprint = remote(["docker", "exec", container_id, "sha256sum", "/work/source-lock/SOURCE_LOCK.json",
+                              ENV, UBUS], "fingerprints")
+        hashes = [line.split()[0] for line in fingerprint.splitlines()]
+        assert len(hashes) == 3 and all(re.fullmatch("[0-9a-f]{64}", digest) for digest in hashes)
+        hostname = remote(["hostname", "-s"], "hostname")
+        for ranks in (8, 16):
+            state["stage"] = f"{ranks}p-qualification"
+            stage, config = qualify(work, side, name, container_id, hostname, hashes, ranks)
+            state["stage"] = f"{ranks}p-unitest"
+            receipt = run_case(stage, config, ranks)
+            evidence_script = Path(__file__).with_name("lr8_summary.py").read_bytes()
+            evidence = remote(["python3", "-B", "-", bind, str(ranks)], f"{ranks}p-summary", 80, evidence_script)
+            receipt["remote"] = json.loads(evidence)
+            state["cases"].append(receipt)
+        state["stage"] = "finished"
+    except (RunFailed, OSError, ValueError, AssertionError, subprocess.SubprocessError) as error:
+        state["error_class"] = type(error).__name__
+        if isinstance(error, RunFailed):
+            state["phase_exit"] = error.args[1]
+    finally:
+        if container_id and re.fullmatch("[0-9a-f]{64}", container_id):
+            prior_stage = state["stage"]
+            try:
+                removed = remote(["docker", "rm", "-f", container_id], "cleanup", 60)
+                state["container_removed"] = removed == container_id
+            except (RunFailed, subprocess.SubprocessError, OSError):
+                state["container_removed"] = False
+            state["stage"] = prior_stage
+    (work / "handoff.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+    print(json.dumps(state, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()
+
