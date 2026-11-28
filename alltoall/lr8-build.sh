@@ -9,6 +9,16 @@ case ${2:-lr8} in
         target=tilexr_alltoall_urma_lr8_kernel
         elf_log=lr8-elf.log
         ;;
+    lr8-queue-state)
+        option=TILEXR_ALLTOALL_LR8_SST_MTE_QUEUE_STATE
+        target=tilexr_alltoall_urma_lr8_kernel
+        elf_log=lr8-elf.log
+        ;;
+    lr8-cq-gm)
+        option=TILEXR_ALLTOALL_LR8_SST_CQ_GM_DOORBELL
+        target=tilexr_alltoall_urma_lr8_kernel
+        elf_log=lr8-elf.log
+        ;;
     clos-4plus8)
         option=TILEXR_ALLTOALL_CLOS_4PLUS8_SST_SPLIT_SQ_FETCH
         target=tilexr_alltoall_urma_full_clos_4plus8_kernel

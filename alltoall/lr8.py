@@ -18,6 +18,9 @@ REVISION = "163fa57f8f8363d774096b57a5c17aa36d11cb93"
 REPO = Path("D:/workspace/TileXR-worktrees/alltoall-sst-08f501a0-lr8-split-compare")
 LOCK = Path("D:/workspace/TileXR-build-results/alltoall-sst-green-lr8-8n87jpmq/source-lock")
 RESULTS = Path("D:/workspace/TileXR-build-results")
+QUEUE_REVISION = "ce4456229720bdc01a2e744ed3c31573504860e8"
+QUEUE_REPO = REPO.with_name("alltoall-sst-08f501a0-lr8-queue-compare")
+QUEUE_LOCK = RESULTS / "alltoall-sst-green-lr8-queue-d3wmmyue/source-lock"
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "green-sst-30"]
 CANN = "/opt/sim/Ascend/cann-9.1.0"
 ENV = "/opt/sim/cann-env.sh"
@@ -125,10 +128,21 @@ def run_case(stage, config, ranks, *, repo=REPO, case=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--args-file", type=Path, required=True)
-    side = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))["side"]
-    assert side in ("sim-split0", "sim-split1")
-    work = Path(tempfile.mkdtemp(prefix=f"alltoall-sst-lr8-{side}-", dir=RESULTS))
-    state = {"variant": side, "logs": str(work), "revision": REVISION, "cases": []}
+    args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
+    side = args["side"]
+    queue_comparison = args.get("queue_comparison", False)
+    if queue_comparison:
+        repo, revision, lock = QUEUE_REPO, QUEUE_REVISION, QUEUE_LOCK
+        build_recipe = {"sim-split1": ("1", "lr8"), "sim-native-queue": ("0", "lr8-queue-state"),
+                        "sim-cq-gm": ("1", "lr8-cq-gm")}
+        name_prefix = f"lr8-queue-{side}"
+    else:
+        repo, revision, lock = REPO, REVISION, LOCK
+        build_recipe = {"sim-split0": ("0", "lr8"), "sim-split1": ("1", "lr8")}
+        name_prefix = f"lr8-{side}"
+    assert side in build_recipe
+    work = Path(tempfile.mkdtemp(prefix=f"alltoall-sst-{name_prefix}-", dir=RESULTS))
+    state = {"variant": side, "logs": str(work), "revision": revision, "cases": []}
 
     def remote(args, label, timeout=45, data=None):
         state["stage"] = label
@@ -137,9 +151,10 @@ def main():
     container_id = None
     try:
         state["stage"] = "verify-worktree-and-package"
-        payload = make_payload()
-        bind = remote(["mktemp", "-d", f"/opt/tilexr-sst-08f501a0-lr8-{side}.XXXXXXXX"], "create-bind")
-        assert re.fullmatch(r"/opt/tilexr-sst-08f501a0-lr8-" + side + r"\.[A-Za-z0-9]{8}", bind)
+        payload = make_payload(repo, revision, lock)
+        prefix = f"/opt/tilexr-sst-08f501a0-{name_prefix}."
+        bind = remote(["mktemp", "-d", prefix + "XXXXXXXX"], "create-bind")
+        assert re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9]{8}", bind)
         state["bind"] = bind
         remote(["tar", "-xzf", "-", "-C", bind], "upload-sources", 180, payload)
         name = Path(bind).name
@@ -151,7 +166,8 @@ def main():
         state["image_id"] = IMAGE
         state["container_id"] = container_id
         builder = Path(__file__).with_name("lr8-build.sh").read_bytes()
-        remote(["docker", "exec", "-i", container_id, "bash", "-s", "--", side[-1]], "build-c310", 400, builder)
+        remote(["docker", "exec", "-i", container_id, "bash", "-s", "--", *build_recipe[side]],
+               "build-c310", 400, builder)
         fingerprint = remote(["docker", "exec", container_id, "sha256sum", "/work/source-lock/SOURCE_LOCK.json",
                               ENV, UBUS], "fingerprints")
         hashes = [line.split()[0] for line in fingerprint.splitlines()]
@@ -159,11 +175,13 @@ def main():
         hostname = remote(["hostname", "-s"], "hostname")
         for ranks in (8, 16):
             state["stage"] = f"{ranks}p-qualification"
-            stage, config = qualify(work, side, name, container_id, hostname, hashes, ranks)
+            stage, config = qualify(work, side, name, container_id, hostname, hashes, ranks,
+                                    repo=repo, revision=revision)
             state["stage"] = f"{ranks}p-unitest"
-            receipt = run_case(stage, config, ranks)
+            receipt = run_case(stage, config, ranks, repo=repo)
             evidence_script = Path(__file__).with_name("lr8_summary.py").read_bytes()
-            evidence = remote(["python3", "-B", "-", bind, str(ranks)], f"{ranks}p-summary", 80, evidence_script)
+            evidence = remote(["docker", "exec", "-i", container_id, "python3", "-B", "-", "/work", str(ranks)],
+                              f"{ranks}p-summary", 80, evidence_script)
             receipt["remote"] = json.loads(evidence)
             state["cases"].append(receipt)
         state["stage"] = "finished"
