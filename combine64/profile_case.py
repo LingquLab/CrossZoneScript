@@ -19,7 +19,8 @@ def profile_image(address, lanes, capacity):
     counts = events + lanes * capacity * 4
     dropped = counts + lanes * STATE_STRIDE * 4
     states = dropped + lanes * STATE_STRIDE * 4
-    image = bytearray(states + lanes * STATE_STRIDE * 4)
+    end = states + lanes * STATE_STRIDE * 4
+    image = bytearray((end + 511) // 512 * 512)
     struct.pack_into('<8I7Q', image, 0, 2, 88, 1, lanes, capacity, capacity, STATE_STRIDE, 0,
                      address + timestamps, address + events, address + counts, address + dropped,
                      address + states, 0, 1)
