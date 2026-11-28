@@ -54,7 +54,7 @@ job.mkdir()
 entry = job / "reset.py"
 entry.write_bytes(sys.stdin.buffer.read())
 with (job / "driver.log").open("wb") as log:
-    process = subprocess.Popen(["python3", str(entry), "reset", str(job), *map(str, range(16))],
+    process = subprocess.Popen(["python3", str(entry), "reset", str(job), *sys.argv[2:]],
                                stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
 (job / "pid").write_text(str(process.pid))
 """
@@ -76,8 +76,8 @@ print(json.dumps(report))
 """
 
 
-def launch(host):
-    command = shlex.join(["python3", "-c", LAUNCH, str(JOB)])
+def launch(host, devices=range(16)):
+    command = shlex.join(["python3", "-c", LAUNCH, str(JOB), *map(str, devices)])
     return benchmark.ssh(host, command, payload=(HELPERS + STATUS + RESET).encode(), timeout=35, stage="start NPU reset")
 
 
@@ -128,12 +128,22 @@ def wait_for_recovery(pool, hosts, output):
 
 
 def main(args):
+    global JOB
     mode = args["mode"]
     hosts = args.get("hosts", HOSTS)
     assert hosts and set(hosts) <= set(HOSTS)
     destination = Path(args["destination"]) / ("replicate4-rdma-two-groups-bs32-af8c365-diagnostics")
     destination.mkdir(exist_ok=True)
     with ThreadPoolExecutor(max_workers=2) as pool:
+        if mode == "finish":
+            assert tuple(hosts) == HOSTS
+            previous = list(pool.map(probe, hosts))
+            assert all(report.get("done") and not report["running"] for report in previous)
+            assert all(report["reset_completed"] == list(range(10)) for report in previous)
+            JOB = ROOT / "npu-reset-two-groups-remaining"
+            list(pool.map(lambda host: launch(host, range(10, 16)), hosts))
+            wait_for_recovery(pool, hosts, destination / "npu-reset-evidence-remaining.json")
+            return benchmark_main({**args, "mode": "resume"})
         if mode == "benchmark":
             assert tuple(hosts) == HOSTS
             wait_for_recovery(pool, hosts, destination / "npu-reset-evidence-recovery.json")
