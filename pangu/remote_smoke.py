@@ -6,6 +6,7 @@ import os
 import pathlib
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -45,6 +46,18 @@ env = os.environ.copy()
 env.update({'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_DATASETS_OFFLINE':'1',
             'WANDB_MODE':'offline','TOKENIZERS_PARALLELISM':'false','BASE_DATA_PATH':str(data)})
 env['PYTHONPATH'] = str(repo) + os.pathsep + env.get('PYTHONPATH','')
+real_torchrun = shutil.which('torchrun')
+assert real_torchrun, 'torchrun is missing'
+guard_dir = run_dir / 'guard-bin'
+guard_dir.mkdir()
+guard = guard_dir / 'torchrun'
+guard.write_text('#!' + sys.executable + '\nimport os,sys\n'
+    + 'forbidden={"--inject-uce-error-plan","--enable-high-availability","--enable-hbmfault-repair","--stress-detect"}\n'
+    + 'blocked=sorted(forbidden.intersection(a.split("=",1)[0] for a in sys.argv[1:]))\n'
+    + 'if blocked:\n print("SMOKE_GUARD_BLOCKED: " + ",".join(blocked),flush=True)\n sys.exit(97)\n'
+    + 'os.execv(' + repr(real_torchrun) + ',[' + repr(real_torchrun) + ']+sys.argv[1:])\n')
+guard.chmod(0o700)
+env['PATH'] = str(guard_dir) + os.pathsep + env.get('PATH','')
 supervisor_log = run_dir / 'supervisor.log'
 process = None
 timed_out = False
