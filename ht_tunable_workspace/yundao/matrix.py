@@ -252,7 +252,7 @@ def concurrent_matrix(repo, env, smoke=False):
 
 
 
-def native_modules(repo, env, smoke=False):
+def native_modules(repo, env, smoke=False, local_only=False):
     lib_dir = BASE_BUILD / "src/ep/combine_ht"
     executable = compile_fixture("ep8_modules", "ep8_modules.cpp", repo, BASE_BUILD,
                                  lib_dir, "tilexr-ep-ht-local-return",
@@ -261,7 +261,7 @@ def native_modules(repo, env, smoke=False):
                                   "-Wl,-rpath," + str(BASE_BUILD / "src/comm"), "-ltile-comm", "-lruntime"))
     if not executable:
         return
-    send_kernel = compile_device_probe(repo, "inter_server_send", "native_send_probe.cpp")
+    send_kernel = None if local_only else compile_device_probe(repo, "inter_server_send", "native_send_probe.cpp")
     send_results = SUMMARY["native_send"] = {}
     if send_kernel:
         for cores in ((1,) if smoke else (1, 2, 4, 8)):
@@ -278,6 +278,8 @@ def native_modules(repo, env, smoke=False):
     for mode in ("fullmesh", "direct"):
         for tokens in ((4096,) if smoke else (4096, 16384)):
             for sync in ((0,) if smoke else range(3)):
+                if local_only and tokens == 4096 and sync == 0:
+                    continue
                 local_results[f"{mode}/{tokens}/{sync}"] = module_case(
                     executable, env, mode, tokens, sync, 8, "8:8+direct", local_kernel)
 
@@ -370,13 +372,13 @@ def main():
         if profile_built:
             gather_matrix(build, env, True)
         return
-    if sys.argv[1:] in (["modules"], ["device"], ["smoke"]):
+    if sys.argv[1:] in (["modules"], ["device"], ["smoke"], ["local_only"]):
         for _ in range(24):
             if idle_devices() == list(range(8)):
                 break
             time.sleep(5)
         smoke = sys.argv[1:] == ["smoke"]
-        native_modules(repo, env, smoke)
+        native_modules(repo, env, smoke, local_only=sys.argv[1:] == ["local_only"])
         if sys.argv[1:] in (["device"], ["smoke"]):
             concurrent_matrix(repo, env, smoke)
         return
