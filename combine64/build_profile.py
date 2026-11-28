@@ -1,0 +1,66 @@
+# Copyright (c) 2026 TileXR Project.
+"""Compile the pinned SIM_SEND kernel with its native profiling writer enabled."""
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+WORK = Path('/work')
+SOURCE = WORK / 'source'
+CANN = Path('/opt/sim/Ascend/cann-9.1.0')
+TOOL_DIR = Path(__file__).resolve().parent
+ENTRY = 'tilexr_moonep_combine_ht_kernel'
+
+
+def main():
+    target = WORK / 'profile-build'
+    target.mkdir()
+    source = SOURCE / 'src/moonep/combine_ht/kernels/combine_ht.cpp'
+    text = source.read_text()
+    entry_body = '    RunCombineHT(args);'
+    assert text.count(entry_body) == 1
+    text = text.replace(entry_body, entry_body + '\n    HtSstProfile::Flush(args.profiling, AscendC::GetBlockIdx());')
+    wrapper = target / (ENTRY + '.cpp')
+    wrapper.write_text('#include "profile_capture.h"\n' + text)
+    options = [
+        '-xcce', '-O2', '-DCATLASS_ARCH=3510', '--cce-auto-sync', '--cce-aicore-arch=dav-c310-vec',
+        '-Wno-deprecated-declarations', '-mllvm', '-cce-aicore-stack-size=0x8000',
+        '-mllvm', '-cce-aicore-function-stack-size=0x8000', '-mllvm', '-cce-aicore-addr-transform',
+        '-mllvm', '-cce-aicore-dcci-insert-for-scalar=false', '-DTILEXR_ENABLE_PROFILING=1',
+        '-DTILEXR_COMBINE_HT_SIM_SEND=1', '-DTILEXR_COMBINE_HT_SST_FP32=1',
+        '--cce-aicore-only', '-std=gnu++17',
+    ]
+    tool_include = (
+        'compiler/tikcpp', 'compiler/tikcpp/tikcfw', 'compiler/tikcpp/tikcfw/impl', 'compiler/tikcpp/tikcfw/interface',
+        'aarch64-linux/ascendc/include', 'aarch64-linux/asc/include', 'aarch64-linux/include',
+        'aarch64-linux/pkg_inc', 'aarch64-linux/pkg_inc/runtime',
+    )
+    includes = [target, TOOL_DIR, SOURCE/'include', SOURCE/'src/ep/combine_ht',
+                SOURCE/'src/moonep/combine_ht/common', SOURCE/'src/moonep/combine_ht/kernels',
+                *(CANN / name for name in tool_include)]
+
+    flags = [*options, *('-I' + str(folder) for folder in includes)]
+    rel = target / (ENTRY + '.rel.o')
+    binary = target / (ENTRY + '.o')
+    local_options = ['-mllvm', '-cce-aicore-record-overflow=true']
+    compile_command = ['bisheng', *flags, *local_options, '-c', str(wrapper), '-o', str(rel)]
+    link_command = ['ld.lld', '-m', 'aicorelinux', '-Ttext=0', str(rel), '--static',
+                    '--allow-multiple-definition', '-o', str(binary)]
+    log = target / (ENTRY + '.log')
+    with log.open('wb') as output:
+        code = subprocess.run(compile_command, stdout=output, stderr=subprocess.STDOUT, timeout=210).returncode
+        if code == 0:
+            code = subprocess.run(link_command, stdout=output, stderr=subprocess.STDOUT, timeout=90).returncode
+    row = {'exit_code': code, 'wrapper_sha256': hashlib.sha256(wrapper.read_bytes()).hexdigest()}
+    if code == 0:
+        row.update(sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), path=str(binary.relative_to(WORK)))
+    else:
+        row['errors'] = [line.strip()[:250] for line in log.read_text(errors='replace').splitlines()
+                         if 'error:' in line.lower()][:6]
+    summary = dict(all_compiled=code == 0, sim_send=True, profiling=True, targets={'fp32-' + ENTRY: row})
+    (target / 'build-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+    return code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
