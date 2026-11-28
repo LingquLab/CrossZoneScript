@@ -83,7 +83,8 @@ def run_group(name, args, ranks, env, timeout, barriers=False):
     result = {"status": "timeout" if timed_out else "pass" if all(code == 0 for code in codes) else "failed",
               "rank_pass": sum(code == 0 for code in codes)}
     if not all(code == 0 for code in codes):
-        result["first_failure"] = next((first_error(path) for job, path in jobs if job.returncode != 0), None)
+        result["first_failure"] = next((reason for job, path in jobs if job.returncode != 0
+                                         if (reason := first_error(path))), None)
     return [p.read_text(errors="replace") for _, p in jobs], result
 
 
@@ -285,17 +286,28 @@ def main():
         previous = json.loads((initial / "matrix.json").read_text())["gather"]
         gather_matrix(BASE_BUILD, env, previous=previous)
         return
-    if sys.argv[1:] == ["profile"]:
+    if sys.argv[1:] in (["profile"], ["remaining"]):
         build = ROOT / "profile-build"
         configure = SHELL + ["cmake", "-S", str(repo), "-B", str(build),
             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON", "-DTILEXR_BUILD_COMBINE_HT=ON",
             "-DTILEXR_BUILD_UNITEST=OFF", "-DTILEXR_ENABLE_PROFILING=ON",
             "-DASCEND_DRIVER_PATH=" + str(PREVIOUS / "driver-link")]
-        if remote.command("profile_configure", configure, 45) and remote.command("profile_build",
-                SHELL + ["cmake", "--build", str(build), "--target", "tilexr_combine_ht_test", "-j8"], 300):
-            gather_matrix(build, env, True)
-        else:
+        profile_built = remote.command("profile_configure", configure, 45) and remote.command("profile_build",
+                SHELL + ["cmake", "--build", str(build), "--target", "tilexr_combine_ht_test", "-j8"], 300)
+        SUMMARY["profile_built"] = profile_built
+        if not profile_built:
             SUMMARY["profile_build_error"] = [remote.result.get("stage"), remote.result.get("first_errors")]
+        if sys.argv[1:] == ["remaining"]:
+            initial = ROOT.parent / "ht-0b9c3322-ep8-1795846177"
+            for _ in range(24):
+                if idle_devices():
+                    break
+                time.sleep(5)
+            final_matrix(initial / "final_bench", env)
+            previous = json.loads((initial / "matrix.json").read_text())["gather"]
+            gather_matrix(BASE_BUILD, env, previous=previous)
+        if profile_built:
+            gather_matrix(build, env, True)
         return
     if sys.argv[1:] == ["modules"]:
         for _ in range(24):
