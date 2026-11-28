@@ -84,40 +84,43 @@ def qualify():
         error_lines = [line for line in lines
                        if re.search(r"check result failed|this is an error|exec.*failed|failed to|error.*rank|invalid option|not support", line, re.I)
                        and "Failed to open file(/var/log/hiudma3/udma_version)." not in line]
-        if successes == 4 and data.get("stdout_ranks") == list(range(8)) and not error_lines:
+        diagnostics = Counter()
+        phrases = {
+            "test_verification_failure": r"check result failed|this is an error|invalid option",
+            "device_or_collective_failure": r"(?:aicore|vector core|mte|507035|all.reduce|collective|exec).*failed|failed to (?:link|connect|create.*qp|create.*jetty)|timed out|timeout",
+            "version_notice": r"udma_version|firmware version",
+        }
+        for line in error_lines:
+            for label, pattern in phrases.items():
+                if re.search(pattern, line, re.I):
+                    diagnostics[label] += 1
+        counts = Counter()
+        for line in error_lines:
+            # Preserve the diagnostic verbs and nouns while dropping machine-specific
+            # identifiers, paths, network values and free-form suffixes.
+            line = re.sub(r"^.*?<stderr>:", "", line)
+            line = re.sub(r"(?:/|[A-Za-z]:\\)[^ ,;)]+", "<path>", line)
+            line = re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b|\b0x[0-9a-f]+\b", "<value>", line, flags=re.I)
+            match = re.search(r"check result failed|this is an error|exec.*?failed|failed to(?: [A-Za-z_]+){1,5}|invalid option|not support(?:ed)?", line, re.I)
+            if not match:
+                continue
+            safe = {"failed", "to", "open", "get", "read", "write", "create", "init", "initialize", "set",
+                    "load", "save", "query", "find", "start", "enable", "exec", "check", "result", "this",
+                    "is", "an", "error", "invalid", "option", "not", "support", "supported", "log",
+                    "file", "dir", "directory", "path", "driver", "version", "priority", "process",
+                    "device", "config", "hostname", "socket", "cpu", "config", "container", "name"}
+            words = [word if word in safe else "<field>" for word in re.findall(r"[a-z_]+", match[0].lower())[:8]]
+            counts[" ".join(words)] += 1
+        data["message_counts"] = counts.most_common(6)
+        data["meaningful_failures"] = dict(diagnostics)
+        data["other_error_lines"] = len(error_lines)
+        data["success_sizes_bytes"] = [int(m[1]) for line in lines
+            if (m := re.search(r"(?:^|<stdout>:)\s*(\d+)\s*\|.*\|\s*success\s*$", line, re.I))]
+        if (successes == 4 and data.get("stdout_ranks") == list(range(8)) and
+                not diagnostics["test_verification_failure"] and not diagnostics["device_or_collective_failure"]):
             data.update(status="pass", original_status="qualification_failed_or_incomplete",
                         version_log_messages=version_messages)
             data.pop("failures", None)
-        else:
-            data["other_error_lines"] = len(error_lines)
-            matches = Counter()
-            phrases = {
-                "udma_driver_log": r"\[UDMA, ERR\]",
-                "aiv_check_failure": r"check result failed|this is an error",
-                "file_open": r"failed to open file",
-                "missing_path": r"no such file",
-                "errno": r"errno|permission denied",
-                "config": r"configuration|config file",
-                "unsupported": r"not supported|not support",
-                "socket": r"socket",
-                "netdev": r"netdev|network device",
-                "ranktable": r"ranktable|rank table",
-                "aicore": r"aicore|vector core",
-                "mte": r"mte.*(?:error|exception)",
-                "udma_link": r"failed to (?:link|connect|create.*qp|create.*jetty)",
-                "runtime_code": r"507035|507024|507018|507012",
-                "data_timeout": r"timeout|timed out",
-                "nic_address": r"NIC.*(?:IP|address)|IP.*NIC",
-            }
-            for line in error_lines:
-                for label, pattern in phrases.items():
-                    if re.search(pattern, line, re.I):
-                        matches[label] += 1
-            data["remaining_markers"] = dict(matches)
-            data["success_rows"] = [
-                re.sub(r"^.*?<stdout>:", "", line).strip()[:160] for line in lines
-                if "|" in line and re.fullmatch(r"(?:.*?<stdout>:)?[0-9.Ee+| /-]+success\s*", line, re.I)
-            ][:4]
         return data
     env = dict(os.environ, TILEXR_VALIDATION_RUN_LABEL="ht-4d37ae67-ep8-hccl")
     completed = subprocess.run([sys.executable, str(HERE / "hccl_baseline.py")],
