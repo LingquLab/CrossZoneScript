@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import tarfile
 
 from run import SSH
 
@@ -48,6 +49,17 @@ def download(ssh, campaign, config):
     if proc.returncode:
         print(json.dumps({"stage": "download", "exit": proc.returncode, "stderr_bytes": len(proc.stderr)}))
         return
+    with tarfile.open(pending) as archive:
+        members = archive.getnames()
+        assert {"report.json", "rank-times.csv"}.issubset(members)
+        if config["phase"] == "matrix":
+            for placement in ("min", "max", "near_mean"):
+                member = f"selected-traces/{placement}/selection.json"
+                group = json.load(archive.extractfile(member))
+                assert len({row["rank"] for row in group["ranks"]}) == 8
+                for row in group["ranks"]:
+                    prefix = f"selected-traces/{placement}/rank-{row['rank']}"
+                    assert prefix + ".trace.json" in members or any(name.startswith(prefix + "/") for name in members)
     finished = pending.with_suffix("")
     pending.replace(finished)
     sha = hashlib.sha256()
