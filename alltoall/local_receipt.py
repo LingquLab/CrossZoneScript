@@ -40,7 +40,30 @@ def lr8_receipt(side):
         error_types = re.findall(r"^([A-Za-z]+Error|TimeoutExpired):", record["stderr"], re.M)
         transport[path.parent.name] = dict(exit=record["returncode"], categories=category,
                                           error=error_types[-1] if error_types else None)
+        if path.parent.name == "run":
+            transport["run"]["evidence"] = lr8_run_evidence(record["stdout"])
     return dict(side=side, transport=transport)
+
+
+def lr8_run_evidence(stdout):
+    decoder = json.JSONDecoder()
+    result = {}
+    for match in re.finditer(r"^\{\s*$", stdout, re.M):
+        try:
+            record, _ = decoder.raw_decode(stdout[match.start():])
+        except json.JSONDecodeError:
+            continue
+        rank = re.fullmatch(r"AllToAll output differs from golden: rank(\d+)", record.get("error", ""))
+        if rank:
+            result.update(first_reported_rank=int(rank[1]), simulator_exit=record.get("returncode"))
+    for line in stdout.splitlines():
+        if re.fullmatch(r"LOG_TAIL=/work/8p-suite/runs/[A-Za-z0-9.]+/sim\.log", line):
+            result["sim_log"] = line.removeprefix("LOG_TAIL=")
+        if line.startswith("QUEUE_END_STATE="):
+            queue = json.loads(line.removeprefix("QUEUE_END_STATE="))
+            result["queue_totals"] = {key: sum(row["actual"][key] for row in queue["ranks"])
+                                      for key in ("write_wqes", "cqes")}
+    return result
 
 
 def memory_receipt(side):
