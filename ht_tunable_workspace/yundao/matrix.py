@@ -309,12 +309,14 @@ def main():
         if profile_built:
             gather_matrix(build, env, True)
         return
-    if sys.argv[1:] == ["modules"]:
+    if sys.argv[1:] in (["modules"], ["device"]):
         for _ in range(24):
             if idle_devices() == list(range(8)):
                 break
             time.sleep(5)
         native_modules(repo, env)
+        if sys.argv[1:] == ["device"]:
+            concurrent_matrix(repo, env)
         return
     probe = compile_fixture("qp_probe", "qp_probe.cpp", repo, BASE_BUILD, BASE_BUILD / "src/comm", "tile-comm")
     bench = compile_fixture("final_bench", "final_bench.cpp", repo, BASE_BUILD,
