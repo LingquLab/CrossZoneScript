@@ -49,3 +49,14 @@ result.update(build_first_errors=failures[:8], proc_mem_exit=r.returncode,
               proc_mem_summary=r.stdout.splitlines()[:3], inventory_process_headers=process_headers,
               inventory_process_lines=process_lines[:12])
 print("TILEXR_RESULT " + json.dumps(result, ensure_ascii=True, separators=(",", ":")))
+
+
+case = home / "tilexr-validation/ht-0b9c3322-ep8-1795842101"
+rank_errors = {}
+for rank in (0, 1):
+    log = (case / f"rank-{rank}.log").read_text(errors="replace")
+    rows = [re.sub(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", "[ip]", line.strip())[:220]
+            for line in log.splitlines()
+            if re.search(r"error|failed|not support|ret=|permission", line, re.I)]
+    rank_errors[rank] = {"first": rows[:12], "last": rows[-4:]}
+print("TILEXR_RESULT " + json.dumps({"rank_errors": rank_errors}, ensure_ascii=True, separators=(",", ":")))
