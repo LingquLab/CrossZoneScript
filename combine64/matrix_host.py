@@ -360,6 +360,18 @@ def main(request):
         return 0
     if request['action'] == 'status':
         report = status(root)
+        command = ['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION, '--format', '{{.ID}} {{.Names}}']
+        active = subprocess.check_output(command, timeout=15).decode('ascii').splitlines()
+        runs = {}
+        for line in active:
+            cid, name = line.split()
+            proc = subprocess.run(['docker', 'top', cid, '-eo', 'comm,args'], timeout=10, capture_output=True)
+            procs = proc.stdout.decode(errors='replace').splitlines()
+            workers = [line for line in procs[1:] if '/sim_case.py' in line or '/sstsim.x' in line]
+            runs[name] = {'known': proc.returncode == 0, 'processes':len(workers),
+                          'cases': sorted({match for line in workers for match in re.findall(
+                             r'cores[1248]-chunk(?:16|32|64|128)-a[0-9]+', line)})}
+        report['active'] = runs
         report.pop('identity', None)
         report.pop('bootstrap-result', None)
         for row in report['rows']:
