@@ -18,6 +18,8 @@ REVISION = "af8c365875d991cb42dc8079412d626ad7d7ffc4"
 LABEL = "replicate4-rdma-two-groups-bs32-" + REVISION[:7]
 ROOT = PurePosixPath("/root/ubx-" + LABEL)
 PORT = 32500
+DEFAULT_HOSTS = HOSTS
+DEFAULT_LABEL = LABEL
 HERE = Path(__file__).resolve().parent
 TOOLKIT = "/usr/local/Ascend/cann-9.2.T101/set_env.sh"
 
@@ -28,6 +30,16 @@ benchmark.ROOT = ROOT
 benchmark.HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
 benchmark.RUNTIME_INSTALL = ROOT / "runtime-install"
 benchmark.RUNTIME_REVISION = build.RUNTIME
+
+
+def read_build(host):
+    result = benchmark.ssh(host, f"if test -f {ROOT}/build-result.json; then cat {ROOT}/build-result.json; fi")
+    if not result:
+        return None
+    receipt = json.loads(result)
+    assert (receipt["built"], receipt["revision"], receipt["runtime_revision"], receipt["clock_revision"]) == (
+        True, REVISION, build.RUNTIME, build.CLOCK)
+    return receipt
 
 
 def build_host(host, bundle, digest):
@@ -45,12 +57,16 @@ def build_host(host, bundle, digest):
 
 
 def prepare(pool):
+    builds = dict(zip(HOSTS, pool.map(read_build, HOSTS)))
+    missing = [host for host, receipt in builds.items() if receipt is None]
+    if not missing:
+        assert len({receipt["fixture_sha256"] for receipt in builds.values()}) == 1
+        return
     with tempfile.TemporaryDirectory(prefix="ubx-two-groups-", dir=Path.cwd()) as temporary:
         bundle = build.prepare(Path(temporary).resolve())
         digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
-        builds = list(pool.map(lambda host: build_host(host, bundle, digest), HOSTS))
-    assert builds[0]["fixture_sha256"] == builds[1]["fixture_sha256"]
-    return builds
+        builds.update(zip(missing, pool.map(lambda host: build_host(host, bundle, digest), missing)))
+    assert len({receipt["fixture_sha256"] for receipt in builds.values()}) == 1
 
 
 def verify_runtime_receipt(host):
@@ -136,6 +152,12 @@ def collect(pool, destination):
 
 
 def main(args):
+    global HOSTS, LABEL, PORT
+    HOSTS = tuple(args.get("hosts", DEFAULT_HOSTS))
+    assert HOSTS in (DEFAULT_HOSTS, ("90.90.93.83", "90.90.93.86"))
+    benchmark.HOSTS = HOSTS
+    LABEL = DEFAULT_LABEL if HOSTS == DEFAULT_HOSTS else DEFAULT_LABEL + "-83-86"
+    PORT = int(args.get("port", 32500))
     benchmark.OUTPUT = ROOT / args.get("run_name", "full-bs32-f50")
     with ThreadPoolExecutor(max_workers=2) as pool:
         if args.get("mode", "initial") == "initial":
