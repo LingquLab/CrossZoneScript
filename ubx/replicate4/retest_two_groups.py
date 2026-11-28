@@ -20,6 +20,7 @@ ROOT = PurePosixPath("/root/ubx-" + LABEL)
 PORT = 32500
 DEFAULT_HOSTS = HOSTS
 DEFAULT_LABEL = LABEL
+GID_INDEXES = {}
 HERE = Path(__file__).resolve().parent
 TOOLKIT = "/usr/local/Ascend/cann-9.2.T101/set_env.sh"
 
@@ -88,8 +89,10 @@ def controller(index, action):
     if action == "run":
         lib = ":".join(str(path) for path in (
             benchmark.RUNTIME_INSTALL / "lib", benchmark.RUNTIME_INSTALL / "lib64", ROOT / "dispatch-build"))
+        gid = GID_INDEXES.get(HOSTS[index])
+        gid_env = f"export TILEXR_RDMA_GID_INDEX={gid} && " if gid is not None else ""
         command = shlex.join(["bash", "-lc",
-                              f"source {TOOLKIT} >/dev/null && "
+                              f"source {TOOLKIT} >/dev/null && {gid_env}"
                               f'export LD_LIBRARY_PATH={shlex.quote(lib)}:"${{LD_LIBRARY_PATH:-}}" && exec {command}'])
     rounds = (HERE / "round_count.py").read_text().split('if __name__ == "__main__":', 1)[0]
     remote = (HERE / "run_remote.py").read_text().replace('"90.90.93.188"', f'"{HOSTS[0]}"')
@@ -170,7 +173,7 @@ def collect(pool, destination):
         summary.update(payload_distribution="rank_group_8", profile_mode="full",
                        route_distribution="replicate4", route_qps_verified=128,
                        coordinator_port=PORT, hosts=list(HOSTS), runtime_revision=build.RUNTIME,
-                       route_sha256=route_hash, core_total_samples=32*50*56, local_results=str(result),
+                       rdma_gid_indexes=GID_INDEXES, route_sha256=route_hash, core_total_samples=32*50*56, local_results=str(result),
                        trace_count=32+int(summary["slowest"]["round"] != 59),
                        last_round=dict(rank=rank, aiv=core, max_us=us, mean_us=statistics.mean(totals)))
         (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -179,10 +182,12 @@ def collect(pool, destination):
 
 
 def main(args):
-    global HOSTS, LABEL, PORT
+    global HOSTS, LABEL, PORT, GID_INDEXES
     HOSTS = tuple(args.get("hosts", DEFAULT_HOSTS))
     assert HOSTS in (DEFAULT_HOSTS, ("90.90.93.83", "90.90.93.86"))
     benchmark.HOSTS = HOSTS
+    GID_INDEXES = {host: int(index) for host, index in args.get("gid_indexes", {}).items()}
+    assert set(GID_INDEXES) <= set(HOSTS) and all(0 <= index <= 255 for index in GID_INDEXES.values())
     LABEL = DEFAULT_LABEL if HOSTS == DEFAULT_HOSTS else DEFAULT_LABEL + "-83-86"
     PORT = int(args.get("port", 32500))
     benchmark.OUTPUT = ROOT / args.get("run_name", "full-bs32-f50")
