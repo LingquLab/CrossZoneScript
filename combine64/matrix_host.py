@@ -330,6 +330,26 @@ def main(request):
         errors = (root / 'hapi-logs' / (case.name + '.recover-profile.log')).read_text(errors='replace').splitlines()
         print(json.dumps({'rows': [result], 'diagnostic': errors[-1:] if proc.returncode else []}))
         return proc.returncode
+    if request['action'] == 'recover-profile-status':
+        case = root / 'cases/cores2-chunk64-a3'
+        log = root / 'hapi-logs/cores2-chunk64-a3.recover-profile.log'
+        lines = log.read_text(errors='replace').splitlines()
+        chosen = [line.strip() for line in lines if line.lstrip().startswith(
+            ('File ', 'AssertionError', 'ValueError', 'OSError', 'FileNotFoundError', 'TypeError'))]
+        layout = json_file(case / 'export-layout.json')['ranks'][0]['exports']['profile']
+        summaries = []
+        for die in (1, 2):
+            path = case / 'bin' / f'david_0_die{die}_profile.bin'
+            if path.is_file():
+                with path.open('rb') as stream:
+                    first = stream.read(8)
+                    stream.seek(-520, 2)
+                    last = stream.read(8)
+                summaries.append({'die':die, 'bytes':path.stat().st_size,
+                                  'first':hex(int.from_bytes(first,'little')),
+                                  'last':hex(int.from_bytes(last,'little'))})
+        print(json.dumps({'case':case.name,'output':chosen[-8:],'capture_region':layout,'dumps':summaries}))
+        return 0
     if request['action'] == 'diagnose-log':
         cases = request['cases']
         reports = []
