@@ -222,9 +222,10 @@ def main():
     result["pass"] = len(checks) == 8 and all(r["exit"] == 0 and len(r["latency_us"]) == 2 for r in checks)
 
 
-try:
-    main()
-except (OSError, ValueError, subprocess.SubprocessError, AssertionError) as error:
-    result["failure_kind"] = type(error).__name__
-(root / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-print("TILEXR_RESULT " + json.dumps(result, ensure_ascii=True, separators=(",", ":")))
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, subprocess.SubprocessError, AssertionError) as error:
+        result["failure_kind"] = type(error).__name__
+    (root / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print("TILEXR_RESULT " + json.dumps(result, ensure_ascii=True, separators=(",", ":")))

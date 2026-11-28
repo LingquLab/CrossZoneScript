@@ -1,10 +1,12 @@
 """Execute a pinned EP8 smoke test on the configured public_fp8 SSH entry."""
+import io
 import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 
 here = Path(__file__).resolve().parent
@@ -40,7 +42,15 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
     entry = "inspect.py" if options.get("inspect") else "remote.py"
     if options.get("rootinfo"):
         entry = "rootinfo.py"
-    if options.get("stage_source"):
+    if options.get("matrix"):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for name in ("matrix.py", "remote.py", "qp_probe.cpp", "final_bench.cpp"):
+                archive.add(here / name, arcname=name)
+        remote = ('umask 077; d=$(mktemp -d /tmp/tilexr-ep8-matrix.XXXXXXXX) && '
+                  'tar -xzf - -C "$d" && python3 "$d/matrix.py"')
+        proc = subprocess.run(args[:-2] + [remote], input=buffer.getvalue(), capture_output=True, timeout=1210)
+    elif options.get("stage_source"):
         from source_bundle import prepare
         packed, status = prepare(here / "remote.py", Path(temp))
         if packed is None:
