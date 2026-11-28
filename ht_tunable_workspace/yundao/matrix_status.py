@@ -6,7 +6,7 @@ from pathlib import Path
 
 root = Path.home() / "tilexr-validation"
 cases = []
-for path in sorted(root.glob("ht-0b9c3322-ep8-*"))[-6:]:
+for path in sorted(root.glob("ht-0b9c3322-ep8-*"))[-10:]:
     marker = path / "matrix.json"
     groups = sorted(p for p in path.iterdir() if p.is_dir() and p.name.startswith(
         ("qp-", "gather-", "final-", "send-", "direct-", "fullmesh-", "concurrent-", "serial-")))
@@ -37,6 +37,8 @@ for path in sorted(root.glob("ht-0b9c3322-ep8-*"))[-6:]:
                     if failures or checked:
                         examples[group.name] = {"errors": failures[-2:], "checked": len(checked)}
             case["rank0"] = examples
+        if marker.is_file() and "final_wait" in result:
+            case["final_wait"] = result["final_wait"]
         if groups:
             newest = max(groups, key=lambda p: p.stat().st_mtime)
             case["last"] = newest.name
