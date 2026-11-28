@@ -42,7 +42,7 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding='utf-8-sig'))
     host, auth, action = args['host'], args['auth'], args['action']
     assert host in ('26', '18') and auth in ('key', 'password')
-    assert action in ('build-and-run', 'run', 'status', 'diagnose-kill', 'resize', 'finish')
+    assert action in ('build-and-run', 'run', 'status', 'diagnose-kill', 'diagnose-log', 'resize', 'finish')
     label = f'{host}-{action}-{time.time_ns()}'
     log = Path(os.environ['LOCALAPPDATA']) / 'CrossZone' / 'tilexr' / SESSION / label
     log.mkdir(parents=True)

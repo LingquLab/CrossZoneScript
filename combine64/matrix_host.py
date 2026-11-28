@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
 import os
+import re
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -239,6 +240,33 @@ def main(request):
     assert subprocess.check_output(['hostname', '-s'], timeout=10).decode().strip() == host
     suffix = '-host18' if host == 'host-94-18' else ''
     root = SESSION_ROOT / f'run-{REVISION[:7]}{suffix}-a1'
+    if request['action'] == 'diagnose-log':
+        cases = request['cases']
+        reports = []
+        for label in cases:
+            assert re.fullmatch(r'cores[1248]-chunk(16|32|64|128)-a[0-9]+', label)
+            case = root / 'cases' / label
+            path = case / 'sim.log'
+            patterns = (
+                r'Unknown low level mem[^\n]{0,120}',
+                r'(?i:(?:overflow|exception|timeout|SIGSEGV|SIGTERM|assertion failed|fatal|out of memory|deadlock|invalid address))[^\n]{0,100}',
+                r'(?:at |current cycle:? |Cycle:? )\d{6,}',
+            )
+            matches = []
+            with path.open('rb') as log:
+                total = log.seek(0, 2)
+                log.seek(max(0, total - 2 * 1024 * 1024))
+                tail = log.read().decode('utf-8', errors='replace')
+            for pattern in patterns:
+                matches.extend(dict.fromkeys(re.findall(pattern, tail)))
+            updates = re.findall(r'\b[0-9]+\.[0-9]+\s*(?:us|ns)\b', tail)
+            record = json_file(case / 'phase-result.json')
+            reports.append({'case': label, 'error': record.get('error'),
+                            'returncode': record.get('returncode'), 'log_bytes':total,
+                            'tail_events': updates[-5:],
+                            'log_matches': matches[-12:]})
+        print(json.dumps({'diagnoses': reports}))
+        return 0
     if request['action'] == 'diagnose-kill':
         label = request['label']
         assert label == 'cores1-chunk16-a1'
