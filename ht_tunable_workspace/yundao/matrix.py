@@ -211,7 +211,7 @@ def concurrent_matrix(repo, env):
     comm_dir = BASE_BUILD / "src/comm"
     executable = compile_fixture("ep8_concurrent", "ep8_concurrent.cpp", repo, BASE_BUILD,
         lib_dir, "tilexr-moonep-combine-ht",
-        ("-DTILEXR_COMBINE_HT_PIPELINE=1", "-I" + str(repo / "tests/moonep_combine_ht"),
+        ("-DTILEXR_COMBINE_HT_PIPELINE=1", "-DTILEXR_ENABLE_PROFILING=0", "-I" + str(repo / "tests/moonep_combine_ht"),
          "-I" + str(repo / "src/moonep/combine_ht/common"), "-I" + str(repo / "src/ep/combine_ht"),
          "-I" + str(SDK / "pkg_inc"), "-I" + str(SDK / "pkg_inc/runtime"),
          "-L" + str(comm_dir), "-Wl,-rpath," + str(comm_dir), "-ltile-comm", "-lruntime",
@@ -219,6 +219,11 @@ def concurrent_matrix(repo, env):
          "-ltilexr-ep-ht-local-return", "-ltilexr-ep-ht-final-reduce", "-ltilexr-ep-ht-send"))
     if not executable:
         return
+    SUMMARY["concurrent_build"] = "pass"
+    for _ in range(24):
+        if idle_devices() == list(range(8)):
+            break
+        time.sleep(5)
     rows = SUMMARY["concurrent"] = {}
     pipeline_obj = lib_dir / "tilexr_moonep_combine_ht_kernel.o"
     local_obj = ep_dir / "tilexr_ep_ht_local_return_kernel.o"
