@@ -90,6 +90,34 @@ def qualify():
             data.pop("failures", None)
         else:
             data["other_error_lines"] = len(error_lines)
+            matches = Counter()
+            phrases = {
+                "udma_driver_log": r"\[UDMA, ERR\]",
+                "aiv_check_failure": r"check result failed|this is an error",
+                "file_open": r"failed to open file",
+                "missing_path": r"no such file",
+                "errno": r"errno|permission denied",
+                "config": r"configuration|config file",
+                "unsupported": r"not supported|not support",
+                "socket": r"socket",
+                "netdev": r"netdev|network device",
+                "ranktable": r"ranktable|rank table",
+                "aicore": r"aicore|vector core",
+                "mte": r"mte.*(?:error|exception)",
+                "udma_link": r"failed to (?:link|connect|create.*qp|create.*jetty)",
+                "runtime_code": r"507035|507024|507018|507012",
+                "data_timeout": r"timeout|timed out",
+                "nic_address": r"NIC.*(?:IP|address)|IP.*NIC",
+            }
+            for line in error_lines:
+                for label, pattern in phrases.items():
+                    if re.search(pattern, line, re.I):
+                        matches[label] += 1
+            data["remaining_markers"] = dict(matches)
+            data["success_rows"] = [
+                re.sub(r"^.*?<stdout>:", "", line).strip()[:160] for line in lines
+                if "|" in line and re.fullmatch(r"(?:.*?<stdout>:)?[0-9.Ee+| /-]+success\s*", line, re.I)
+            ][:4]
         return data
     env = dict(os.environ, TILEXR_VALIDATION_RUN_LABEL="ht-4d37ae67-ep8-hccl")
     completed = subprocess.run([sys.executable, str(HERE / "hccl_baseline.py")],
