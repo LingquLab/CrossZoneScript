@@ -6,12 +6,13 @@ import sys
 import tarfile
 import uuid
 
-commit, expected_sha, archive_path = sys.argv[1:]
+alias, commit, expected_sha, archive_path = sys.argv[1:]
+assert alias in ('ma-0', 'ma-1', 'ma-2')
 assert len(commit) == 40 and all(c in '0123456789abcdef' for c in commit)
 archive = pathlib.Path(archive_path)
 actual_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
 assert actual_sha == expected_sha, 'Archive checksum mismatch'
-parent = pathlib.Path.home() / 'work' / 'pangu_sophon_pytorch'
+parent = pathlib.Path.home() / 'work' / 'pangu_sophon_pytorch' / alias
 parent.mkdir(parents=True, exist_ok=True)
 target = parent / commit
 marker = target / '.cross-zone-deployment.json'

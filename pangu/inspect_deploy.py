@@ -57,13 +57,13 @@ for name in ['launch.py','train.py','pretrain_gpt.py','setup.py','PanGu/__init__
         except SyntaxError:
             imports[name] = ['AST inspection unavailable']
 
-remote_archive = '/home/ma-user/work/pangu-' + commit + '.tar'
 scp = shutil.which('scp')
 assert scp
 def deploy(alias):
     # The initial probe established ~/work exists on all three machines.
+    remote_archive = '/home/ma-user/work/pangu-' + alias + '-' + commit + '.tar'
     run([scp,'-q','-o','BatchMode=yes','-o','ConnectTimeout=15',str(archive),alias + ':' + remote_archive], alias + '-upload', timeout=300)
-    deployment = ssh_script(alias, 'remote_deploy.py', commit, digest, remote_archive, timeout=180)
+    deployment = ssh_script(alias, 'remote_deploy.py', alias, commit, digest, remote_archive, timeout=180)
     environment = ssh_script(alias, 'server_inspect.py', timeout=90)
     return {'alias':alias,'deployment':deployment,'environment':environment}
 
