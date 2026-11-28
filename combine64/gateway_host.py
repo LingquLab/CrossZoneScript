@@ -69,6 +69,7 @@ def stage_tools(root, files):
 
 
 
+@contextmanager
 def worker_container(root, core, memory_gib):
     name = f'combine-ht-{SESSION[:8]}-core{core}'
     source = root / 'source'
