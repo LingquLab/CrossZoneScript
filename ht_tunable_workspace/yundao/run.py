@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 here = Path(__file__).resolve().parent
@@ -35,7 +36,9 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             "-o", "UserKnownHostsFile=" + known_hosts, "-o", "GlobalKnownHostsFile=none",
             "-o", "UpdateHostKeys=no", "-o", "IdentitiesOnly=yes", "-i", str(key),
             "-p", "30527", target, "python3", "-"]
-    proc = subprocess.run(args, input=(here / "remote.py").read_bytes(), capture_output=True, timeout=820)
+    options = json.loads(Path(sys.argv[2]).read_text()) if sys.argv[1:2] == ["--args-file"] else {}
+    entry = "inspect.py" if options.get("inspect") else "remote.py"
+    proc = subprocess.run(args, input=(here / entry).read_bytes(), capture_output=True, timeout=820)
 output = proc.stdout.decode(errors="replace").splitlines()
 lines = [s.removeprefix("TILEXR_RESULT ") for s in output if s.startswith("TILEXR_RESULT ")]
 if lines:
