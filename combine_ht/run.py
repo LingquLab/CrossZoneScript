@@ -78,11 +78,13 @@ def main():
     p.add_argument("--host", default="public_fp8")
     p.add_argument("--revision", default="2b00ab8decae75b3a93a9a8471762e107205189a")
     p.add_argument("--ref", default="refs/heads/codex/combine-ht-multi-jetty")
+    p.add_argument("--reuse-build", action="store_true")
     p.add_argument("--args-file", type=Path)
     args = p.parse_args()
     if args.args_file is not None:
         for key, value in json.loads(args.args_file.read_text(encoding="utf-8")).items():
-            if key not in ("host", "revision", "ref") or not isinstance(value, str):
+            expected = bool if key == "reuse_build" else str
+            if key not in ("host", "revision", "ref", "reuse_build") or not isinstance(value, expected):
                 p.error(f"invalid script argument {key!r}")
             setattr(args, key, value)
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
@@ -91,16 +93,18 @@ def main():
     ssh = SSH + [args.host]
     root = '"$HOME/.cache/tilexr-ht-be110cc8"'
     remote_archive = '"$HOME/.cache/tilexr-ht-be110cc8/tilexr-' + args.revision + '.tar.gz"'
-    with tempfile.TemporaryDirectory() as temporary:
-        archive = bundle(args, Path(temporary))
-        with archive.open("rb") as data:
-            sha = hashlib.sha256()
-            for block in iter(lambda: data.read(1024 * 1024), b""):
-                sha.update(block)
-            digest = sha.hexdigest()
-            data.seek(0)
-            upload = f'umask 077 && mkdir -p {root} && cat > {remote_archive}.part && mv {remote_archive}.part {remote_archive}'
-            checked("upload", ssh + [upload], stdin=data, timeout=180)
+    digest = "reuse"
+    if not args.reuse_build:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = bundle(args, Path(temporary))
+            with archive.open("rb") as data:
+                sha = hashlib.sha256()
+                for block in iter(lambda: data.read(1024 * 1024), b""):
+                    sha.update(block)
+                digest = sha.hexdigest()
+                data.seek(0)
+                upload = f'umask 077 && mkdir -p {root} && cat > {remote_archive}.part && mv {remote_archive}.part {remote_archive}'
+                checked("upload", ssh + [upload], stdin=data, timeout=180)
     shell = Path(__file__).with_name("smoke.sh").read_bytes().replace(b"\r\n", b"\n")
     command = "bash -s -- " + shlex.join((args.revision, digest))
     result = capture(ssh + [command], input=shell, timeout=1700)

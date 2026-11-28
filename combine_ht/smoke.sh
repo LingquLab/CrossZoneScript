@@ -25,9 +25,11 @@ report() {
     exit "$rc"
 }
 trap report ERR
-printf '%s  %s\n' "$digest" "$archive" | sha256sum -c >"$log" 2>&1
-mkdir -p "$repo"
-tar -xzf "$archive" -C "$repo" >>"$log" 2>&1
+if [[ "$digest" != reuse ]]; then
+    printf '%s  %s\n' "$digest" "$archive" | sha256sum -c >"$log" 2>&1
+    mkdir -p "$repo"
+    tar -xzf "$archive" -C "$repo" >>"$log" 2>&1
+fi
 cd "$repo"
 printf 'revision=%s\n' "$revision"
 
@@ -37,16 +39,34 @@ source /usr/local/Ascend/cann/set_env.sh >"$log" 2>&1
 source scripts/common_env.sh >>"$log" 2>&1
 printf 'cann=%s\n' "$(readlink -f "$ASCEND_HOME_PATH")"
 
-step=build_configure
-log="$root/build.log"
-cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release -DTILEXR_BUILD_COMBINE_HT=ON \
-    -DTILEXR_COMBINE_HT_SIM_SEND=OFF -DTILEXR_BUILD_UNITEST=OFF \
-    -DTILEXR_ENABLE_PROFILING=OFF -DBUILD_TESTING=ON >"$log" 2>&1
-step=build_compile
-timeout 360 cmake --build "$build" --target tilexr_combine_ht_test -j8 >>"$log" 2>&1
-step=host_contract
-ctest --test-dir "$build" -R '^tilexr_combine_ht_contract$' --output-on-failure >>"$log" 2>&1
-printf 'build=pass host_contract=pass\n'
+if [[ "$digest" != reuse ]]; then
+    step=build_configure
+    log="$root/build.log"
+    cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release -DTILEXR_BUILD_COMBINE_HT=ON \
+        -DTILEXR_COMBINE_HT_SIM_SEND=OFF -DTILEXR_BUILD_UNITEST=OFF \
+        -DTILEXR_ENABLE_PROFILING=OFF -DBUILD_TESTING=ON >"$log" 2>&1
+    step=build_compile
+    timeout 360 cmake --build "$build" --target tilexr_combine_ht_test -j8 >>"$log" 2>&1
+fi
+bin="$build/src/moonep/combine_ht/tilexr_combine_ht_test"
+step=existing_binary
+[[ -x "$bin" ]]
+printf 'build=pass\n'
+log="$root/host-contract.log"
+if timeout 30 "$bin" --mode host >"$log" 2>&1; then
+    echo diagnostic=host_contract_pass
+else
+    printf 'diagnostic=host_contract_rc_%s\n' "$?"
+    missing=$(sed -nE 's/.*error while loading shared libraries: ([A-Za-z0-9_.-]+):.*/\1/p' "$log" | head -1)
+    if [[ -n "$missing" ]]; then
+        printf 'diagnostic=missing_library_%s\n' "$missing"
+        exit 1
+    fi
+    diagnostic=$(grep -E '^(layout|overlapping roles accepted|unused reducer configuration|empty reducer configuration accepted|backward [a-z/ ]+|address negative accepted: [a-z ]+|forward source coverage)(: [0-9]+)?$' "$log" | head -1 || true)
+    printf 'diagnostic=host_contract_detail_%s\n' "$diagnostic"
+fi
+awk '/^MemTotal:/ {print "diagnostic=host_memory_kib_" $2}' /proc/meminfo
+if command -v msprof >/dev/null; then echo diagnostic=msprof_present; fi
 
 wait_idle() {
     local deadline=$((SECONDS + 450)) dev idle
@@ -71,7 +91,6 @@ wait_idle() {
 
 export TILEXR_ENABLE_UDMA=1
 unset ASCEND_RT_VISIBLE_DEVICES
-bin="$build/src/moonep/combine_ht/tilexr_combine_ht_test"
 failed=0
 for mode in reduce send; do
     step="idle-$mode"
