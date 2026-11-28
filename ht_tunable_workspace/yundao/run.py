@@ -88,18 +88,26 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             remote += " concurrent"
         proc = subprocess.run(args[:-2] + [remote], input=buffer.getvalue(), capture_output=True, timeout=1210)
     elif options.get("multi_jetty"):
-        from source_bundle import prepare
         files = ("multi_jetty.py", "matrix.py", "multi_jetty_modules.cpp", "multi_jetty_qp.cpp")
-        packed, status = prepare(here / "remote.py", Path(temp),
-                                 revision="4d37ae67cf2f6baa06b3efbe65c71649a6f24203",
-                                 branch="codex/combine-ht-multi-jetty",
-                                 support=[here / file for file in files])
-        if packed is None:
-            print(json.dumps(status, ensure_ascii=True, separators=(",", ":")))
-            raise SystemExit(0)
         remote = ('umask 077; d=$(mktemp -d /tmp/tilexr-multi-jetty.XXXXXXXX) && '
                   'tar -xzf - -C "$d" && python3 "$d/multi_jetty.py"')
-        proc = subprocess.run(args[:-2] + [remote], input=packed, capture_output=True, timeout=1100)
+        if options.get("resume"):
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                for name in (*files, "remote.py"):
+                    archive.add(here / name, arcname=name)
+            packed = buffer.getvalue()
+            remote += " resume"
+        else:
+            from source_bundle import prepare
+            packed, status = prepare(here / "remote.py", Path(temp),
+                                     revision="4d37ae67cf2f6baa06b3efbe65c71649a6f24203",
+                                     branch="codex/combine-ht-multi-jetty",
+                                     support=[here / file for file in files])
+            if packed is None:
+                print(json.dumps(status, ensure_ascii=True, separators=(",", ":")))
+                raise SystemExit(0)
+        proc = subprocess.run(args[:-2] + [remote], input=packed, capture_output=True, timeout=1450)
     elif options.get("stage_source"):
         from source_bundle import prepare
         packed, status = prepare(here / "remote.py", Path(temp))

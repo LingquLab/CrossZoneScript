@@ -230,13 +230,14 @@ void FinalReduce(const SendConfig &c, aclrtStream stream)
 int main(int argc, char **argv)
 {
     try {
-        Check(argc != 6, "expected mode device tokens chunk splits");
+        Check(argc != 6 && argc != 7, "expected mode device tokens chunk splits [intra cores]");
         const std::string mode = argv[1];
         const uint32_t device = std::stoul(argv[2]), tokens = std::stoul(argv[3]);
         const uint32_t chunk = std::stoul(argv[4]), splits = std::stoul(argv[5]);
+        const uint32_t intraCores = argc == 7 ? std::stoul(argv[6]) : kLocal;
         SendConfig config {};
         Check(!MakeSendConfig(mode == "final" ? 0 : device, tokens, kHidden, 1, 0, tokens, 2026, config,
-                              64, 1, chunk, splits), "layout");
+                              64, 1, chunk, splits, kOwners, 1, 1, 1, 1, intraCores), "layout");
         Check(aclInit(nullptr), "acl init");
         Check(aclrtSetDevice(device), "set device");
         aclrtStream stream = nullptr;

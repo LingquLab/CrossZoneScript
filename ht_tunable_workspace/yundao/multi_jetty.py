@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 
 REVISION = "4d37ae67cf2f6baa06b3efbe65c71649a6f24203"
@@ -13,8 +14,10 @@ from matrix import SHELL, compile_fixture, run_group, timed_module
 
 ROOT = remote.root
 SOURCE = Path(__file__).resolve().parent
+resume = sys.argv[1:] == ["resume"]
+previous = ROOT.parent / "ht-4d37ae67-multi-jetty-ep8-1795858683"
+BUILD = (previous if resume else ROOT) / "build"
 REPO = SOURCE / "source"
-BUILD = ROOT / "build"
 COMM = BUILD / "src/comm"
 EP = BUILD / "src/ep/combine_ht"
 RANKS = list(range(8))
@@ -34,7 +37,14 @@ def step(name, args, timeout):
     return True
 
 
-def run():
+def compile_modules(repo):
+    return compile_fixture("multi_jetty_modules", "multi_jetty_modules.cpp", repo, BUILD, EP,
+                           "tilexr-ep-ht-local-return",
+                           ("-ltilexr-ep-ht-final-reduce", "-L" + str(COMM),
+                            "-Wl,-rpath," + str(COMM), "-ltile-comm"))
+
+
+def build():
     if (SOURCE / "revision.txt").read_text().strip() != REVISION:
         raise ValueError("source revision mismatch")
     driver = ROOT / "driver-link"
@@ -45,28 +55,44 @@ def run():
              "-DTILEXR_COMBINE_HT_SST_FP32=OFF", "-DASCEND_DRIVER_PATH=" + str(driver)]
     targets = ["tilexr_combine_ht_test", "tilexr-ep-ht-local-return", "tilexr-ep-ht-final-reduce"]
     if not step("configure", ["cmake", "-S", str(REPO), "-B", str(BUILD), *flags], 65):
-        return
+        return None, None
     if not step("build", ["cmake", "--build", str(BUILD), "--target", *targets, "-j8"], 390):
-        return
+        return None, None
     SUMMARY["native_build"] = "pass"
-
     qp = compile_fixture("multi_jetty_qp", "multi_jetty_qp.cpp", REPO, BUILD, COMM, "tile-comm")
-    modules = compile_fixture("multi_jetty_modules", "multi_jetty_modules.cpp", REPO, BUILD, EP,
-                              "tilexr-ep-ht-local-return",
-                              ("-ltilexr-ep-ht-final-reduce", "-L" + str(COMM),
-                               "-Wl,-rpath," + str(COMM), "-ltile-comm"))
+    return qp, compile_modules(REPO)
+
+
+def run():
+    if resume:
+        evidence = json.loads((previous / "result.json").read_text())
+        if evidence.get("revision") != REVISION or evidence.get("native_build") != "pass":
+            raise ValueError("build provenance mismatch")
+        cache = (BUILD / "CMakeCache.txt").read_text()
+        source_root = Path(re.search(r"^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$", cache, re.M).group(1))
+        if (source_root.parent / "revision.txt").read_text().strip() != REVISION:
+            raise ValueError("source provenance mismatch")
+        qp = previous / "multi_jetty_qp"
+        modules = compile_modules(source_root)
+        if not qp.is_file():
+            raise ValueError("missing shared QP fixture")
+    else:
+        qp, modules = build()
+        if SUMMARY.get("native_build") != "pass":
+            return
     if not qp or not modules:
         from matrix import SUMMARY as fixture_summary
         SUMMARY["fixture_build_errors"] = fixture_summary.get("build_errors")
+    SUMMARY["native_build"] = "pass"
     rootinfo = remote.write_eid_rootinfo()
     env = dict(os.environ, TILEXR_UDMA_ROOTINFO_PATH=str(rootinfo))
 
-    for attempt in range(13):
+    deadline = time.monotonic() + (600 if resume else 60)
+    while True:
         occupancy = remote.device_status()
-        if occupancy["idle_devices"] == RANKS:
+        if occupancy["idle_devices"] == RANKS or time.monotonic() >= deadline:
             break
-        if attempt < 12:
-            time.sleep(5)
+        time.sleep(10)
     SUMMARY["initial_devices"] = occupancy
     if qp:
         rows = SUMMARY["qp"] = {}
@@ -84,13 +110,14 @@ def run():
 
     rows = SUMMARY["gather_gateway_reduce"] = {}
     test = str(BUILD / "src/moonep/combine_ht/tilexr_combine_ht_test")
-    for world, tokens, six, two, direct in [(8, 32, 16, 16, 0), (64, 32, 16, 16, 7), (64, 256, 16, 32, 0)]:
-        label = f"w{world}-t{tokens}-q{six + two + direct}"
+    for world, tokens, six, two, direct, cores in [(8, 32, 16, 16, 0, 8), (64, 32, 16, 16, 7, 8),
+                                                       (64, 256, 16, 32, 0, 4)]:
+        label = f"w{world}-t{tokens}-q{six + two + direct}-a{cores}"
         def args(rank):
             return [test, "--mode", "fused", "--world", str(world), "--rank", str(rank),
                     "--device", str(rank), "--local-comm", "1", "--tokens", str(tokens), "--hidden", "128",
                     "--topk", "4", "--chunk", "32", "--splits", "4", "--reduce-begin", "8",
-                    "--reducers", "16", "--iterations", "4", "--domain", "0"]
+                    "--intra-cores", str(cores), "--reducers", "16", "--iterations", "4", "--domain", "0"]
         logs, row = run_group("gather-" + label, args, RANKS, config(env, six, two, direct), 45)
         rows[label] = row
         if logs:
@@ -102,10 +129,10 @@ def run():
 
     if modules:
         rows = SUMMARY["local_return"] = {}
-        for tokens, chunk, splits, direct in [(32, 32, 1, 0), (32, 32, 4, 7), (256, 64, 4, 7)]:
-            label = f"t{tokens}-c{chunk}-s{splits}-d{direct}"
+        for tokens, chunk, splits, direct, cores in [(32, 32, 1, 0, 8), (32, 32, 4, 7, 8), (256, 64, 4, 7, 4)]:
+            label = f"t{tokens}-c{chunk}-s{splits}-d{direct}-a{cores}"
             rows[label] = timed_module("return-" + label,
-                lambda rank: [str(modules), "return", str(rank), str(tokens), str(chunk), str(splits)],
+                lambda rank: [str(modules), "return", str(rank), str(tokens), str(chunk), str(splits), str(cores)],
                 config(env, 16, 16, direct))
             if rows[label]["status"] == "devices_busy":
                 break
@@ -129,7 +156,7 @@ def run():
 
 try:
     run()
-except (ValueError, OSError, subprocess.SubprocessError) as exc:
+except (ValueError, OSError, AttributeError, subprocess.SubprocessError) as exc:
     SUMMARY["failure_type"] = type(exc).__name__
 (ROOT / "result.json").write_text(json.dumps(SUMMARY, indent=2) + "\n")
 print("TILEXR_RESULT " + json.dumps(SUMMARY, ensure_ascii=True, separators=(",", ":")))
