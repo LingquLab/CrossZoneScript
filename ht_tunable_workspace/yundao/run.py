@@ -56,6 +56,8 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
             remote += " modules"
         elif options.get("profile"):
             remote += " profile"
+        elif options.get("finish"):
+            remote += " finish"
         proc = subprocess.run(args[:-2] + [remote], input=buffer.getvalue(), capture_output=True, timeout=1210)
     elif options.get("stage_source"):
         from source_bundle import prepare

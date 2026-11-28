@@ -114,11 +114,14 @@ def qp_matrix(probe, env):
     SUMMARY["qp"] = rows
 
 
-def gather_matrix(build, env, profiling=False):
+def gather_matrix(build, env, profiling=False, previous=None):
     test = str(build / "src/moonep/combine_ht/tilexr_combine_ht_test")
     rows = {}
     for world in ((8,) if profiling else (8, 16, 32, 64)):
         for reducers in (12, 16, 24, 40):
+            key = f"{world}/{reducers}"
+            if previous and previous.get(key, {}).get("status") == "pass":
+                continue
             name = f"gather-w{world}-r{reducers}"
             def args(rank):
                 command = [test, "--mode", "fused", "--world", str(world), "--rank", str(rank),
@@ -239,6 +242,16 @@ def main():
         raise ValueError("unexpected source")
     env = dict(os.environ, TILEXR_UDMA_ROOTINFO_PATH=str(remote.write_eid_rootinfo()),
                TILEXR_UDMA_SHARED_QP_SPEC="16:16")
+    if sys.argv[1:] == ["finish"]:
+        initial = ROOT.parent / "ht-0b9c3322-ep8-1795846177"
+        for _ in range(24):
+            if idle_devices():
+                break
+            time.sleep(5)
+        final_matrix(initial / "final_bench", env)
+        previous = json.loads((initial / "matrix.json").read_text())["gather"]
+        gather_matrix(BASE_BUILD, env, previous=previous)
+        return
     if sys.argv[1:] == ["profile"]:
         build = ROOT / "profile-build"
         configure = SHELL + ["cmake", "-S", str(repo), "-B", str(build),
@@ -252,6 +265,10 @@ def main():
             SUMMARY["profile_build_error"] = [remote.result.get("stage"), remote.result.get("first_errors")]
         return
     if sys.argv[1:] == ["modules"]:
+        for _ in range(24):
+            if idle_devices() == list(range(8)):
+                break
+            time.sleep(5)
         native_modules(repo, env)
         return
     probe = compile_fixture("qp_probe", "qp_probe.cpp", repo, BASE_BUILD, BASE_BUILD / "src/comm", "tile-comm")
