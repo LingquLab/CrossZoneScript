@@ -54,13 +54,14 @@ def download(sftp, label):
     return evidence
 
 
-def report(rows, evidence):
+def report(rows, evidence, incomplete=None):
     matrix = [row for row in rows if row['cores'] != 1]
     micro = [row for row in rows if row['cores'] == 1]
     assert {(r['cores'], r['chunk_tokens']) for r in matrix} == {
         (core, chunk) for core in (8, 16, 24, 32) for chunk in (16, 32, 64, 128)}
-    assert {row['chunk_tokens'] for row in micro} == {16, 32, 64, 128, 512}
-    assert len(matrix) == 16 and len(micro) == 5
+    expected_micro = {16, 32, 64, 128} if incomplete else {16, 32, 64, 128, 512}
+    assert {row['chunk_tokens'] for row in micro} == expected_micro
+    assert len(matrix) == 16 and len(micro) == len(expected_micro)
     result = [
         '# Combine-HT Gateway 规约仿真',
         '',
@@ -94,6 +95,9 @@ def report(rows, evidence):
         result.append(f"| {row['chunk_tokens']} | {samples} | {row['mean_chunk_us']:.3f} | "
                       f"{row['platform_simulated_us']:.3f} | {row['profiling_operator_us']:.3f} | "
                       f"{row['sst_wall_seconds']:.3f} | {row['runner_wall_seconds']:.3f} |")
+    if incomplete:
+        result.append('| 512 | — | — | — | — | — | — |')
+        result += ['', incomplete['description']]
     if all(row.get('profiling_detail') == 'stages' for row in micro):
         result += ['', '单核结果统一使用阶段级 profiling。首轮逐 token 打点的 chunk 128 和 512 达到墙钟超时，未生成输出 dump。']
     result += [
@@ -107,7 +111,7 @@ def report(rows, evidence):
                '`results.json` 保存逐项耗时、校验结果和 trace SHA-256。', '']
     for name, content in (
             ('report.md', '\n'.join(result)),
-            ('results.json', json.dumps(dict(cases=rows, traces=evidence), ensure_ascii=False, indent=2) + '\n')):
+            ('results.json', json.dumps(dict(cases=rows, traces=evidence, incomplete=incomplete), ensure_ascii=False, indent=2) + '\n')):
         target = DESTINATION / name
         partial = target.with_suffix(target.suffix + '.tmp')
         partial.write_text(content, encoding='utf-8')
@@ -122,14 +126,38 @@ def main():
     DESTINATION.mkdir(parents=True, exist_ok=True)
     evidence = {}
     rows = []
+    incomplete = None
+    optional = args.get('optional_chunk512')
     with connect('18', 'password') as client, client.open_sftp() as sftp:
         sftp.get_channel().settimeout(120)
         for label in args['cases']:
             row, evidence[label] = download(sftp, label)
             rows.append(row)
+        if optional:
+            assert optional == 'cores1-chunk512-a2'
+            path = ROOT / 'cases' / optional / 'phase-result.json'
+            try:
+                with sftp.open(str(path), 'rb') as stream:
+                    latest = json.load(stream)
+            except FileNotFoundError:
+                latest = {'status': 'pending'}
+            state = latest['status']
+            if state == 'sst_and_checker_passed':
+                row, evidence[optional] = download(sftp, optional)
+                rows.append(row)
+            else:
+                incomplete = {'chunk_tokens': 512, 'attempt': optional, 'status': state}
+                if 'sst_wall_seconds' in latest:
+                    incomplete['sst_wall_seconds'] = latest['sst_wall_seconds']
+                if state == 'timed_out':
+                    incomplete['description'] = f"chunk 512 的阶段级复测在 SST 墙钟 {latest['sst_wall_seconds']:.3f} s 后超时。"
+                elif state == 'pending':
+                    incomplete['description'] = 'chunk 512 的阶段级复测在出具报告时尚无终态。首轮逐 token 打点在 SST 墙钟 2711.482 s 后超时。'
+                else:
+                    incomplete['description'] = f'chunk 512 的阶段级复测状态为 `{state}`。'
     if args.get('report', False):
-        report(rows, evidence)
-    print(json.dumps(dict(directory=str(DESTINATION), cases=evidence, report_written=args.get('report', False))))
+        report(rows, evidence, incomplete)
+    print(json.dumps(dict(directory=str(DESTINATION), cases=evidence, report_written=args.get('report', False), incomplete=incomplete, single_core=[{key: row[key] for key in ('chunk_tokens', 'mean_chunk_us', 'chunk_sample_us', 'platform_simulated_us', 'profiling_operator_us', 'sst_wall_seconds', 'runner_wall_seconds')} for row in rows if row['cores'] == 1])))
     return 0
 
 
