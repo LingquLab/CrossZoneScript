@@ -10,7 +10,7 @@ BRANCH = "codex/combine-ht-single-workspace"
 DEPENDENCIES = ("3rdparty/spdlog", "3rdparty/picojson")
 
 
-def prepare(entry, stage):
+def prepare(entry, stage, *, revision=REVISION, branch=BRANCH, support=()):
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     clone = stage / "source"
 
@@ -27,7 +27,7 @@ def prepare(entry, stage):
                 "could not resolve", "timed out", "failed to connect", "ssl") if term in msg), "git_failure")
         return p if p.returncode == 0 else None, status
 
-    p, status = git("green_clone", ["clone", "--depth", "1", "--branch", BRANCH,
+    p, status = git("green_clone", ["clone", "--depth", "1", "--branch", branch,
                                   "https://github.com/LingquLab/TileXR.git", str(clone)], 60)
     if p is None:
         return None, status
@@ -35,11 +35,11 @@ def prepare(entry, stage):
     head, status = git("green_verify", prefix + ["rev-parse", "HEAD"], 8)
     if head is None:
         return None, status
-    if head.stdout.decode().strip() != REVISION:
-        p, status = git("green_fetch_revision", prefix + ["fetch", "--depth", "1", "origin", REVISION], 50)
+    if head.stdout.decode().strip() != revision:
+        p, status = git("green_fetch_revision", prefix + ["fetch", "--depth", "1", "origin", revision], 50)
         if p is None:
             return None, status
-    p, status = git("green_checkout", prefix + ["checkout", "--detach", REVISION], 12)
+    p, status = git("green_checkout", prefix + ["checkout", "--detach", revision], 12)
     if p is None:
         return None, status
     p, status = git("green_dependencies", prefix + ["submodule", "update", "--init", "--depth", "1", *DEPENDENCIES], 100)
@@ -59,12 +59,14 @@ def prepare(entry, stage):
                     item.name = relative + "/" + item.name
                     output.addfile(item, source.extractfile(item))
 
-        include(clone, REVISION, "source")
+        include(clone, revision, "source")
         for dep in DEPENDENCIES:
             include(clone / dep, "HEAD", "source/" + dep)
         output.add(entry, arcname="remote.py")
-        artifact = REVISION.encode()
+        for path in support:
+            output.add(path, arcname=path.name)
+        artifact = revision.encode()
         member = tarfile.TarInfo("revision.txt")
         member.size = len(artifact)
         output.addfile(member, io.BytesIO(artifact))
-    return buffer.getvalue(), dict(stage="green_archive", revision=REVISION)
+    return buffer.getvalue(), dict(stage="green_archive", revision=revision)

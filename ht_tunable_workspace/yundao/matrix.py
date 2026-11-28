@@ -412,9 +412,10 @@ def main():
         final_matrix(bench, env)
 
 
-try:
-    main()
-except (ValueError, OSError, subprocess.SubprocessError, StopIteration) as exc:
-    SUMMARY["failure"] = [type(exc).__name__, str(exc)[:150]]
-(ROOT / "matrix.json").write_text(json.dumps(SUMMARY, indent=2) + "\n")
-print("TILEXR_RESULT " + json.dumps(SUMMARY, ensure_ascii=True, separators=(",", ":")))
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, subprocess.SubprocessError, StopIteration) as exc:
+        SUMMARY["failure"] = [type(exc).__name__, str(exc)[:150]]
+    (ROOT / "matrix.json").write_text(json.dumps(SUMMARY, indent=2) + "\n")
+    print("TILEXR_RESULT " + json.dumps(SUMMARY, ensure_ascii=True, separators=(",", ":")))

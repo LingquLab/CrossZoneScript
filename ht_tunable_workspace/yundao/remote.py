@@ -12,7 +12,8 @@ import time
 REVISION = "0b9c3322088140c9eacb768b25edb21bda5f1161"
 BRANCH = "codex/combine-ht-single-workspace"
 TOOLKIT = "/usr/local/Ascend/cann-9.2.2"
-root = Path.home() / "tilexr-validation" / ("ht-0b9c3322-ep8-" + str(int(time.time())))
+run_label = os.environ.get("TILEXR_VALIDATION_RUN_LABEL", "ht-0b9c3322-ep8")
+root = Path.home() / "tilexr-validation" / (run_label + "-" + str(int(time.time())))
 root.mkdir(parents=True)
 repo = root / "source"
 build = root / "build"
