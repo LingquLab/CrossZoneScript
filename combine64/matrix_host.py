@@ -167,7 +167,7 @@ def run_points(root, cid, script, platform_hashes, points, timeout, attempt, loc
             row['container_exit'] = proc.returncode
             rows.append(row)
             if not passed(row):
-                break
+                continue
             # The verified reports, profiling GM records and Perfetto trace stay in the case.
             for part in ('input_bin', 'fixture-data', 'bin'):
                 shutil.rmtree(case / part)
