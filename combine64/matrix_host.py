@@ -149,7 +149,9 @@ def run_points(root, cid, script, platform_hashes, points, timeout, attempt, loc
         logs.mkdir(exist_ok=True)
         for cores, chunk in points:
             matches = sorted((root / 'cases').glob(f'cores{cores}-chunk{chunk}-a*'))
-            existing = next((row for case in matches if passed(row := report_for(case))), None)
+            existing = next((row for case in matches if passed(row := report_for(case))
+                             and (cores != 8 or variant != 'timing-only'
+                                  or row.get('variant') == 'timing-only')), None)
             if existing:
                 rows.append(existing)
                 continue
