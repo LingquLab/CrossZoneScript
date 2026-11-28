@@ -36,7 +36,8 @@ def main():
     executable = base / "all_reduce_test"
     args = [compiler, "-std=c++17", "-O2", "-I" + str(source / "common/src"),
             "-I" + str(source / "opbase_test"), "-I" + str(sdk / "include"),
-            "-I" + str(sdk / "aarch64-linux/include"), *cpp, "-L" + str(lib), "-lhccl",
+            "-I" + str(sdk / "aarch64-linux/include"), *cpp, "-L" + str(lib),
+            "-Wl,-rpath-link," + str(lib), "-Wl,--copy-dt-needed-entries", "-lhccl",
             "-lacl_rt", "-lmsprofiler", "-o", str(executable)]
     if not remote.command("hccl-build", shell + args, 125):
         result.update(status="build_failed", errors=remote.result.get("first_errors"))
