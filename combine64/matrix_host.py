@@ -239,6 +239,61 @@ def main(request):
     assert subprocess.check_output(['hostname', '-s'], timeout=10).decode().strip() == host
     suffix = '-host18' if host == 'host-94-18' else ''
     root = SESSION_ROOT / f'run-{REVISION[:7]}{suffix}-a1'
+    if request['action'] == 'diagnose-kill':
+        label = request['label']
+        assert label == 'cores1-chunk16-a1'
+        case = root / 'cases' / label
+        record = json_file(case / 'phase-result.json')
+        assert record['candidate_commit'] == REVISION and record['returncode'] == -9
+        cid = task_container(root, REVISION)
+        started_ms = int(record['started_unix'])
+        end_ms = int(started_ms + record['sst_wall_seconds']) + 30
+        event_command = ['docker', 'events', '--since', str(started_ms), '--until', str(end_ms),
+                         '--filter', 'container=' + cid, '--filter', 'event=oom', '--format', '{{.Action}}']
+        event = subprocess.run(event_command, capture_output=True, timeout=20)
+        memory_command = ['docker', 'exec', cid, 'bash', '-c',
+                          'for path in /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory/memory.max_usage_in_bytes '
+                          '/sys/fs/cgroup/memory/memory.limit_in_bytes /sys/fs/cgroup/memory/memory.failcnt; '
+                          'do if test -r "$path"; then basename "$path"; cat "$path"; fi; done']
+        memory = subprocess.check_output(memory_command, timeout=20).decode('ascii').splitlines()
+        at = subprocess.run(['dmesg', '--color=never'], capture_output=True, timeout=10)
+        oom_matches = [line for line in at.stdout.decode(errors='replace').splitlines()
+                       if cid[:12] in line and ('oom' in line.lower() or 'kill' in line.lower())]
+        print(json.dumps({'case': label, 'returncode': record['returncode'],
+                          'docker_oom_events': event.stdout.decode('ascii').splitlines(),
+                          'cgroup_memory': memory, 'host_log_matches': len(oom_matches)}))
+        return 0
+    if request['action'] == 'resize':
+        cid = task_container(root, REVISION)
+        assert request['memory_gib'] == 128
+        with (root / 'matrix.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = status(root)
+            assert result['progress']['stage'] == 'failed'
+            row = next(row for row in result['rows'] if row['case'] == 'cores1-chunk16-a1')
+            assert row['final'] and row['returncode'] == -9
+            subprocess.run(['docker', 'update', '--memory=128g', '--memory-swap=128g', cid],
+                           check=True, capture_output=True, timeout=25)
+            command = ['docker', 'inspect', '--format', '{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}', cid]
+            sizes = subprocess.check_output(command, timeout=15).decode('ascii').split()
+            assert [int(value) for value in sizes] == [128 * 2**30] * 2
+        print(json.dumps({'resized_gib':128,'host':host}))
+        return 0
+    if request['action'] == 'finish':
+        cid = task_container(root, REVISION)
+        result = status(root)
+        rows = { (row.get('cores'), row.get('chunk_tokens')) for row in result['rows'] if passed(row) }
+        assert rows == set(POINTS)
+        command = ['docker', 'ps', '--filter', 'label=crosszone.session=' + SESSION, '--format', '{{.ID}}']
+        active = subprocess.check_output(command, timeout=20).decode('ascii').splitlines()
+        assert len(active) == 1 and cid.startswith(active[0])
+        with (root / 'matrix.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            subprocess.run(['docker', 'stop', '--time', '20', cid], check=True, capture_output=True, timeout=50)
+        report = status(root)
+        assert report['docker_state'] == ['false', 'false']
+        print(json.dumps({'matrix_passed':len(rows),'docker_state':report['docker_state']}))
+        return 0
     if request['action'] == 'status':
         print(json.dumps(status(root), separators=(',', ':')))
         return 0
