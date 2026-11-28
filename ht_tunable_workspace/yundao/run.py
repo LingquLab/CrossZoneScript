@@ -42,6 +42,8 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
     entry = "inspect.py" if options.get("inspect") else "remote.py"
     if options.get("rootinfo"):
         entry = "rootinfo.py"
+    if options.get("hccl_inventory"):
+        entry = "hccl_inventory.py"
     if options.get("profile_read"):
         entry = "profile_read.py"
     if options.get("matrix_status"):
