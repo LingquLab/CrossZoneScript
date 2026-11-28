@@ -284,10 +284,22 @@ def main(request):
             for pattern in patterns:
                 matches.extend(dict.fromkeys(re.findall(pattern, tail)))
             updates = re.findall(r'\b[0-9]+\.[0-9]+\s*(?:us|ns)\b', tail)
+            trace_paths = sorted((case / 'OUTPUT' / 'stat_trace').glob('Host*_ba_layer_trace.json'))
+            trace_rows = []
+            for trace in trace_paths:
+                with trace.open('rb') as stream:
+                    end = stream.seek(0, 2)
+                    stream.seek(max(0, end - 256 * 1024))
+                    suffix = stream.read()
+                times = re.findall(rb'"ts"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)', suffix)
+                if times:
+                    trace_rows.append((trace.name, end, max(map(float, times))))
             record = json_file(case / 'phase-result.json')
             reports.append({'case': label, 'error': record.get('error'),
                             'returncode': record.get('returncode'), 'log_bytes':total,
                             'tail_events': updates[-5:],
+                            'bus_trace_count': len(trace_paths),
+                            'trace_frontier_top5': sorted(trace_rows, key=lambda row: row[2], reverse=True)[:5],
                             'log_matches': matches[-12:]})
         print(json.dumps({'diagnoses': reports}))
         return 0
