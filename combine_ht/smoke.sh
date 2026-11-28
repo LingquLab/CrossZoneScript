@@ -119,6 +119,68 @@ for mode in reduce send; do
     step="idle-$mode"
     log="$root/npu-0.log"
     if [[ "$mode" == send ]]; then
+        log="$root/rootinfo-prepare.log"
+        if python3 - "$root/udma-rootinfo.json" >"$log" 2>&1 <<'PYROOT'
+from collections import Counter
+import ipaddress
+import json
+from pathlib import Path
+import re
+import sys
+
+def filter_addresses(node):
+    if isinstance(node, dict):
+        return {key: filter_addresses(value) for key, value in node.items()}
+    if isinstance(node, list):
+        retained = []
+        for item in node:
+            if isinstance(item, dict) and "addr" in item and not re.fullmatch(r"[a-fA-F0-9]{32}", item["addr"]):
+                ipaddress.IPv4Address(item["addr"])
+                dropped.append(item)
+            else:
+                retained.append(filter_addresses(item))
+        return retained
+    return node
+
+def devices(node):
+    if isinstance(node, dict):
+        if "device_id" in node:
+            yield node
+        else:
+            for value in node.values():
+                yield from devices(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from devices(item)
+
+def ports(node):
+    if isinstance(node, dict):
+        if "addr" in node:
+            yield len(node["ports"])
+        else:
+            for value in node.values():
+                yield from ports(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from ports(item)
+
+source = Path("/etc/hccl_rootinfo.json")
+dropped = []
+result = filter_addresses(json.loads(source.read_text()))
+counts = [Counter(ports(device)) for device in devices(result)]
+assert len(counts) == 8
+assert all(row[1] >= 7 and row[2] == 1 and row[6] == 1 for row in counts)
+target = Path(sys.argv[1])
+target.write_text(json.dumps(result))
+print(f"diagnostic=udma_rootinfo_local_copy_ipv4_removed_{len(dropped)}")
+PYROOT
+        then
+            cat "$log"
+            export TILEXR_UDMA_ROOTINFO_PATH="$root/udma-rootinfo.json"
+        else
+            echo diagnostic=udma_rootinfo_local_copy_validation_failed
+            exit 1
+        fi
         port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
         export TILEXR_COMM_ID="127.0.0.1:$port"
     fi
@@ -129,7 +191,7 @@ for mode in reduce send; do
     for dev in {0..7}; do
         timeout --kill-after=5 150 "$bin" --mode "$mode" --world 64 --rank "$dev" --device "$dev" \
             --tokens 33 --hidden 256 --topk 6 --chunk 32 --splits 1 --reducers 8 --reduce-begin 0 \
-            --intra-cores 1 --iterations 1 --local-comm 1 >"$root/$mode-$dev.log" 2>&1 &
+            --intra-cores 1 --iterations 1 --local-comm 1 --domain 0 >"$root/$mode-$dev.log" 2>&1 &
         pids[dev]=$!
     done
     passed=0
@@ -140,7 +202,7 @@ for mode in reduce send; do
         if (( rc == 0 )) && grep -q 'correctness=pass' "$log"; then
             passed=$((passed + 1))
         else
-            error=$(grep -E '^(complete|communicator|registration|layout|launch|prepare|aclInit|set device|send status)(: [0-9]+)?$' "$log" | tail -1 || true)
+            error=$(grep -E '^(complete|communicator|registration|layout|launch|prepare|aclInit|device|send status|empty reducer progress)(: -?[0-9]+)?$' "$log" | tail -1 || true)
             printf 'mode=%s rank=%s rc=%s error=%s\n' "$mode" "$dev" "$rc" "$error"
         fi
     done
