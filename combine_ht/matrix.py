@@ -62,10 +62,7 @@ def download(ssh, campaign, config):
         print(json.dumps({"stage": "report", "data": report}, separators=(",", ":")))
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--args-file", type=Path, required=True)
-    config = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
+def run(config):
     assert re.fullmatch(r"[0-9a-f]{40}", config["revision"])
     assert config["mode"] in MODES and config["phase"] in ("scale", "matrix")
     campaign = f'{config["phase"]}-{config["mode"]}-{config["revision"][:12]}'
@@ -75,8 +72,17 @@ def main():
     transfer = subprocess.run(ssh + [upload], input=script, capture_output=True, timeout=40)
     if transfer.returncode:
         print(json.dumps({"stage": "trace_helper_upload", "exit": transfer.returncode}))
-    elif remote_benchmark(ssh, config, campaign):
-        download(ssh, campaign, config)
+        return False
+    if not remote_benchmark(ssh, config, campaign):
+        return False
+    download(ssh, campaign, config)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--args-file", type=Path, required=True)
+    run(json.loads(parser.parse_args().args_file.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

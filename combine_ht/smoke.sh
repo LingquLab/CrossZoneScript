@@ -8,6 +8,7 @@ revision=$1
 digest=$2
 idle_timeout=$3
 scale_after_smoke=$4
+build_only=$5
 root="$HOME/.cache/tilexr-ht-be110cc8"
 archive="$root/tilexr-$revision.tar.gz"
 repo="$root/src-$revision"
@@ -83,6 +84,7 @@ else
 fi
 awk '/^MemTotal:/ {print "diagnostic=host_memory_kib_" $2}' /proc/meminfo
 if command -v msprof >/dev/null; then echo diagnostic=msprof_present; fi
+if [[ "$build_only" == 1 ]]; then exit 0; fi
 
 wait_idle() {
     local deadline=$((SECONDS + idle_timeout)) next_status=$SECONDS dev state
