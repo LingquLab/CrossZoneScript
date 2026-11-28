@@ -22,10 +22,25 @@ run_dir = root / ('gqa-smoke-' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S
 run_dir.mkdir(parents=True)
 data = run_dir / 'synthetic-offline-data'
 data.mkdir()
+tokenizer_dir = run_dir / 'offline-tokenizer'
+tokenizer_dir.mkdir()
+work = pathlib.Path.home() / 'work'
+shutil.copyfile(work / 'tokenizer.json',tokenizer_dir / 'tokenizer.json')
+tokenizer_config = json.loads((work / 'tokenizer_config.json').read_text())
+# Use the installed generic fast-tokenizer implementation with the existing vocabulary.
+# The original custom Sophon Python modules are absent from the offline asset directory.
+tokenizer_config['tokenizer_class'] = 'PreTrainedTokenizerFast'
+tokenizer_config.pop('auto_map',None)
+(tokenizer_dir / 'tokenizer_config.json').write_text(json.dumps(tokenizer_config))
 # Use the repository's existing synthetic fixture and production offline writer.
 sys.path.insert(0,str(repo))
 with (run_dir / 'data-generation.log').open('w') as generation_log:
     with contextlib.redirect_stdout(generation_log), contextlib.redirect_stderr(generation_log):
+        from PanGu.data_pipeline.tokenizer.tokenizer import _AutoTokenizer
+        tokenizer_probe = _AutoTokenizer(str(tokenizer_dir),0,32768,True,local_files_only=True,trust_remote_code=False)
+        assert tokenizer_probe.unique_identifiers and tokenizer_probe.eod is not None
+        tokenizer_metadata = {'vocab_size':tokenizer_probe.vocab_size,'eod':tokenizer_probe.eod,
+                              'implementation':'repository _AutoTokenizer / installed PreTrainedTokenizerFast'}
         fixture = runpy.run_path(str(repo / 'tests/group1/unit_test/datasets/omni_dataset/test_offline_tail_pack.py'))
         dataset = fixture['SyntheticOfflineMakingDataset'](data, lengths=[32768] * 16, seq_length=32768, packing=False)
         generated = dataset[0]
@@ -43,13 +58,13 @@ assert any(anchor in text for anchor in anchors), 'Unknown script self-location 
 for anchor in anchors:
     text = text.replace(anchor, str(original))
 replace_once(r'--data-url(?:=|\s+)\S+', '--data-url=' + shlex.quote(str(data)))
-replace_once(r'--tokenizer-model(?:=|\s+)\S+', '--tokenizer-model=' + shlex.quote(str(pathlib.Path.home() / 'work')))
+replace_once(r'--tokenizer-model(?:=|\s+)\S+', '--tokenizer-model=' + shlex.quote(str(tokenizer_dir)))
 replace_once(r'--train-samples\s+40\b', '--train-samples 8')
 text, removed_count = re.subn(r'(--remove-arguments\s+)(\S+)',
-    lambda m:m.group(1) + m.group(2) + ',inject-uce-error-plan,enable-high-availability,enable-hbmfault-repair,stress-detect',text,count=1)
+    lambda m:m.group(1) + m.group(2) + ',inject-uce-error-plan,enable-high-availability,enable-hbmfault-repair,stress-detect,enable-monitor',text,count=1)
 assert removed_count == 1, 'Expected removable-argument list was not found'
 replace_once(r'2>&1\s*\|\s*tee\s+log_farescale_gqa.txt',
-             '--tokenizer-type NullTokenizer --vocab-size 150016 --num-distributed-optimizer-instances 1 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
+             '--tokenizer-type PretrainedFromHF --num-distributed-optimizer-instances 1 --log-path ' + shlex.quote(str(run_dir / 'rank-logs'))
              + ' 2>&1 | tee ' + shlex.quote(str(run_dir / 'console.log')))
 wrapper = run_dir / 'run_farescale_gqa_offline.sh'
 wrapper.write_text('set -eo pipefail\n' + text)
@@ -109,8 +124,8 @@ summary = {'test':'scripts/example/llm/farescale_gqa.sh','source_commit':json.lo
            'overrides':{'offline':True,'mock_data':False,'synthetic_offline_records':16,'synthetic_record_tokens':32768,
                         'dataset_writer':'repository SyntheticOfflineMakingDataset / production OfflineMakingDataset',
                         'runtime_compatibility':'process-local NPU get_device_capability fallback; two-rank HCCL probe passed',
-                        'tokenizer_type':'NullTokenizer','vocab_size':150016,'train_samples':8,'global_batch_size':4,
-                        'num_distributed_optimizer_instances':1,'removed_ci_features':['inject-uce-error-plan','enable-high-availability','enable-hbmfault-repair','stress-detect']},
+                        'tokenizer_type':'PretrainedFromHF','tokenizer_metadata':tokenizer_metadata,'train_samples':8,'global_batch_size':4,
+                        'num_distributed_optimizer_instances':1,'removed_ci_features':['inject-uce-error-plan','enable-high-availability','enable-hbmfault-repair','stress-detect','enable-monitor']},
            'preserved':{'devices':list(range(8)),'sequence_length':32768,'layers':6,'tensor_parallel':2,'context_parallel':2,'pipeline_parallel':2},
            'loss_lines':loss_lines[-6:],'iteration_lines':iteration_lines[-6:],'error_lines':errors[-10:],'console_tail':lines[-65:]}
 (run_dir / 'result.json').write_text(json.dumps(summary,indent=2))
