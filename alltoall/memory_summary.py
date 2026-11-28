@@ -37,7 +37,7 @@ for case in cases:
         expected_words = [[2] * 8] + [[1] * 8 for _ in range(7)]
         summary["expected_failure_verified"] = (
             int(status) == 1 and summary["container_removed"] and summary["revision"] == revision
-            and controller.get("status") == "failed" and run.get("state") == "failed"
+            and controller.get("status") == "failed_or_unknown" and run.get("state") == "failed"
             and process.get("runner_returncode") == 0 and process.get("remaining_processes") == []
             and [row["rank"] for row in ranks] == list(range(8))
             and all(all(row[field] == "passed" for field in ("payload", "guards", "padding"))
