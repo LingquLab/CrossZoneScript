@@ -19,7 +19,6 @@ LABEL = "replicate4-rdma-two-groups-bs32-" + REVISION[:7]
 ROOT = PurePosixPath("/root/ubx-" + LABEL)
 PORT = 32500
 DEFAULT_HOSTS = HOSTS
-DEFAULT_LABEL = LABEL
 GID_INDEXES = {}
 HERE = Path(__file__).resolve().parent
 TOOLKIT = "/usr/local/Ascend/cann-9.2.T101/set_env.sh"
@@ -148,7 +147,7 @@ def wait_idle(pool, idle_wait):
         time.sleep(10)
 
 
-def collect(pool, destination):
+def collect(pool, destination, output_layout=None):
     result = destination / LABEL
     assert destination.is_absolute() and destination.is_dir() and not result.exists()
     with tempfile.TemporaryDirectory(prefix=".ubx-two-groups-", dir=destination) as temporary:
@@ -162,6 +161,8 @@ def collect(pool, destination):
             trace = json.loads((collection / f"rank{rank}/dispatch.last.trace.json").read_bytes())
             metadata = trace["metadata"]
             assert metadata["payload_distribution"] == "rank_group_8"
+            if output_layout:
+                assert metadata["output_layout"] == output_layout and metadata["output_segments"] == 2
             route_hashes.add(metadata["route_sha256"])
             durations = [(event["dur"], rank, event["tid"]) for event in trace["traceEvents"]
                          if event.get("ph") == "X" and event["name"] == "core_total"]
@@ -176,19 +177,30 @@ def collect(pool, destination):
                        rdma_gid_indexes=GID_INDEXES, route_sha256=route_hash, core_total_samples=32*50*56, local_results=str(result),
                        trace_count=32+int(summary["slowest"]["round"] != 59),
                        last_round=dict(rank=rank, aiv=core, max_us=us, mean_us=statistics.mean(totals)))
+        if output_layout:
+            summary.update(output_layout=output_layout, output_segments=2)
         (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         collection.rename(result)
     return summary
 
 
 def main(args):
-    global HOSTS, LABEL, PORT, GID_INDEXES
+    global HOSTS, LABEL, PORT, GID_INDEXES, REVISION, ROOT
     HOSTS = tuple(args.get("hosts", DEFAULT_HOSTS))
     assert HOSTS in (DEFAULT_HOSTS, ("90.90.93.83", "90.90.93.86"))
     benchmark.HOSTS = HOSTS
     GID_INDEXES = {host: int(index) for host, index in args.get("gid_indexes", {}).items()}
     assert set(GID_INDEXES) <= set(HOSTS) and all(0 <= index <= 255 for index in GID_INDEXES.values())
-    LABEL = DEFAULT_LABEL if HOSTS == DEFAULT_HOSTS else DEFAULT_LABEL + "-83-86"
+    if "revision" in args:
+        REVISION = args["revision"]
+        assert len(REVISION) == 40 and all(c in "0123456789abcdef" for c in REVISION)
+    label = "replicate4-rdma-two-groups-bs32-" + REVISION[:7]
+    ROOT = PurePosixPath("/root/ubx-" + label)
+    build.CANDIDATE = benchmark.REVISION = REVISION
+    benchmark.ROOT = ROOT
+    benchmark.HARDWARE = ROOT / "source/dispatch/dispatch-release/tests/hardware"
+    benchmark.RUNTIME_INSTALL = ROOT / "runtime-install"
+    LABEL = label if HOSTS == DEFAULT_HOSTS else label + "-83-86"
     PORT = int(args.get("port", 32500))
     benchmark.OUTPUT = ROOT / args.get("run_name", "full-bs32-f50")
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -200,7 +212,7 @@ def main(args):
             wait_idle(pool, int(args.get("idle_wait", 240)))
             results = list(pool.map(lambda index: controller(index, "run"), range(2)))
             assert all(result["passed"] and result["route_qps_verified"] == 64 for result in results)
-        return collect(pool, Path(args["destination"]))
+        return collect(pool, Path(args["destination"]), args.get("output_layout"))
 
 
 if __name__ == "__main__":
