@@ -15,6 +15,10 @@ DEPENDENCIES = ("3rdparty/picojson", "3rdparty/spdlog")
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
 
 
+class StageFailure(Exception):
+    pass
+
+
 def capture(argv, *, timeout, **kwargs):
     return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           timeout=timeout, **kwargs)
@@ -36,7 +40,7 @@ def checked(stage, argv, *, timeout, **kwargs):
         matched = [name for name, pattern in diagnostics.items() if re.search(pattern, output, re.I)]
         print(json.dumps({"stage": stage, "rc": run.returncode, "diagnostics": matched,
                           "stdout_bytes": len(run.stdout), "stderr_bytes": len(run.stderr)}))
-        raise SystemExit(run.returncode)
+        raise StageFailure from None
     return run.stdout
 
 
@@ -72,9 +76,8 @@ def bundle(args, staging):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="public_fp8")
-    p.add_argument("--revision", required=True)
-    p.add_argument("--ref", required=True)
-    p.add_argument("--action", choices=("smoke",), default="smoke")
+    p.add_argument("--revision", default="2b00ab8decae75b3a93a9a8471762e107205189a")
+    p.add_argument("--ref", default="refs/heads/codex/combine-ht-multi-jetty")
     args = p.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         p.error("--revision must be a full SHA")
@@ -85,7 +88,10 @@ def main():
     with tempfile.TemporaryDirectory() as temporary:
         archive = bundle(args, Path(temporary))
         with archive.open("rb") as data:
-            digest = hashlib.file_digest(data, "sha256").hexdigest()
+            sha = hashlib.sha256()
+            for block in iter(lambda: data.read(1024 * 1024), b""):
+                sha.update(block)
+            digest = sha.hexdigest()
             data.seek(0)
             upload = f'umask 077 && mkdir -p {root} && cat > {remote_archive}.part && mv {remote_archive}.part {remote_archive}'
             checked("upload", ssh + [upload], stdin=data, timeout=180)
@@ -103,4 +109,10 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except StageFailure:
+        pass
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(json.dumps({"observation": "runner_error", "type": type(error).__name__,
+                          "errno": getattr(error, "errno", None)}))
