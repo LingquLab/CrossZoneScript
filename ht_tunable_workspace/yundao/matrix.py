@@ -270,22 +270,30 @@ def native_modules(repo, env):
 
 
 def final_wait_matrix(repo, env):
-    probe = compile_device_probe(repo, "final_reduce", "final_probe.cpp")
-    bench = compile_fixture("final_wait_bench", "final_bench.cpp", repo, BASE_BUILD,
-                            BASE_BUILD / "src/ep/combine_ht", "tilexr-ep-ht-final-reduce",
-                            ("-DTILEXR_FINAL_PROBE=1", "-I" + str(SDK / "pkg_inc"), "-I" + str(SDK / "pkg_inc/runtime"), "-lruntime"))
-    if not (probe and bench):
-        return
+    cached = ROOT.parent / "ht-0b9c3322-ep8-1795849443"
+    probe = cached / "final_probe.o"
+    bench = cached / "final_wait_bench"
+    receipt = cached / "matrix.json"
+    if not (receipt.is_file() and probe.is_file() and os.access(bench, os.X_OK) and
+            json.loads(receipt.read_text())["revision"] == remote.REVISION):
+        probe = compile_device_probe(repo, "final_reduce", "final_probe.cpp")
+        bench = compile_fixture("final_wait_bench", "final_bench.cpp", repo, BASE_BUILD,
+                                BASE_BUILD / "src/ep/combine_ht", "tilexr-ep-ht-final-reduce",
+                                ("-DTILEXR_FINAL_PROBE=1", "-I" + str(SDK / "pkg_inc"),
+                                 "-I" + str(SDK / "pkg_inc/runtime"), "-lruntime"))
+        if not (probe and bench):
+            return
+    SUMMARY["device_preflight"] = remote.device_status()
     env = dict(env, TILEXR_FINAL_PROBE_OBJECT=str(probe))
     rows = SUMMARY["final_wait"] = {}
-    for tokens in (32, 256, 4096, 16384):
+    for tokens in (4096, 256, 16384, 32):
         for _ in range(24):
             active = idle_devices()
             if active:
                 break
             time.sleep(5)
         if not active:
-            rows[tokens] = {"status": "devices_busy"}
+            rows[tokens] = {"status": "devices_busy", "occupancy": remote.device_status()}
             break
         logs, result = run_group(f"final-t{tokens}", lambda rank: [str(bench), "--device", str(rank),
             "--world", "64", "--tokens", str(tokens), "--hidden", "128", "--active-servers", "8",
