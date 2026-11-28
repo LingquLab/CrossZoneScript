@@ -88,5 +88,9 @@ lines = [s.removeprefix("TILEXR_RESULT ") for s in output if s.startswith("TILEX
 if lines:
     print(json.dumps(json.loads(lines[-1]), ensure_ascii=True, separators=(",", ":")))
 else:
-    print(json.dumps(dict(stage="ssh_or_remote_start", ssh_exit=proc.returncode,
+    stderr = proc.stderr.decode(errors="replace").lower()
+    reason = next((message for message in ("connection timed out", "connection reset", "connection closed",
+        "broken pipe", "permission denied", "host key verification failed", "could not resolve",
+        "no route to host", "connection refused") if message in stderr), None)
+    print(json.dumps(dict(stage="ssh_or_remote_start", ssh_exit=proc.returncode, reason=reason,
                           stderr_bytes=len(proc.stderr), stdout_bytes=len(proc.stdout))))
