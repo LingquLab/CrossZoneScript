@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "defaults": {"devices": [0,1,2,3,4,5,6,7], "connect_timeout_seconds": 15, "probe_timeout_seconds": 30},
+  "environments": [
+    {"name": "ma-0", "host": "ma-0", "port": 30527},
+    {"name": "ma-1", "host": "ma-1", "port": 31633},
+    {"name": "ma-2", "host": "ma-2", "port": 31269}
+  ]
+}
