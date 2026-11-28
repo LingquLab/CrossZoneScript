@@ -18,7 +18,9 @@ for path in (repo/'PanGu').rglob('*.py'):
                 if isinstance(n,ast.Assign):
                     for target in n.targets:
                         if isinstance(target,ast.Attribute) and any(term in target.attr for term in ['unique_identifiers','tokenizer','eod','pad']):
-                            attributes.append({'attribute':target.attr,'value':ast.unparse(n.value)[:650]})
+                            attributes.append({'attribute':target.attr,'value_type':type(n.value).__name__,
+                                               'factory':ast.unparse(n.value.func) if isinstance(n.value,ast.Call) else None,
+                                               'factory_keyword_names':[kw.arg for kw in n.value.keywords] if isinstance(n.value,ast.Call) else []})
             classes.append({'file':path.relative_to(repo).as_posix(),'class':node.name,
                             'methods':[{'name':m.name,'arguments':ast.unparse(m.args)} for m in node.body if isinstance(m,ast.FunctionDef)][:20],
                             'attributes':attributes[:15]})
