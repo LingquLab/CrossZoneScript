@@ -21,6 +21,11 @@ RESULTS = Path("D:/workspace/TileXR-build-results")
 QUEUE_REVISION = "ce4456229720bdc01a2e744ed3c31573504860e8"
 QUEUE_REPO = REPO.with_name("alltoall-sst-08f501a0-lr8-queue-compare")
 QUEUE_LOCK = RESULTS / "alltoall-sst-green-lr8-queue-d3wmmyue/source-lock"
+TOPOLOGY_CASES = {
+    "urma_cw": ("cw", "cw_16p"),
+    "urma_lr8_p16_s16_local7": ("local7_16_16", "local7_16_16_16p"),
+    "urma_lr8_p16_s8_local7": ("local7_16_8", "local7_16_8_16p"),
+}
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "green-sst-30"]
 CANN = "/opt/sim/Ascend/cann-9.1.0"
 ENV = "/opt/sim/cann-env.sh"
@@ -66,7 +71,7 @@ def make_payload(repo=REPO, revision=REVISION, lock=LOCK):
 
 
 def qualify(work, side, name, container_id, hostname, fingerprints, ranks, *, repo=REPO,
-            revision=REVISION, kernel="urma_lr8", elements=129):
+            revision=REVISION, kernel="urma_lr8", elements=129, diagnostics=None):
     stage = work / f"{ranks}p"
     stage.mkdir()
     inventory = repo / "tools/tssh/clusters.json"
@@ -95,13 +100,15 @@ def qualify(work, side, name, container_id, hostname, fingerprints, ranks, *, re
     request["environment_report"] = environment
     request_path = stage / "current-request.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
+    if diagnostics is None:
+        diagnostics = {"queue_state_dumps": True} if kernel == "urma_lr8" else {"instruction_dump_chips": [0]}
     config = {
         "schema": "tilexr.unitest.sst.v1", "tool_checkout": str(repo), "tool_commit": revision,
         "build_report": str(stage / "verify-report"), "abi_report": str(stage / "abi-report"),
         "request_file": str(request_path), "inventory": str(inventory),
         "suite_output": f"/work/{ranks}p-suite", "rank_size": ranks, "threads": 32,
         "simulation_timeout": 600, "timeout": 900,
-        "diagnostics": {"queue_state_dumps": True} if kernel == "urma_lr8" else {"instruction_dump_chips": [0]},
+        "diagnostics": diagnostics,
     }
     config_path = stage / "sst.json"
     config_path.write_text(json.dumps(config), encoding="utf-8")
@@ -131,12 +138,21 @@ def main():
     args = json.loads(parser.parse_args().args_file.read_text(encoding="utf-8"))
     side = args["side"]
     queue_comparison = args.get("queue_comparison", False)
-    if queue_comparison:
+    kernel = args.get("kernel", "urma_lr8")
+    topology = TOPOLOGY_CASES.get(kernel)
+    if topology:
+        assert not queue_comparison
+        repo, revision, lock = REPO, REVISION, LOCK
+        build_recipe = {"sim-split1": ("1", kernel)}
+        name_prefix = f"topology-{kernel}"
+    elif queue_comparison:
+        assert kernel == "urma_lr8"
         repo, revision, lock = QUEUE_REPO, QUEUE_REVISION, QUEUE_LOCK
         build_recipe = {"sim-split1": ("1", "lr8"), "sim-native-queue": ("0", "lr8-queue-state"),
                         "sim-cq-gm": ("1", "lr8-cq-gm")}
         name_prefix = f"lr8-queue-{side}"
     else:
+        assert kernel == "urma_lr8"
         repo, revision, lock = REPO, REVISION, LOCK
         build_recipe = {"sim-split0": ("0", "lr8"), "sim-split1": ("1", "lr8")}
         name_prefix = f"lr8-{side}"
@@ -173,12 +189,14 @@ def main():
         hashes = [line.split()[0] for line in fingerprint.splitlines()]
         assert len(hashes) == 3 and all(re.fullmatch("[0-9a-f]{64}", digest) for digest in hashes)
         hostname = remote(["hostname", "-s"], "hostname")
-        for ranks in (8, 16):
+        for index, ranks in enumerate((8, 16)):
             state["stage"] = f"{ranks}p-qualification"
             stage, config = qualify(work, side, name, container_id, hostname, hashes, ranks,
-                                    repo=repo, revision=revision)
+                                    repo=repo, revision=revision, kernel=kernel, elements=128 if topology else 129,
+                                    diagnostics={} if topology else None)
             state["stage"] = f"{ranks}p-unitest"
-            receipt = run_case(stage, config, ranks, repo=repo)
+            case = f"alltoall_{topology[index]}_sst.json" if topology else None
+            receipt = run_case(stage, config, ranks, repo=repo, case=case)
             evidence_script = Path(__file__).with_name("lr8_summary.py").read_bytes()
             evidence = remote(["docker", "exec", "-i", container_id, "python3", "-B", "-", "/work", str(ranks)],
                               f"{ranks}p-summary", 80, evidence_script)
