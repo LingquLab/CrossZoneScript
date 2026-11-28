@@ -148,6 +148,8 @@ def wait_idle(pool, idle_wait):
 
 
 def collect(pool, destination, output_layout=None):
+    segments = {"receiver_server_segments_v1": 2, "receiver_global_expert_order_v1": 1}
+    output_segments = segments[output_layout] if output_layout else None
     result = destination / LABEL
     assert destination.is_absolute() and destination.is_dir() and not result.exists()
     with tempfile.TemporaryDirectory(prefix=".ubx-two-groups-", dir=destination) as temporary:
@@ -162,7 +164,7 @@ def collect(pool, destination, output_layout=None):
             metadata = trace["metadata"]
             assert metadata["payload_distribution"] == "rank_group_8"
             if output_layout:
-                assert metadata["output_layout"] == output_layout and metadata["output_segments"] == 2
+                assert metadata["output_layout"] == output_layout and metadata["output_segments"] == output_segments
             route_hashes.add(metadata["route_sha256"])
             durations = [(event["dur"], rank, event["tid"]) for event in trace["traceEvents"]
                          if event.get("ph") == "X" and event["name"] == "core_total"]
@@ -178,7 +180,9 @@ def collect(pool, destination, output_layout=None):
                        trace_count=32+int(summary["slowest"]["round"] != 59),
                        last_round=dict(rank=rank, aiv=core, max_us=us, mean_us=statistics.mean(totals)))
         if output_layout:
-            summary.update(output_layout=output_layout, output_segments=2)
+            peak = json.loads((collection / summary["slowest"]["trace"]).read_bytes())["metadata"]
+            assert (peak["output_layout"], peak["output_segments"]) == (output_layout, output_segments)
+            summary.update(output_layout=output_layout, output_segments=output_segments)
         (collection / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         collection.rename(result)
     return summary
