@@ -111,6 +111,29 @@ def qualify():
                     "device", "config", "hostname", "socket", "cpu", "config", "container", "name"}
             words = [word if word in safe else "<field>" for word in re.findall(r"[a-z_]+", match[0].lower())[:8]]
             counts[" ".join(words)] += 1
+        exec_context = Counter()
+        for i, line in enumerate(lines):
+            if not re.search(r"exec.*failed", line, re.I):
+                continue
+            # These labels are fixed; no raw line or launch arguments are returned.
+            nearby = " ".join(lines[max(0, i - 1): i + 2])
+            fields = {
+                "cmd": r"command|\bcmd\b", "multiprocess": r"mpirun|mpi_|popen|fork|execvp|execve",
+                "tool": r"npu-smi|lscpu|lspci|hostname|ifconfig|\bip addr\b|cat /proc|cat /sys|grep",
+                "profiler": r"profiler|profiling|msprof|dlog|plog|trace",
+                "runtime": r"runtime|aclrt|hcclAllReduce|all.reduce|HCCL_ERROR|kernel",
+                "file_error": r"No such file or directory|Permission denied",
+                "errno": r"errno\s*[:=]?\s*(\d+)",
+                "exit": r"(?:status|ret|exit_code)\s*[:=]\s*(-?\d+)",
+            }
+            found = []
+            for label, pattern in fields.items():
+                match = re.search(pattern, nearby, re.I)
+                if not match:
+                    continue
+                found.append(label if label == "cmd" else (match[1] if match.lastindex else match[0].lower()))
+            exec_context[tuple(found)] += 1
+        data["exec_context"] = exec_context.most_common(8)
         data["message_counts"] = counts.most_common(6)
         data["meaningful_failures"] = dict(diagnostics)
         data["other_error_lines"] = len(error_lines)
