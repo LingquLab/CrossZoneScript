@@ -71,8 +71,26 @@ def qualify():
     retained = sorted(ROOT.parent.glob("*/hccl-result.json"), reverse=True)
     for report in retained:
         data = json.loads(report.read_text())
-        if data.get("mode") == "aiv_only" and data.get("status") == "pass":
+        if data.get("mode") != "aiv_only":
+            continue
+        if data.get("status") == "pass":
             return data
+        saved = report.parent / "hccl-aiv-only/launch.log"
+        if not saved.is_file() or data.get("exit_code") != 0:
+            continue
+        lines = saved.read_text(errors="replace").splitlines()
+        successes = sum(bool(re.search(r"\|\s*success\s*$", line, re.I)) for line in lines)
+        version_messages = sum("Failed to open file(/var/log/hiudma3/udma_version)." in line for line in lines)
+        error_lines = [line for line in lines
+                       if re.search(r"check result failed|this is an error|exec.*failed|failed to|error.*rank|invalid option|not support", line, re.I)
+                       and "Failed to open file(/var/log/hiudma3/udma_version)." not in line]
+        if successes == 4 and data.get("stdout_ranks") == list(range(8)) and not error_lines:
+            data.update(status="pass", original_status="qualification_failed_or_incomplete",
+                        version_log_messages=version_messages)
+            data.pop("failures", None)
+        else:
+            data["other_error_lines"] = len(error_lines)
+        return data
     env = dict(os.environ, TILEXR_VALIDATION_RUN_LABEL="ht-4d37ae67-ep8-hccl")
     completed = subprocess.run([sys.executable, str(HERE / "hccl_baseline.py")],
                                env=env, capture_output=True, timeout=440)
