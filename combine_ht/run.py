@@ -12,7 +12,8 @@ import tempfile
 
 ORIGIN = "https://github.com/LingquLab/TileXR.git"
 DEPENDENCIES = ("3rdparty/picojson", "3rdparty/spdlog")
-SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
+SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+       "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"]
 
 
 class StageFailure(Exception):
@@ -108,8 +109,10 @@ def main():
     shell = Path(__file__).with_name("smoke.sh").read_bytes().replace(b"\r\n", b"\n")
     command = "bash -s -- " + shlex.join((args.revision, digest))
     result = capture(ssh + [command], input=shell, timeout=1700)
+    ssh_errors = ("connection reset", "broken pipe", "connection closed", "timed out", "connection refused")
     print(json.dumps({"stage": "remote_attempt", "exit": result.returncode,
-                      "stderr_bytes": len(result.stderr)}))
+                      "stderr_bytes": len(result.stderr), "ssh_errors": [
+                          item for item in ssh_errors if item.encode() in result.stderr.lower()]}))
     allowed = ("revision=", "cann=", "build=", "step=", "diagnostic=", "devices_idle=", "mode=")
     for line in result.stdout.decode("utf-8", errors="replace").splitlines():
         if line.startswith(allowed):

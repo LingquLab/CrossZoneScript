@@ -12,6 +12,20 @@ repo="$root/src-$revision"
 build="$root/build-$revision"
 step=unpack
 log="$root/unpack.log"
+for mode in reduce send; do
+    prior_samples=0
+    for dev in {0..7}; do
+        if [[ -f "$root/$mode-$dev.log" ]] && grep -q 'correctness=pass' "$root/$mode-$dev.log"; then
+            prior_samples=$((prior_samples + 1))
+        fi
+    done
+    printf 'diagnostic=retained_%s_pass_ranks_%s\n' "$mode" "$prior_samples"
+done
+if pgrep -f '[t]ilexr-ht-be110cc8/build-.*[/]tilexr_combine_ht_test --mode' >/dev/null; then
+    echo diagnostic=prior_smoke_process_still_running
+    exit 1
+fi
+
 
 report() {
     local rc=$?
@@ -69,7 +83,7 @@ awk '/^MemTotal:/ {print "diagnostic=host_memory_kib_" $2}' /proc/meminfo
 if command -v msprof >/dev/null; then echo diagnostic=msprof_present; fi
 
 wait_idle() {
-    local deadline=$((SECONDS + 450)) dev idle
+    local deadline=$((SECONDS + 450)) next_status=$SECONDS dev idle
     local -a probes
     while (( SECONDS < deadline )); do
         for dev in {0..7}; do
@@ -84,6 +98,10 @@ wait_idle() {
             fi
         done
         if (( idle )); then return 0; fi
+        if (( SECONDS >= next_status )); then
+            printf 'diagnostic=waiting_for_8_idle_devices_mode_%s\n' "$mode"
+            next_status=$((SECONDS + 30))
+        fi
         sleep 2
     done
     return 1
