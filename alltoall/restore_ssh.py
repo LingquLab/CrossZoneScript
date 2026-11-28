@@ -69,6 +69,15 @@ def install(args):
     tssh, cluster, host, known_hosts, public_key = setup_context()
     password = key.decrypt(base64.b64decode(args["envelope"], validate=True), padding.OAEP(
         mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)).decode("utf-8")
+    if args.get("method") == "native":
+        from native_ssh_install import install as native_install
+
+        result, details = native_install(tssh.public_key_install_command(public_key), password,
+                                         f"{cluster.user}@{host.address}")
+        del password
+        if result is None or result.returncode:
+            return details
+        return verify_public_key(result.stdout, cluster, host)
     result = tssh.install_key_host(paramiko, known_hosts, cluster, host, public_key, password, 12, 12)
     del password
     if not result.succeeded:
@@ -76,13 +85,16 @@ def install(args):
         category = ("password_rejected" if "authentication" in failure else
                     "host_key_error" if "host key" in failure else "key_install_failed")
         return {"stage": category, "remote_exit": result.returncode}
+    return verify_public_key(result.stdout, cluster, host)
 
+
+def verify_public_key(install_stdout, cluster, host):
     probe = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o",
                             "PreferredAuthentications=publickey", "-o", "ConnectTimeout=12", "-i",
                             str(SSH / "id_ed25519_server"), f"{cluster.user}@{host.address}", "id -u"],
                            capture_output=True, timeout=22)
     return {"stage": "verified" if probe.returncode == 0 and probe.stdout.strip() == b"0" else "public_key_probe_failed",
-            "authorized_key": result.stdout.strip().decode("ascii") if result.stdout.strip() in
+            "authorized_key": install_stdout.strip().decode("ascii") if install_stdout.strip() in
             {b"installed", b"already-present"} else "unknown", "ssh_exit": probe.returncode}
 
 
