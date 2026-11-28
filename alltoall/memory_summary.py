@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 
-bind, revision, status, *cases = sys.argv[1:]
+bind, revision, status, side, *cases = sys.argv[1:]
 root = Path(bind)
 
 
@@ -32,6 +32,19 @@ for case in cases:
     controller = read(path / "result.json")
     run = read(path / "run/result.json")
     ranks = read(path / "run/ranks.json")
+    if side.startswith("diagnostic-"):
+        process = read(path / "run/process.json")
+        expected_words = [[2] * 8] + [[1] * 8 for _ in range(7)]
+        summary["expected_failure_verified"] = (
+            int(status) == 1 and summary["container_removed"] and summary["revision"] == revision
+            and controller.get("status") == "failed" and run.get("state") == "failed"
+            and process.get("runner_returncode") == 0 and process.get("remaining_processes") == []
+            and [row["rank"] for row in ranks] == list(range(8))
+            and all(all(row[field] == "passed" for field in ("payload", "guards", "padding"))
+                    and row["kernel_status"] == "failed" and row["kernel_status_words"] == expected_words
+                    for row in ranks)
+            and digest(root / "suites" / case / "kernel.o") == qual["kernels"][case]["sha256"]
+        )
     failed = [{key: row[key] for key in ("rank", "payload", "guards", "padding", "kernel_status")}
               for row in ranks if row.get("status") != "passed"]
     row = dict(controller_status=controller.get("status"),
