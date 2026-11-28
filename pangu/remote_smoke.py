@@ -32,7 +32,7 @@ tokenizer_config = json.loads((work / 'tokenizer_config.json').read_text())
 tokenizer_config['tokenizer_class'] = 'PreTrainedTokenizerFast'
 tokenizer_config.pop('auto_map',None)
 (tokenizer_dir / 'tokenizer_config.json').write_text(json.dumps(tokenizer_config))
-# Use the repository's existing synthetic fixture and production offline writer.
+# The example sets is-dataset-from-mr: write raw indexed tokens, not multimodal packs.
 sys.path.insert(0,str(repo))
 with (run_dir / 'data-generation.log').open('w') as generation_log:
     with contextlib.redirect_stdout(generation_log), contextlib.redirect_stderr(generation_log):
@@ -41,11 +41,20 @@ with (run_dir / 'data-generation.log').open('w') as generation_log:
         assert tokenizer_probe.unique_identifiers and tokenizer_probe.eod is not None
         tokenizer_metadata = {'vocab_size':tokenizer_probe.vocab_size,'eod':tokenizer_probe.eod,
                               'implementation':'repository _AutoTokenizer / installed PreTrainedTokenizerFast'}
-        fixture = runpy.run_path(str(repo / 'tests/group1/unit_test/datasets/omni_dataset/test_offline_tail_pack.py'))
-        dataset = fixture['SyntheticOfflineMakingDataset'](data, lengths=[32768] * 16, seq_length=32768, packing=False)
-        generated = dataset[0]
-        if hasattr(generated,'__next__'):
-            list(generated)
+        import numpy as np
+        import torch
+        from PanGu.data_pipeline.core.indexed_dataset import IndexedDataset, IndexedDatasetBuilder
+        prefix = data / 'data_rank_0_step_0'
+        builder = IndexedDatasetBuilder(str(prefix) + '.bin',dtype=np.int32)
+        rng = np.random.default_rng(42)
+        for i in range(16):
+            tokens = rng.integers(1,4096,size=32769,dtype=np.int32)
+            tokens[-1] = tokenizer_probe.eod
+            builder.add_item(torch.from_numpy(tokens))
+            builder.end_document()
+        builder.finalize(str(prefix) + '.idx')
+        dataset = IndexedDataset(str(prefix))
+        assert len(dataset) == 16 and all(len(dataset[i]) == 32769 for i in range(16))
 assert list(data.rglob('*.bin')) and list(data.rglob('*.idx')), 'Offline fixture writer produced no indexed shards'
 text = original.read_text()
 def replace_once(pattern, replacement):
@@ -121,8 +130,8 @@ iteration_lines = [line for line in lines if re.search(r'iteration\s+\d+|global.
 errors = [line for line in lines if re.search(r'Traceback|Error:|ModuleNotFoundError|AssertionError|RuntimeError|unrecognized arguments|FAILED|killed',line)]
 summary = {'test':'scripts/example/llm/farescale_gqa.sh','source_commit':json.loads((repo / '.cross-zone-deployment.json').read_text())['commit'],
            'run_directory':str(run_dir),'wrapper':str(wrapper),'exit_code':code,'timed_out':timed_out,'termination_confirmed':termination_confirmed,
-           'overrides':{'offline':True,'mock_data':False,'synthetic_offline_records':16,'synthetic_record_tokens':32768,
-                        'dataset_writer':'repository SyntheticOfflineMakingDataset / production OfflineMakingDataset',
+           'overrides':{'offline':True,'mock_data':False,'synthetic_offline_records':16,'synthetic_record_tokens':32769,
+                        'dataset_writer':'repository IndexedDatasetBuilder / legacy MR raw-token input',
                         'runtime_compatibility':'process-local NPU get_device_capability fallback; two-rank HCCL probe passed',
                         'tokenizer_type':'PretrainedFromHF','tokenizer_metadata':tokenizer_metadata,'train_samples':8,'global_batch_size':4,
                         'num_distributed_optimizer_instances':1,'removed_ci_features':['inject-uce-error-plan','enable-high-availability','enable-hbmfault-repair','stress-detect','enable-monitor']},
