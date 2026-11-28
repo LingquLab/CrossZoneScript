@@ -98,6 +98,33 @@ def controller(index, action):
                                     timeout=740 if action == "run" else 215, stage=action))
 
 
+PORT_CHECK = """
+import socket
+import sys
+
+base = int(sys.argv[1])
+try:
+    for port in range(base, base + 514):
+        with socket.socket() as probe:
+            probe.bind(("0.0.0.0", port))
+except OSError:
+    print("false")
+else:
+    print("true")
+"""
+
+
+def select_port(pool, ports):
+    for port in ports:
+        assert 1024 <= port <= 65535 - 513
+        command = shlex.join(["python3", "-", str(port)])
+        free = list(pool.map(lambda host: json.loads(
+            benchmark.ssh(host, command, payload=PORT_CHECK.encode())), HOSTS))
+        if all(free):
+            return port
+    raise RuntimeError("No common free coordination port range")
+
+
 def wait_idle(pool, idle_wait):
     deadline = time.monotonic() + idle_wait
     while True:
@@ -164,6 +191,7 @@ def main(args):
             prepare(pool)
         if args.get("mode") != "collect":
             list(pool.map(verify_runtime_receipt, HOSTS))
+            PORT = select_port(pool, args.get("ports", [PORT]))
             wait_idle(pool, int(args.get("idle_wait", 240)))
             results = list(pool.map(lambda index: controller(index, "run"), range(2)))
             assert all(result["passed"] and result["route_qps_verified"] == 64 for result in results)
