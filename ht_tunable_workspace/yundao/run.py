@@ -48,7 +48,15 @@ with tempfile.TemporaryDirectory(prefix="tilexr-public-fp8-") as temp:
         entry = "profile_read.py"
     if options.get("matrix_status"):
         entry = "matrix_status.py"
-    if options.get("matrix"):
+    if options.get("hccl_baseline"):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for name in ("hccl_baseline.py", "remote.py"):
+                archive.add(here / name, arcname=name)
+        remote = ('umask 077; d=$(mktemp -d /tmp/tilexr-hccl.XXXXXXXX) && '
+                  'tar -xzf - -C "$d" && python3 "$d/hccl_baseline.py"')
+        proc = subprocess.run(args[:-2] + [remote], input=buffer.getvalue(), capture_output=True, timeout=450)
+    elif options.get("matrix"):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
             for name in ("matrix.py", "remote.py", "qp_probe.cpp", "final_bench.cpp",
