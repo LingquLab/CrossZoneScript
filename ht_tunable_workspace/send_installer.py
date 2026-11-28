@@ -12,12 +12,16 @@ import zipfile
 
 
 def send_case(metadata):
+    if metadata.get('scheme_a'):
+        return 'ht-scheme-a-0b9c3322-bs32-c{}-{}-{}-{}'.format(
+            metadata['cores'], metadata['six'], metadata['two'], metadata['policy'])
     return 'ht-tunable-send-186dfa18-bs32-{}-{}-{}'.format(metadata['six'], metadata['two'], metadata['policy'])
 
 
 def run_send(request):
     six, two, policy = (request[name] for name in ('six', 'two', 'policy'))
     case = MOUNT / send_case(request)
+    cores = request.get('cores', SEND_CORES)
     if request.get('status'):
         record = case / 'run.json'
         log = case / 'sim.log'
@@ -36,9 +40,9 @@ def run_send(request):
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(request['plans'], validate=True))) as archive:
         abis = [json.loads(archive.read(f'{rank}/abi.json')) for rank in range(64)]
         plans = [archive.read(f'{rank}/{six}-{two}-{POLICIES[policy]}.bin') for rank in range(64)]
-    bindings, golden, routes, info = build_send_fixture(abis, plans, six, two, policy, runtime, loader)
+    bindings, golden, routes, info = build_send_fixture(abis, plans, six, two, policy, runtime, loader, cores)
     identity = dict(info, tokens=TOKENS, hidden=128, chunks=4, entry=SEND_ENTRY, runtime_root=loader_root,
-                    phase=3, blocks=SEND_CORES, seed=SEED, six=six, two=two, policy=policy,
+                    phase=3, blocks=cores, seed=SEED, six=six, two=two, policy=policy,
                     source_commit=request['revision'], kernel_sha256=request['sha256'], profiling=False)
     with tempfile.TemporaryDirectory(prefix=case.name + '-', dir=MOUNT.parent) as directory:
         temp = Path(directory)
@@ -46,7 +50,7 @@ def run_send(request):
         kernel.write_bytes(gzip.decompress(base64.b64decode(request['object'], validate=True)))
         assert sha(kernel) == request['sha256']
         generated = temp / 'loader'
-        loader.prepare_loader(generated, loader_root, kernel, request['sha256'], SEND_ENTRY, bindings, blocks=SEND_CORES)
+        loader.prepare_loader(generated, loader_root, kernel, request['sha256'], SEND_ENTRY, bindings, blocks=cores)
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode='w:gz', compresslevel=1) as archive:
             for rank, images in enumerate(golden):

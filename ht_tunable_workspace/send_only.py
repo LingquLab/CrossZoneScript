@@ -12,23 +12,23 @@ PLAN_ADDRESS = 0x409000000
 OUTPUT_ADDRESS = 0x406000000
 
 
-def plan_bindings(rank, plan, six, two, runtime):
+def plan_bindings(rank, plan, six, two, runtime, cores):
     assert len(plan) == 3136
     assert struct.unpack_from('<I', plan)[0] == 1
     bindings = {}
-    for owner in range(SEND_CORES):
+    for owner in range(cores):
         for parity in range(2):
             parity_index = 2 * owner + parity
             count = plan[388 + parity_index]
-            assert count == 7
+            assert count == 56 // cores
             begin = 436 + 56 * parity_index
             for peer in plan[begin:begin + count]:
                 assert peer // 8 != rank // 8 and peer < 64
                 assert plan[4 + peer * 2 + parity] == owner
                 first = 132 + 4 * peer + parity * 2
                 qp = plan[first:first + 2]
-                assert qp[0] in range(owner * six // 8, (owner + 1) * six // 8)
-                assert qp[1] in range(six + owner * two // 8, six + (owner + 1) * two // 8)
+                assert qp[0] in range(owner * six // cores, (owner + 1) * six // cores)
+                assert qp[1] in range(six + owner * two // cores, six + (owner + 1) * two // cores)
                 physical = tuple(runtime.physical_qp(index, six, two) for index in qp)
                 if parity:
                     assert bindings[peer] == physical
@@ -44,14 +44,14 @@ def sender_config(abi):
             if field['name'].startswith('config.')}
 
 
-def build_send_fixture(abis, plans, six, two, policy, runtime, loader):
+def build_send_fixture(abis, plans, six, two, policy, runtime, loader, cores=SEND_CORES):
     abis = copy.deepcopy(abis)
     addresses = runtime.BASES | {'plan': PLAN_ADDRESS, 'output': OUTPUT_ADDRESS}
     all_queue_slots = []
     for rank, abi in enumerate(abis):
         assert abi['abi_size'] == 192 and len(abi['fields']) == 32
         overrides = {'config.planAddress': rank * runtime.GM_BYTES + PLAN_ADDRESS,
-                     'config.sendCores': SEND_CORES, 'config.sixPortQps': six, 'config.twoPortQps': two,
+                     'config.sendCores': cores, 'config.sixPortQps': six, 'config.twoPortQps': two,
                      'config.rotationPolicy': POLICIES[policy]}
         for field in abi['fields']:
             if field['name'] in overrides:
@@ -60,8 +60,8 @@ def build_send_fixture(abis, plans, six, two, policy, runtime, loader):
         # The probe computes the offsets with default owner count 16.
         assert config['workspaceBytes'] == config['signalOffset'] + 16 * ROW_BYTES
         next(field for field in abi['fields'] if field['name'] == 'config.workspaceBytes')['value'] = (
-            config['signalOffset'] + SEND_CORES * ROW_BYTES)
-        all_queue_slots.append(plan_bindings(rank, plans[rank], six, two, runtime))
+            config['signalOffset'] + cores * ROW_BYTES)
+        all_queue_slots.append(plan_bindings(rank, plans[rank], six, two, runtime, cores))
 
     images, returned, routes, route_sha, lane_rows = generate_inputs(TOKENS, SEED, abis, runtime)
     bindings, golden, cq_slots = [], [], []
@@ -76,8 +76,8 @@ def build_send_fixture(abis, plans, six, two, policy, runtime, loader):
         assert len(packed) == 192
         config = sender_config(abi)
         memory = images[rank]
-        memory.update(plan=plans[rank], status=(b'\xff' * 4 + b'\xa5' * 28) * SEND_CORES)
-        expected = dict(returned=bytes(returned[rank]), output=bytes(512), status=(bytes(4) + b'\xa5' * 28) * SEND_CORES)
+        memory.update(plan=plans[rank], status=(b'\xff' * 4 + b'\xa5' * 28) * cores)
+        expected = dict(returned=bytes(returned[rank]), output=bytes(512), status=(bytes(4) + b'\xa5' * 28) * cores)
         completed = bytearray(config['returnOffset'] - config['completionOffset'])
         guards = []
         for name in ('workspace', 'output'):

@@ -23,6 +23,18 @@ entry = 'tilexr_ep_ht_inter_server_send_kernel'
 revision = '186dfa18a0358add6af8ef237ebca23edffa86f5'
 digest = 'b1c982a147a559375ea883919516e4b7c3092ebb9d6716b42f961cbb61f995ec'
 
+cores = options.get('cores', 8)
+object_path = here / 'inter-server-send.o.gz'
+plan_path = here / 'send-plans.zip'
+if options.get('scheme_a'):
+    assert (cores, options['six'], options['two'], options['policy']) == (1, 8, 8, 'ServerStaggered')
+    artifact = json.loads((here / 'inter-server-send-0b9c3322.json').read_text())
+    revision, digest = artifact['revision'], artifact['sha256']
+    object_path = here / 'inter-server-send-0b9c3322.o.gz'
+    plan_path = here / 'send-plans-single-aiv.zip'
+else:
+    assert cores == 8
+
 route = (root / 'ht_peer_order/fixture.py').read_text().replace(
     'def generate_inputs(tokens, seed, abis, modules):\n    native, runtime = modules',
     'def generate_inputs(tokens, seed, abis, runtime):').replace('native.config_values', 'sender_config').replace(
@@ -30,7 +42,7 @@ route = (root / 'ht_peer_order/fixture.py').read_text().replace(
 checker = (root / 'ht_four_stage/check_remote.py').read_text().replace(
     '(bytes(4) + b"\\xa5" * 28) * 16 if field == "status" else source.read_bytes()', 'source.read_bytes()')
 prepare = (root / 'ht_t32_e2e/prepare.py').read_text().replace(
-    '"tilexr_moonep_combine_ht_kernel"}', f'"{entry}"}}').replace('chip["block_dim"] == 16', 'chip["block_dim"] == 8')
+    '"tilexr_moonep_combine_ht_kernel"}', f'"{entry}"}}').replace('chip["block_dim"] == 16', f'chip["block_dim"] == {cores}')
 prepare = prepare.replace(
     'target.write_text(original.replace(old_entry, \'manifest["entry"] != \' + json.dumps(build["entry"])))',
     '''runner = original.replace(old_entry, 'manifest["entry"] != ' + json.dumps(build["entry"]))
@@ -49,9 +61,9 @@ request = dict(options, revision=revision, sha256=digest,
                checker=checker, exports=(root / 'ht_t32_e2e/exports.py').read_text())
 read_only = options.get('status') or options.get('cq')
 if not read_only:
-    obj = (here / 'inter-server-send.o.gz').read_bytes()
+    obj = object_path.read_bytes()
     assert hashlib.sha256(gzip.decompress(obj)).hexdigest() == digest
-    request.update(object=base64.b64encode(obj).decode(), plans=base64.b64encode((here / 'send-plans.zip').read_bytes()).decode())
+    request.update(object=base64.b64encode(obj).decode(), plans=base64.b64encode(plan_path.read_bytes()).decode())
 source = '\n'.join((prefix, prepare, phase, (root / 'ht_parallel_unified/config.py').read_text(),
                     route, (here / 'send_only.py').read_text(),
                     (root / 'ht_parallel_unified/queue_trace.py').read_text(), (here / 'cq.py').read_text(),

@@ -7,7 +7,7 @@
 int main(int argc, char **argv)
 {
     using namespace TileXREpHt;
-    if (argc != 6) {
+    if (argc != 6 && argc != 7) {
         return 2;
     }
     const uint32_t rank = std::stoul(argv[1]);
@@ -23,7 +23,8 @@ int main(int argc, char **argv)
             }
         }
     }
-    SendPlanSpec spec{rank, kWorld, 8, six, two, policy, 1, custom.data(), uint32_t(count)};
+    const uint32_t cores = argc == 7 ? std::stoul(argv[6]) : 8;
+    SendPlanSpec spec{rank, kWorld, cores, six, two, policy, 1, custom.data(), uint32_t(count)};
     InterServerSendPlan plan;
     if (!BuildInterServerSendPlan(spec, plan)) {
         return 3;
